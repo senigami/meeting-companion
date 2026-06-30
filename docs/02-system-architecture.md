@@ -67,7 +67,7 @@ graph TD
 - **INV-5** - OpenAI features must stay off when `OPENAI_API_KEY` is missing.
 - **INV-6** - Claude summaries must stay off when `ANTHROPIC_API_KEY` is missing.
 - **INV-7** - On startup, the runtime must switch summarization to any configured provider instead of leaving a missing source selected.
-- **INV-7** - The app does not persist audio or transcript history by default.
+- **INV-8** - The app does not persist audio or transcript history by default.
 
 ## Risks & open questions
 

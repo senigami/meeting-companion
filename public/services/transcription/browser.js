@@ -4,6 +4,10 @@ function getSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function isFatalSpeechRecognitionError(error) {
+  return !['no-speech', 'aborted'].includes(String(error || '').toLowerCase());
+}
+
 export function createBrowserTranscriptionDriver({
   onEvent = () => {},
   onStatus = () => {},
@@ -43,7 +47,17 @@ export function createBrowserTranscriptionDriver({
       if (interimText.trim()) emit('partial', interimText, { source: 'browser' });
     };
 
-    recognition.onerror = (event) => onStatus(`Speech recognition error: ${event.error}`);
+    recognition.onerror = (event) => {
+      const error = String(event?.error || 'unknown error');
+      if (isFatalSpeechRecognitionError(error)) {
+        listening = false;
+        started = false;
+        onStatus(`Browser transcription stopped after speech recognition error: ${error}`);
+        return;
+      }
+
+      onStatus(`Speech recognition error: ${error}`);
+    };
     recognition.onend = () => {
       started = false;
       if (listening) {

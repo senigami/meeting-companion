@@ -1,4 +1,5 @@
 import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../summary-prompt.js';
+import { readResponseJson, responseErrorMessage } from '../response.js';
 
 export function createClaudeSummarizer({
   fetchImpl = fetch,
@@ -22,8 +23,8 @@ export function createClaudeSummarizer({
         })
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Summarization failed.');
+      const data = await readResponseJson(response);
+      if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
       if (!line && data.reason) onStatus(data.reason);
       return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, visibleLines }) };

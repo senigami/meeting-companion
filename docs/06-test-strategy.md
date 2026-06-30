@@ -14,9 +14,12 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Model line cleanup and duplicate rejection.
 - Source catalog ids and the source registry contract.
 - App bootstrap smoke tests that catch module-load failures, the controller split, viewer controls, and missing OpenAI warnings.
+- Runtime tests for pause/resume, mode propagation, and source fallback behavior.
+- OpenAI transcription driver cancellation when a chunk is stopped in flight.
 - Claude summarization wrapper and server-side provider routing.
+- Express route behavior for `/api/config`, malformed JSON, and oversized payloads.
 - View-setting clamping for text size, margins, and summary interval buttons.
-- Server API behavior for `/api/config`, `/api/transcribe`, and `/api/summarize` if a test harness is added later.
+- Server API behavior for `/api/transcribe` and `/api/summarize` route contracts.
 
 ## What to verify manually
 
