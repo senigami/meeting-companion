@@ -3,50 +3,122 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Meeting Companion Display</title>
+  <title>Meeting Companion Display | Church Helper</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main id="display" aria-live="polite" aria-label="Large print meeting summary">
-    <div id="line1" class="line"></div>
-    <div id="line2" class="line"></div>
-    <div id="line3" class="line"></div>
-    <div id="line4" class="line"></div>
-    <div id="line5" class="line"></div>
+  <main id="display" tabindex="-1" aria-live="polite" aria-label="Large print meeting summary">
+    <ol class="display-list" aria-label="Large print meeting summary">
+      <li id="line1" class="line"></li>
+      <li id="line2" class="line"></li>
+      <li id="line3" class="line"></li>
+      <li id="line4" class="line"></li>
+      <li id="line5" class="line"></li>
+    </ol>
   </main>
 
-  <section id="panel" class="panel open" aria-label="Helper controls">
-    <div class="row">
-      <button data-mode="speaker" class="mode active">Speaker</button>
-      <button data-mode="information" class="mode">Information</button>
-      <button data-mode="song" class="mode">Song</button>
-      <button data-mode="prayer" class="mode">Prayer</button>
+  <section id="panel" class="panel" aria-label="Helper controls">
+    <div id="apiWarning" class="warning" role="status" hidden></div>
+
+    <div class="panel-header">
+      <div>
+        <div class="eyebrow">Meeting Companion</div>
+        <h1>Helper controls</h1>
+      </div>
+      <button id="hidePanel" type="button" class="ghost">Hide panel</button>
     </div>
 
-    <div class="manual-row">
-      <input id="manualInput" type="text" placeholder="Type a line to show immediately" autocomplete="off" />
-      <button id="addManual">Add</button>
+    <p class="shortcuts">Shortcuts: H hide/show, 1-4 modes, U undo, P pause AI, C clear, + or - text size.</p>
+
+    <div class="section">
+      <div class="section-label">Viewer options</div>
+      <div class="view-row">
+        <div class="range-field">
+          <div class="range-head">
+            <label for="fontSize">Text size</label>
+            <output id="fontSizeValue" for="fontSize"></output>
+          </div>
+          <input id="fontSize" type="range" min="56" max="144" step="4" />
+        </div>
+        <div class="range-field">
+          <div class="range-head">
+            <label for="displayMargin">Margins</label>
+            <output id="displayMarginValue" for="displayMargin"></output>
+          </div>
+          <input id="displayMargin" type="range" min="0" max="10" step="0.5" />
+        </div>
+      </div>
     </div>
 
-    <textarea id="pasteTranscript" placeholder="Optional: paste spoken text here, then click Summarize Once."></textarea>
-
-    <div class="row wrap">
-      <button id="summarizeOnce">Summarize Once</button>
-      <button id="startListening">Start Listening</button>
-      <button id="stopListening" disabled>Stop Listening</button>
-      <button id="pauseAi">Pause AI</button>
-      <button id="undo">Undo</button>
-      <button id="clear">Clear</button>
-      <button id="bigger">Text +</button>
-      <button id="smaller">Text -</button>
-      <button id="fullscreen">Fullscreen</button>
-      <button id="hidePanel">Hide Panel</button>
+    <div class="section">
+      <div class="section-label">Update interval</div>
+      <div class="interval-row" role="group" aria-label="Update interval">
+        <button type="button" data-interval="2" class="interval">2s</button>
+        <button type="button" data-interval="5" class="interval active" aria-pressed="true">5s</button>
+        <button type="button" data-interval="10" class="interval">10s</button>
+        <button type="button" data-interval="15" class="interval">15s</button>
+      </div>
+      <div class="field-note">Shorter intervals feel more live; longer ones reduce chatter.</div>
     </div>
 
-    <div id="status" role="status">Manual mode is ready. Press H to hide/show this panel.</div>
-    <div id="liveTranscript" aria-label="Recent transcript"></div>
+    <div class="section">
+      <div class="section-label">Mode</div>
+      <div class="mode-row" role="group" aria-label="Mode selection">
+        <button type="button" data-mode="speaker" class="mode active" aria-pressed="true">Speaker</button>
+        <button type="button" data-mode="information" class="mode" aria-pressed="false">Information</button>
+        <button type="button" data-mode="song" class="mode" aria-pressed="false">Song</button>
+        <button type="button" data-mode="prayer" class="mode" aria-pressed="false">Prayer</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Transcription source</div>
+      <div class="source-row" role="group" aria-label="Transcription source">
+        <button type="button" data-kind="transcription" data-source="browser" class="source active" aria-pressed="true">Browser</button>
+        <button type="button" data-kind="transcription" data-source="openai" class="source" aria-pressed="false">OpenAI</button>
+      </div>
+      <div class="field-note">Browser speech stays local. OpenAI sends short audio chunks to the server.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Summary source</div>
+      <div class="source-row" role="group" aria-label="Summary source">
+        <button type="button" data-kind="summarization" data-source="openai" class="source active" aria-pressed="true">OpenAI</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="field">
+        <label class="section-label" for="manualInput">Manual line</label>
+        <div class="manual-row">
+          <input id="manualInput" type="text" placeholder="Type a line to show immediately" autocomplete="off" />
+          <button id="addManual" type="button" class="primary">Show now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="section-label" for="pasteTranscript">Paste transcript</label>
+      <textarea id="pasteTranscript" placeholder="Paste spoken text here, then press Ctrl+Enter or click Summarize once."></textarea>
+      <div class="field-note">Use this when speech recognition is unavailable or unreliable.</div>
+    </div>
+
+    <div class="button-grid">
+      <button id="summarizeOnce" type="button">Summarize once</button>
+      <button id="startListening" type="button">Start listening</button>
+      <button id="stopListening" type="button" disabled>Stop listening</button>
+      <button id="pauseAi" type="button" aria-pressed="false">Pause AI</button>
+      <button id="undo" type="button">Undo</button>
+      <button id="clear" type="button">Clear</button>
+      <button id="bigger" type="button">Bigger text</button>
+      <button id="smaller" type="button">Smaller text</button>
+      <button id="fullscreen" type="button">Fullscreen</button>
+    </div>
+
+    <div id="status" class="status" role="status">Manual mode is ready.</div>
+    <div id="liveTranscript" class="transcript" aria-label="Recent transcript"></div>
   </section>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

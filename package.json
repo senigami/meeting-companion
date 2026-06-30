@@ -2,10 +2,13 @@
   "name": "meeting-companion-display",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test",
+    "verify": "npm test"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
