@@ -1,6 +1,6 @@
 # ADR-0002: Modular source registry for transcription and summarization
 
-> **TL;DR:** Route transcription and summarization through a standardized source registry so browser and OpenAI implementations stay interchangeable. That makes the app extensible without rewriting the UI.
+> **TL;DR:** Route transcription and summarization through a standardized source registry so browser, OpenAI, and Claude implementations stay interchangeable. That makes the app extensible without rewriting the UI.
 
 ## Status
 
@@ -12,7 +12,7 @@ Accepted
 
 ## Context
 
-Retro-documented; this decision was made earlier in the project's life. The user wanted browser and OpenAI to sit under the same wrapper so future providers can be added without changing the calling code.
+Retro-documented; this decision was made earlier in the project's life. The user wanted browser and OpenAI to sit under the same wrapper so future providers can be added without changing the calling code, and the same structure now also covers Claude summarization.
 
 ## Decision
 
@@ -35,4 +35,3 @@ Adding a provider now means adding a new driver module and registering it. The U
 - [docs/02-system-architecture.md](../02-system-architecture.md)
 - [docs/04-api-conventions.md](../04-api-conventions.md)
 - [docs/07-ai-and-privacy.md](../07-ai-and-privacy.md)
-

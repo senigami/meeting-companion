@@ -1,6 +1,6 @@
 # Church Helper Local AI Wrapper - Overview
 
-> **TL;DR:** Keep the app tiny and local, but make transcription and summarization modular so browser and OpenAI sources can be swapped or extended without changing the display controller.
+> **TL;DR:** Keep the app tiny and local, but make transcription and summarization modular so browser, OpenAI, and Claude sources can be swapped or extended without changing the display controller.
 
 ## Goal
 
@@ -8,7 +8,7 @@ The app should run as a local Express site with a five-line display, a helper pa
 
 ## Scope & boundary
 
-In scope: modular source catalog and registry, browser and OpenAI drivers, readable helper UI, keyboard shortcuts, docs/specs, and mirrored tests. Out of scope: React/Next migration, audio archiving, cloud sync, or a general meeting platform.
+In scope: modular source catalog and registry, browser, OpenAI, and Claude drivers, readable helper UI, keyboard shortcuts, docs/specs, and mirrored tests. Out of scope: React/Next migration, audio archiving, cloud sync, or a general meeting platform.
 
 ## Constraints
 
@@ -21,7 +21,6 @@ In scope: modular source catalog and registry, browser and OpenAI drivers, reada
 ## Success criteria
 
 - The browser and OpenAI transcription sources both work through the same standardized wrapper.
-- The OpenAI summarizer works through the same wrapper and only emits useful, specific lines.
+- The OpenAI and Claude summarizers work through the same wrapper and only emit useful, specific lines.
 - The helper panel can be used by keyboard under pressure.
 - The docs and tests match the actual code layout and behavior.
-

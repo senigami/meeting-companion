@@ -27,7 +27,8 @@ export function startApp() {
       panelOpen: true,
       transcriptionSource: localStorage.getItem(STORAGE.transcriptionSource) || 'browser',
       summarizationSource: localStorage.getItem(STORAGE.summarizationSource) || 'openai',
-      openAiReady: false
+      openAiReady: false,
+      anthropicReady: false
     },
     dom: {
       display: $('display'),

@@ -13,7 +13,7 @@ It runs on a laptop connected to a TV and shows five large-print lines for one d
 - Manual lines appear immediately.
 - Helper can choose modes: Speaker, Information, Song, Prayer.
 - Helper can choose transcription source: Browser or OpenAI.
-- Helper can choose summarization source: OpenAI.
+- Helper can choose summarization source: OpenAI or Claude.
 - Helper can adjust text size, margins, and update interval.
 - Helper can undo, clear, pause AI, and hide the helper panel with `H`.
 - No database.
@@ -36,6 +36,7 @@ npm start
 6. Press `H` to hide or show the helper panel.
 7. Allow microphone access only if you want live browser transcription.
 8. If `OPENAI_API_KEY` is missing, the app shows a warning and stays usable in manual mode and browser transcription mode.
+9. If `ANTHROPIC_API_KEY` is missing, Claude summaries stay disabled.
 
 ## Setup
 
@@ -43,6 +44,8 @@ Create a `.env` file in the project root:
 
 ```text
 OPENAI_API_KEY=your_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_key_here
+ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 PORT=3000
 ```
 

@@ -1,14 +1,14 @@
 # System Architecture
 
-> **TL;DR:** Express serves a static client and a small JSON API. The client owns the display state and talks to source-specific drivers through a registry so browser and OpenAI paths stay interchangeable.
+> **TL;DR:** Express serves a static client and a small JSON API. The client owns the display state and talks to source-specific drivers through a registry so browser, OpenAI, and Claude paths stay interchangeable.
 
 ## Overview
 
-The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, and proxies OpenAI transcription and summarization requests. It does not store state.
+The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
 
 The client owns the UI state, keyboard shortcuts, and rendering of the five-line display. It loads source metadata from the registry and creates transcription and summarization drivers based on the helper's chosen source.
 
-Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI summarization is the summary driver for now. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
+Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI and Claude are summarization drivers. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
 
 ## Big picture flow
 
@@ -20,11 +20,14 @@ graph TD
   Registry --> BrowserTx[public/services/transcription/browser.js]
   Registry --> OpenAITx[public/services/transcription/openai.js]
   Registry --> OpenAISummary[public/services/summarization/openai.js]
+  Registry --> ClaudeSummary[public/services/summarization/claude.js]
   Runtime --> Config[/GET /api/config/]
   OpenAITx --> Transcribe[/POST /api/transcribe/]
   OpenAISummary --> Summarize[/POST /api/summarize/]
+  ClaudeSummary --> Summarize
   Transcribe --> OpenAI[(OpenAI API)]
   Summarize --> OpenAI
+  Summarize --> Claude[(Anthropic API)]
   Runtime --> View[public/controller/view.js]
   View --> UIState[five-line display + helper panel]
 ```
@@ -38,7 +41,8 @@ graph TD
 | P3 - Browser transcription driver | Wraps the Web Speech API behind the shared driver shape | `public/services/transcription/browser.js` | existing |
 | P4 - OpenAI transcription driver | Sends short audio chunks to the server and emits final text | `public/services/transcription/openai.js` | existing |
 | P5 - OpenAI summarizer | Sends recent transcript text to the server and returns one useful line | `public/services/summarization/openai.js` | existing |
-| P6 - Server API | Serves static files, reports runtime config, proxies transcription and summarization to OpenAI | `server.js` | existing |
+| P5b - Claude summarizer | Sends recent transcript text to the server and returns one useful line | `public/services/summarization/claude.js` | existing |
+| P6 - Server API | Serves static files, reports runtime config, proxies transcription and summarization to provider APIs | `server.js` | existing |
 | P7 - Docs and tests | Keeps specs, ADRs, plan files, and mirrored tests aligned with code | `docs/`, `test/` | new/updated |
 
 ## Connections
@@ -49,9 +53,10 @@ graph TD
 | P1 | P3 | Browser transcription event stream | Browser events must normalize text and emit `final` or `partial` updates. |
 | P1 | P4 | OpenAI transcription driver stream | OpenAI chunks must remain short and final text must arrive in order. |
 | P1 | P5 | Summary request | The summarizer must keep returning at most one line or an empty result. |
+| P1 | P5b | Summary request | Claude summarization must keep returning at most one line or an empty result. |
 | P4 | P6 | `/api/transcribe` | The server must accept base64 audio, mode, and mime type, and return `{ text }`. |
 | P5 | P6 | `/api/summarize` | The server must accept transcript text and visible lines, then return `{ line }`. |
-| P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI is configured and disable unavailable options. |
+| P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI or Anthropic is configured and disable unavailable options. |
 
 ## Invariants & things to keep in mind
 
@@ -60,7 +65,9 @@ graph TD
 - **INV-3** - Source ids are public contract values; adding a source means adding it to the catalog and registry together.
 - **INV-4** - Browser transcription is optional and must fail gracefully when the browser lacks the API.
 - **INV-5** - OpenAI features must stay off when `OPENAI_API_KEY` is missing.
-- **INV-6** - The app does not persist audio or transcript history by default.
+- **INV-6** - Claude summaries must stay off when `ANTHROPIC_API_KEY` is missing.
+- **INV-7** - On startup, the runtime must switch summarization to any configured provider instead of leaving a missing source selected.
+- **INV-7** - The app does not persist audio or transcript history by default.
 
 ## Risks & open questions
 

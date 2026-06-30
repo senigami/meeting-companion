@@ -14,7 +14,7 @@
 
 ## Goal
 
-Keep browser and OpenAI transcription plus OpenAI summarization behind one standardized source wrapper.
+Keep browser and OpenAI transcription plus OpenAI and Claude summarization behind one standardized source wrapper.
 
 ## Why this matters
 
@@ -41,6 +41,7 @@ Drivers are selected by source id. Transcription drivers expose `start()` and `s
 - [x] Source ids are stable and centralized.
 - [x] The registry can create browser and OpenAI transcription drivers.
 - [x] The registry can create the OpenAI summarizer.
+- [x] The registry can create the Claude summarizer.
 - [x] `npm test` passes.
 
 ## Out of scope
