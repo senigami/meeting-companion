@@ -1,4 +1,5 @@
 import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../public/services/summary-prompt.js';
+import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
@@ -94,9 +95,9 @@ async function summarizeWithClaude({
     })
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error?.message || data.error || 'Summarization failed.');
+    throw new Error(responseErrorMessage(data.error?.message ? { error: data.error.message } : data, 'Summarization failed.'));
   }
 
   const output = Array.isArray(data.content)

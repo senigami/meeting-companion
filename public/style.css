@@ -243,23 +243,23 @@ button {
 }
 
 .icon-speaker {
-  -webkit-mask-image: url("assets/icons/speaker.png");
-  mask-image: url("assets/icons/speaker.png");
+  -webkit-mask-image: url("assets/icons/speaker.svg");
+  mask-image: url("assets/icons/speaker.svg");
 }
 
 .icon-information {
-  -webkit-mask-image: url("assets/icons/information.png");
-  mask-image: url("assets/icons/information.png");
+  -webkit-mask-image: url("assets/icons/information.svg");
+  mask-image: url("assets/icons/information.svg");
 }
 
 .icon-song {
-  -webkit-mask-image: url("assets/icons/song.png");
-  mask-image: url("assets/icons/song.png");
+  -webkit-mask-image: url("assets/icons/song.svg");
+  mask-image: url("assets/icons/song.svg");
 }
 
 .icon-prayer {
-  -webkit-mask-image: url("assets/icons/prayer.png");
-  mask-image: url("assets/icons/prayer.png");
+  -webkit-mask-image: url("assets/icons/prayer.svg");
+  mask-image: url("assets/icons/prayer.svg");
 }
 
 button:hover { background: rgba(255, 255, 255, 0.11); }

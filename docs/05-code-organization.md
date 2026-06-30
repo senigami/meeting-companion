@@ -53,8 +53,10 @@ Mirror the source tree under `test/`:
 | `public/services/summary-prompt.js` | `test/public/services/summary-prompt.test.js` |
 | `public/services/catalog.js` | `test/public/services/catalog.test.js` |
 | `public/services/transcription/prompt.js` | `test/public/services/transcription/prompt.test.js` |
+| `public/services/transcription/openai.js` | `test/public/services/transcription/openai.test.js` |
 | `public/services/view-settings.js` | `test/public/services/view-settings.test.js` |
 | `public/services/summarization/claude.js` | `test/public/services/summarization/claude.test.js` |
+| `server.js` | `test/server/app.test.js` |
 | `server/summarization.js` | `test/server/summarization.test.js` |
 
 This layout makes it obvious which tests cover which source file and keeps coverage easy to scan.

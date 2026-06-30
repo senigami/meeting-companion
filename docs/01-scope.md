@@ -15,7 +15,7 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 - Five-line large-print TV output.
 - Helper panel controls for manual typing, modes, source selection, undo, clear, pause, and text size.
 - Browser transcription when the browser supports it.
-- OpenAI transcription and summarization when `OPENAI_API_KEY` is configured.
+- OpenAI transcription and OpenAI or Claude summarization when the relevant API key is configured.
 - Keyboard shortcuts for the helper workflow.
 - Local storage only for UI preferences such as font size and selected source.
 
@@ -30,4 +30,3 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 ## Success boundary
 
 The app is done when the helper can run it locally with `npm start`, keep the TV on the five-line display, and use the helper panel without needing to think about hidden state or background setup.
-

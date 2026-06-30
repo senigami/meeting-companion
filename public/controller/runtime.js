@@ -1,6 +1,10 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
-import { createSummarizationDriver, createTranscriptionDriver, listAvailableSources } from '../services/registry.js';
-import { getDefaultSummarizationSource, getDefaultTranscriptionSource } from '../services/catalog.js';
+import {
+  createSummarizationDriver,
+  createTranscriptionDriver,
+  listAvailableSources
+} from '../services/registry.js';
+import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
   clampDisplayMargin,
   clampFontSize,
@@ -26,9 +30,14 @@ const STORAGE = {
   summarizationSource: 'summarizationSource'
 };
 
-export function createRuntime(ctx) {
+export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
   let summarizationDriver = null;
+  const {
+    createTranscriptionDriverFn = createTranscriptionDriver,
+    createSummarizationDriverFn = createSummarizationDriver,
+    fetchImpl = fetch
+  } = deps;
 
   function saveViewerSettings() {
     applyViewerSettings(ctx);
@@ -85,17 +94,17 @@ export function createRuntime(ctx) {
   }
 
   function buildTranscriptionDriver() {
-    return createTranscriptionDriver(ctx.state.transcriptionSource, {
+    return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl: fetch
+      fetchImpl
     });
   }
 
   function buildSummarizationDriver() {
-    return createSummarizationDriver(ctx.state.summarizationSource, {
+    return createSummarizationDriverFn(ctx.state.summarizationSource, {
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl: fetch
+      fetchImpl
     });
   }
 
@@ -148,6 +157,9 @@ export function createRuntime(ctx) {
 
   function setMode(mode) {
     ctx.state.mode = mode;
+    if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
+      transcriptionDriver.setMode(mode);
+    }
     updateModeButtons(ctx);
     updateStatus(ctx, `Mode changed to ${mode}.`);
   }
@@ -197,11 +209,17 @@ export function createRuntime(ctx) {
     }
   }
 
-  async function stopListening() {
-    ctx.state.listening = false;
+  async function pauseActiveTranscription() {
     clearInterval(ctx.state.loopHandle);
     ctx.state.loopHandle = null;
-    if (transcriptionDriver) await transcriptionDriver.stop();
+    if (transcriptionDriver) {
+      await transcriptionDriver.stop();
+    }
+  }
+
+  async function stopListening() {
+    ctx.state.listening = false;
+    await pauseActiveTranscription();
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
   }
@@ -211,21 +229,16 @@ export function createRuntime(ctx) {
     updatePauseButton(ctx);
 
     if (ctx.state.paused) {
-      if (ctx.state.listening && ctx.state.transcriptionSource === 'openai' && transcriptionDriver) {
-        await transcriptionDriver.stop();
+      if (ctx.state.listening) {
+        await pauseActiveTranscription();
       }
-      clearInterval(ctx.state.loopHandle);
       updateStatus(ctx, 'AI paused. Manual lines still work.');
       return;
     }
 
     updateStatus(ctx, 'AI resumed.');
     if (ctx.state.listening) {
-      if (ctx.state.transcriptionSource === 'openai') {
-        await startListening({ force: true });
-      } else {
-        startLoop();
-      }
+      await startListening({ force: true });
     }
   }
 
@@ -254,22 +267,6 @@ export function createRuntime(ctx) {
     updateSourceButtons(ctx);
   }
 
-  function setOpenAiAvailability(hasOpenAIKey) {
-    ctx.state.openAiReady = hasOpenAIKey;
-    updateSourceButtons(ctx);
-
-    if (hasOpenAIKey) {
-      ctx.dom.apiWarning.hidden = true;
-      ctx.dom.apiWarning.textContent = '';
-      updateStatus(ctx, 'Manual mode is ready. OpenAI key detected.');
-      return;
-    }
-
-    ctx.dom.apiWarning.hidden = false;
-    ctx.dom.apiWarning.textContent = 'OPENAI_API_KEY is missing. Browser transcription still works; OpenAI transcription and summaries are off.';
-    updateStatus(ctx, 'OPENAI_API_KEY is missing. Browser transcription still works.');
-  }
-
   async function ensureSelectedTranscriptionSourceExists() {
     const sourceSummary = listAvailableSources();
     if (sourceSummary.transcription.some((source) => source.id === ctx.state.transcriptionSource)) return;
@@ -277,11 +274,17 @@ export function createRuntime(ctx) {
   }
 
   function resolveAvailableSummarizationSource() {
+    const availableSummarizationSources = listAvailableSources().summarization.map((source) => source.id);
+    const availableSummarizationSet = new Set(availableSummarizationSources);
+    if (!availableSummarizationSet.has(ctx.state.summarizationSource)) {
+      if (ctx.state.openAiReady && availableSummarizationSet.has('openai')) return 'openai';
+      if (ctx.state.anthropicReady && availableSummarizationSet.has('claude')) return 'claude';
+    }
     if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
     if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
     if (ctx.state.openAiReady) return 'openai';
     if (ctx.state.anthropicReady) return 'claude';
-    return ctx.state.summarizationSource;
+    return availableSummarizationSources[0] || getDefaultSummarizationSource();
   }
 
   async function ensureSelectedSummarizationSourceExists() {
@@ -303,7 +306,7 @@ export function createRuntime(ctx) {
       const data = await response.json();
       ctx.state.openAiReady = Boolean(data.hasOpenAIKey);
       ctx.state.anthropicReady = Boolean(data.hasAnthropicKey);
-      setOpenAiAvailability(ctx.state.openAiReady);
+      updateProviderAvailability();
       if (!ctx.state.openAiReady && ctx.state.transcriptionSource === 'openai') {
         await setTranscriptionSource('browser');
       }
@@ -314,6 +317,23 @@ export function createRuntime(ctx) {
       ctx.dom.apiWarning.textContent = 'Could not read AI status. Manual lines still work.';
       updateStatus(ctx, `Could not read AI status: ${error.message}`);
     }
+  }
+
+  function updateProviderAvailability() {
+    if (ctx.state.openAiReady) {
+      ctx.dom.apiWarning.hidden = true;
+      ctx.dom.apiWarning.textContent = '';
+      updateStatus(ctx, 'Manual mode is ready. OpenAI key detected.');
+      return;
+    }
+
+    ctx.dom.apiWarning.hidden = false;
+    if (ctx.state.anthropicReady) {
+      ctx.dom.apiWarning.textContent = 'OPENAI_API_KEY is missing. Browser transcription still works; Claude summaries are available.';
+    } else {
+      ctx.dom.apiWarning.textContent = 'OPENAI_API_KEY is missing. Browser transcription still works; OpenAI transcription and summaries are off.';
+    }
+    updateStatus(ctx, 'OPENAI_API_KEY is missing. Browser transcription still works.');
   }
 
   return {

@@ -1,4 +1,5 @@
 import { normalizeText } from '../text.js';
+import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
 
 function bytesToBase64(bytes) {
@@ -27,6 +28,7 @@ export function createOpenAITranscriptionDriver({
   let queued = Promise.resolve();
   let sessionId = 0;
   let mode = 'speaker';
+  let activeRequestController = null;
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
@@ -37,24 +39,34 @@ export function createOpenAITranscriptionDriver({
   async function sendChunk(blob, currentSession) {
     if (!blob || blob.size === 0 || !listening || currentSession !== sessionId) return;
     const audioBase64 = await blobToBase64(blob);
-    const response = await fetchImpl('/api/transcribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audioBase64,
-        mimeType: blob.type || recorder?.mimeType || 'audio/webm',
-        filename: `meeting-companion-${currentSession}.webm`,
-        mode
-      })
-    });
+    if (!listening || currentSession !== sessionId) return;
+    const requestController = new AbortController();
+    activeRequestController = requestController;
+    try {
+      const response = await fetchImpl('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: requestController.signal,
+        body: JSON.stringify({
+          audioBase64,
+          mimeType: blob.type || recorder?.mimeType || 'audio/webm',
+          filename: `meeting-companion-${currentSession}.webm`,
+          mode
+        })
+      });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `Transcription failed with ${response.status}`);
-    if (currentSession !== sessionId) return;
-    if (data.text) emit('final', data.text, { source: 'openai' });
+      const data = await readResponseJson(response);
+      if (!response.ok) throw new Error(responseErrorMessage(data, `Transcription failed with ${response.status}`));
+      if (currentSession !== sessionId) return;
+      if (data.text) emit('final', data.text, { source: 'openai' });
+    } finally {
+      if (activeRequestController === requestController) activeRequestController = null;
+    }
   }
 
   async function stopTracks() {
+    activeRequestController?.abort();
+    activeRequestController = null;
     if (stream) {
       for (const track of stream.getTracks()) track.stop();
       stream = null;
@@ -91,7 +103,10 @@ export function createOpenAITranscriptionDriver({
         if (!blob || blob.size === 0) return;
         queued = queued
           .then(() => sendChunk(blob, currentSession))
-          .catch((error) => onStatus(`OpenAI transcription error: ${error.message}`));
+          .catch((error) => {
+            if (error?.name === 'AbortError') return;
+            onStatus(`OpenAI transcription error: ${error.message}`);
+          });
       };
 
       recorder.onerror = (event) => onStatus(`OpenAI transcription error: ${event.error?.message || event.error || 'unknown error'}`);

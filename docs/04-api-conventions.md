@@ -38,7 +38,8 @@ All request and response bodies are JSON except the static asset routes. The cli
 | `ANTHROPIC_API_KEY` | no | Enables Claude summarization. |
 | `ANTHROPIC_MODEL` | no | Overrides the Claude model name. |
 | `PORT` | no | Overrides the local HTTP port. Defaults to `3000`. |
-| `HOST` | no | Overrides the listen host. Defaults to `127.0.0.1`. |
+| `HOST` | no | Overrides the listen host. Defaults to `127.0.0.1`. Non-loopback values require `ALLOW_REMOTE_HOST=true`. |
+| `ALLOW_REMOTE_HOST` | no | Opts in to binding `HOST` outside loopback for deliberate LAN access. |
 
 ## Provider rules
 
