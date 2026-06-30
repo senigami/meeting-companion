@@ -1,0 +1,79 @@
+:root {
+  --font-size: 72px;
+  --line-gap: 0.35em;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; }
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+#display {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--line-gap);
+  padding: 4vh 5vw;
+}
+
+.line {
+  min-height: 1.18em;
+  font-size: var(--font-size);
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+.panel {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  background: rgba(20, 20, 20, 0.94);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
+.panel:not(.open) { display: none; }
+.row { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+.wrap { flex-wrap: wrap; }
+.manual-row { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+
+button, input, textarea {
+  font: inherit;
+  border-radius: 10px;
+  border: 1px solid #777;
+}
+button {
+  padding: 0.65rem 0.9rem;
+  background: #222;
+  color: #fff;
+  cursor: pointer;
+}
+button:hover { background: #333; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.active { background: #f5d76e; color: #000; border-color: #f5d76e; }
+input {
+  flex: 1;
+  padding: 0.7rem;
+  background: #fff;
+  color: #000;
+}
+textarea {
+  width: 100%;
+  height: 76px;
+  margin-bottom: 0.7rem;
+  padding: 0.7rem;
+  resize: vertical;
+}
+#status { font-size: 0.9rem; opacity: 0.9; }
+#liveTranscript { font-size: 0.85rem; opacity: 0.75; margin-top: 0.4rem; max-height: 3.5em; overflow: hidden; }

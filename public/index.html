@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meeting Companion Display</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="display" aria-live="polite" aria-label="Large print meeting summary">
+    <div id="line1" class="line"></div>
+    <div id="line2" class="line"></div>
+    <div id="line3" class="line"></div>
+    <div id="line4" class="line"></div>
+    <div id="line5" class="line"></div>
+  </main>
+
+  <section id="panel" class="panel open" aria-label="Helper controls">
+    <div class="row">
+      <button data-mode="speaker" class="mode active">Speaker</button>
+      <button data-mode="information" class="mode">Information</button>
+      <button data-mode="song" class="mode">Song</button>
+      <button data-mode="prayer" class="mode">Prayer</button>
+    </div>
+
+    <div class="manual-row">
+      <input id="manualInput" type="text" placeholder="Type a line to show immediately" autocomplete="off" />
+      <button id="addManual">Add</button>
+    </div>
+
+    <textarea id="pasteTranscript" placeholder="Optional: paste spoken text here, then click Summarize Once."></textarea>
+
+    <div class="row wrap">
+      <button id="summarizeOnce">Summarize Once</button>
+      <button id="startListening">Start Listening</button>
+      <button id="stopListening" disabled>Stop Listening</button>
+      <button id="pauseAi">Pause AI</button>
+      <button id="undo">Undo</button>
+      <button id="clear">Clear</button>
+      <button id="bigger">Text +</button>
+      <button id="smaller">Text -</button>
+      <button id="fullscreen">Fullscreen</button>
+      <button id="hidePanel">Hide Panel</button>
+    </div>
+
+    <div id="status" role="status">Manual mode is ready. Press H to hide/show this panel.</div>
+    <div id="liveTranscript" aria-label="Recent transcript"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
