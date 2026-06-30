@@ -7,7 +7,7 @@ import {
 import {
   renderDisplay,
   bindTranscriptViewport,
-  setPanelOpen,
+  setSettingsOpen,
   syncViewerControls,
   updateModeButtons,
   updatePauseButton,
@@ -39,7 +39,8 @@ export function startApp() {
       lastSentText: '',
       stickToBottom: true,
       prefersReducedMotion: Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),
-      panelOpen: true,
+      settingsOpen: false,
+      panelOpen: false,
       transcriptionSource: localStorage.getItem(STORAGE.transcriptionSource) || 'browser',
       summarizationSource: localStorage.getItem(STORAGE.summarizationSource) || 'openai',
       openAiReady: false,
@@ -61,8 +62,10 @@ export function startApp() {
       displayMarginValue: $('displayMarginValue'),
       summaryIntervalInput: $('summaryInterval'),
       summaryIntervalValue: $('summaryIntervalValue'),
-      secondaryControls: $('secondaryControls'),
-      hidePanel: $('hidePanel'),
+      settingsPanel: $('settingsPanel'),
+      settingsBackdrop: $('settingsBackdrop'),
+      settingsButton: $('settingsButton'),
+      closeSettings: $('closeSettings'),
       pauseAi: $('pauseAi'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
@@ -90,7 +93,7 @@ export function startApp() {
   updatePauseButton(ctx);
   syncViewerControls(ctx);
   runtime.saveViewerSettings();
-  setPanelOpen(ctx, true);
+  setSettingsOpen(ctx, false);
   renderDisplay(ctx);
   runtime.showRecentTranscript();
   runtime.loadRuntimeConfig();
@@ -126,7 +129,16 @@ function bindControlButtons(ctx, runtime) {
   $('undo').addEventListener('click', runtime.undoLine);
   $('clear').addEventListener('click', runtime.clearLines);
   $('fullscreen').addEventListener('click', () => document.documentElement.requestFullscreen?.());
-  $('hidePanel').addEventListener('click', () => runtime.setPanelOpen(false));
+  ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
+  ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
+  ctx.dom.settingsBackdrop.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
+
+  document.addEventListener('click', (event) => {
+    if (!ctx.state.settingsOpen) return;
+    const target = event.target;
+    if (ctx.dom.settingsPanel?.contains(target) || ctx.dom.settingsButton?.contains(target)) return;
+    runtime.setSettingsOpen(false, { focusReturn: true });
+  });
 }
 
 function bindViewerControls(ctx, runtime) {
@@ -150,15 +162,11 @@ function bindKeyboardShortcuts(ctx, runtime) {
     }
 
     const key = e.key.toLowerCase();
-    if (key === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      runtime.setPanelOpen(!ctx.state.panelOpen, { focusInput: !ctx.state.panelOpen });
-      return;
-    }
-
     if (e.key === 'Escape') {
-      e.preventDefault();
-      runtime.setPanelOpen(true, { focusInput: true });
+      if (ctx.state.settingsOpen) {
+        e.preventDefault();
+        runtime.setSettingsOpen(false, { focusReturn: true });
+      }
       return;
     }
 

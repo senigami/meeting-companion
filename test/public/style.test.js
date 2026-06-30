@@ -18,36 +18,49 @@ test('mode icons use svg masks', async () => {
 test('helper panel exposes secondary disclosure styling hooks', async () => {
   const css = await readFile(new URL('../../public/style.css', import.meta.url), 'utf8');
 
-  assert.match(css, /\.app-shell/);
-  assert.match(css, /\.panel-main/);
-  assert.match(css, /\.panel-footer/);
-  assert.match(css, /\.helper-primary/);
-  assert.match(css, /\.section\.helper-primary/);
-  assert.match(css, /\.helper-disclosure/);
-  assert.match(css, /summary\.helper-disclosure-summary/);
-  assert.match(css, /\.helper-disclosure-body/);
-  assert.match(css, /summary\.helper-disclosure-summary:focus-visible/);
-  assert.match(css, /details\.helper-disclosure\[open\]/);
-  assert.doesNotMatch(css, /\.helper-primary > \.section/);
+  assert.match(css, /\.meetingShell/);
+  assert.match(css, /\.operatorRail/);
+  assert.match(css, /\.railHeader/);
+  assert.match(css, /\.railBody/);
+  assert.match(css, /\.railButton/);
+  assert.match(css, /\.manualBar/);
+  assert.match(css, /\.settingsPanel/);
+  assert.match(css, /\.settingsBackdrop/);
+  assert.match(css, /\.settingsSection/);
+  assert.match(css, /\.settingsStack/);
+  assert.match(css, /\.settingsDetailsBody/);
+  assert.match(css, /\.iconButton/);
 });
 
 test('display text is centered in the viewing area', async () => {
   const css = await readFile(new URL('../../public/style.css', import.meta.url), 'utf8');
 
-  assert.match(css, /\.display-panel\s*\{[^}]*place-items:\s*stretch;/s);
+  assert.match(css, /html,\s*body,\s*#root\s*\{[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.meetingShell[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) clamp\(140px, 12vw, 180px\);/s);
+  assert.match(css, /\.meetingShell[\s\S]*grid-template-areas:\s*"display rail"/s);
+  assert.match(css, /\.displayPanel[\s\S]*height:\s*100%;/s);
+  assert.match(css, /\.operatorRail[\s\S]*overflow:\s*hidden;/s);
+  assert.match(css, /\.railBody[\s\S]*overflow-y:\s*auto;/s);
+  assert.match(css, /\.manualBar[\s\S]*grid-area:\s*manual;/s);
+  assert.match(css, /\.manualBarInner[\s\S]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/s);
+  assert.match(css, /\.quickControlsGrid[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.modeGrid[\s\S]*grid-template-columns:\s*1fr;/s);
+  assert.match(css, /\.settingsPanel[\s\S]*position:\s*fixed;/s);
+  assert.match(css, /\.settingsStack[\s\S]*flex-direction:\s*column;/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*overflow-y:\s*auto;/s);
-  assert.match(css, /\.transcript-stack\s*\{[^}]*justify-content:\s*flex-end;/s);
-  assert.match(css, /\.transcript-item\s*\{/s);
-  assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*clamp\(2\.25rem, 5vw, 5\.5rem\);/s);
+  assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*clamp\(2rem, min\(5vw, 7vh\), 5\.25rem\);/s);
 });
 
 test('layout stacks and scrolls on narrower screens', async () => {
   const css = await readFile(new URL('../../public/style.css', import.meta.url), 'utf8');
 
   assert.match(css, /@media \(max-width: 900px\)/);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*body\s*\{\s*overflow:\s*auto;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.app-shell\s*\{\s*grid-template-columns:\s*1fr;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.display-panel\s*\{\s*min-height:\s*52svh;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*html,\s*body,\s*#root\s*\{\s*overflow:\s*auto;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-columns:\s*1fr;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-rows:\s*minmax\(0, 1fr\) auto auto;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[\s\S]*flex-direction:\s*row;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.manualBarInner[\s\S]*grid-template-columns:\s*1fr auto;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsPanel[\s\S]*bottom:\s*0\.5rem;/s);
 });
 
 test('range sliders use discrete Apple-style tick marks', async () => {
