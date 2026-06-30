@@ -1,8 +1,10 @@
 # Meeting Companion Display
 
-A tiny local helper app for a church meeting display.
+Meeting Companion Display is a small local helper app for church meetings.
 
-It runs on a laptop connected to a TV and shows five large-print lines for a deaf and low-vision viewer. The helper uses the laptop-side panel to type manual lines, change the viewing size, adjust the margins, and control how often AI updates the display.
+It runs on a laptop connected to a TV and shows five large-print lines for one deaf and low-vision viewer. The helper uses the laptop-side panel to type manual lines, adjust the viewing size, change the margins, and slow down or speed up AI updates when the room pace changes.
+
+![Meeting Companion helper panel showing the warning banner, mode buttons, and viewer controls](public/wiki/screenshots/meeting-companion-render.png)
 
 ## What it does
 
@@ -16,6 +18,7 @@ It runs on a laptop connected to a TV and shows five large-print lines for a dea
 - Helper can undo, clear, pause AI, and hide the helper panel with `H`.
 - No database.
 - No saved transcript or audio by default.
+- The screen stays readable from across the room.
 
 ## Run it
 
@@ -88,9 +91,11 @@ The app stays local. It does not save audio or transcripts unless you add that l
 - The helper panel is for quick operation, not assistive reading.
 - The interface uses large type, wide controls, and a high-contrast dark surface.
 - The display and controls are designed to stay readable at a distance and easy to adjust under pressure.
+- The helper controls are dense on purpose, but each control stays labeled and keyboard accessible.
 
 ## Docs
 
 - [Specs index](docs/00-index.md)
 - [Implementation plan](docs/plans/church-helper-local-ai-wrapper/README.md)
+- [Public wiki](public/wiki/index.html)
 - [Wiki starter](wiki/Home.md)

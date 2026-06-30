@@ -7,6 +7,7 @@ This folder is a lightweight wiki starter for operational notes.
 - [Quick Start](Quick-Start.md)
 - [Accessibility Notes](Accessibility.md)
 - [Sunday Runbook](Sunday-Runbook.md)
+- [Public wiki page](../public/wiki/index.html)
 
 ## Related
 
