@@ -17,7 +17,7 @@ function extractDetailsBlocks(html) {
 function extractRegionBlocks(html) {
   return Array.from(
     html.matchAll(
-      /<(section|div|aside|fieldset)\b[^>]*role=(?:"region"|'region')[^>]*[\s\S]*?<\/\1>/gi
+      /<(section|div|aside|fieldset)\b[^>]*role=(?:"region"|'region'|"dialog"|'dialog')[^>]*[\s\S]*?<\/\1>/gi
     ),
     (match) => match[0]
   );
@@ -68,23 +68,46 @@ function countMatches(text, pattern) {
 test('helper panel groups settings and diagnostics into named secondary disclosures', async () => {
   const html = await readHtml();
 
-  assert.match(html, /class=(?:"app-shell"|'app-shell')/);
+  assert.match(html, /class=(?:"[^"]*\bapp-shell\b[^"]*"|'[^']*\bapp-shell\b[^']*')/);
+  assert.match(html, /id=(?:"root"|'root')/);
   assert.match(html, /<main\b[^>]*id=(?:"display"|'display')/);
   assert.match(html, /<aside\b[^>]*id=(?:"panel"|'panel')/);
   assertContains(html, /id=(?:"transcriptViewport"|'transcriptViewport')/, '#transcriptViewport');
   assertContains(html, /id=(?:"transcriptStack"|'transcriptStack')/, '#transcriptStack');
-  assertContains(html, /id=(?:"secondaryControls"|'secondaryControls')/, '#secondaryControls');
+  assertContains(html, /class=(?:"[^"]*\bmeetingShell\b[^"]*"|'[^']*\bmeetingShell\b[^']*')/, '.meetingShell');
+  assertContains(html, /class=(?:"[^"]*\bcontrolPanel\b[^"]*"|'[^']*\bcontrolPanel\b[^']*')/, '.controlPanel');
+  assertContains(html, /class=(?:"[^"]*\boperatorRail\b[^"]*"|'[^']*\boperatorRail\b[^']*')/, '.operatorRail');
+  assertContains(html, /class=(?:"[^"]*\brailHeader\b[^"]*"|'[^']*\brailHeader\b[^']*')/, '.railHeader');
+  assertContains(html, /class=(?:"[^"]*\brailBody\b[^"]*"|'[^']*\brailBody\b[^']*')/, '.railBody');
+  assertContains(html, /class=(?:"[^"]*\bmanualBar\b[^"]*"|'[^']*\bmanualBar\b[^']*')/, '.manualBar');
+  assertContains(html, /class=(?:"[^"]*\bmanualBarInner\b[^"]*"|'[^']*\bmanualBarInner\b[^']*')/, '.manualBarInner');
+  assertContains(html, /class=(?:"[^"]*\bsettingsPanel\b[^"]*"|'[^']*\bsettingsPanel\b[^']*')/, '.settingsPanel');
+  assertContains(html, /class=(?:"[^"]*\bsettingsBackdrop\b[^"]*"|'[^']*\bsettingsBackdrop\b[^']*')/, '.settingsBackdrop');
+  assertContains(html, /id=(?:"settingsButton"|'settingsButton')/, '#settingsButton');
+  assertContains(html, /id=(?:"closeSettings"|'closeSettings')/, '#closeSettings');
+  assertContains(html, /class=(?:"[^"]*\bquickControlsGrid\b[^"]*"|'[^']*\bquickControlsGrid\b[^']*')/, '.quickControlsGrid');
+  assertContains(html, /class=(?:"[^"]*\bmodeGrid\b[^"]*"|'[^']*\bmodeGrid\b[^']*')/, '.modeGrid');
+  assertContains(html, /class=(?:"[^"]*\brailButton\b[^"]*"|'[^']*\brailButton\b[^']*')/, '.railButton');
+  assertContains(html, /class=(?:"[^"]*\biconButton\b[^"]*"|'[^']*\biconButton\b[^']*')/, '.iconButton');
+  assertContains(html, /hidden/, 'settings panel hidden state');
 
-  const settings = findNamedContainer(html, /settings/i);
-  assert.ok(settings, 'Settings disclosure or region is missing');
+  const settingsMatch = html.match(/<aside\b[^>]*id=(?:"settingsPanel"|'settingsPanel')[^>]*[\s\S]*?<\/aside>/i);
+  assert.ok(settingsMatch, 'Settings dialog is missing');
+  const settings = settingsMatch[0];
 
-  const diagnostics = findNamedContainer(html, /diagnostics/i);
+  const diagnostics = findNamedContainer(settings, /diagnostics/i);
   assert.ok(diagnostics, 'Diagnostics disclosure or region is missing');
 
   assertContains(settings, /data-kind=(?:"transcription"|'transcription')/, 'transcription source control');
   assertContains(settings, /data-kind=(?:"summarization"|'summarization')/, 'summary source control');
-  assertNotContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, 'summary interval slider');
-  assertNotContains(settings, /id=(?:"summaryIntervalValue"|'summaryIntervalValue')/, 'summary interval value');
+  assertContains(settings, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
+  assertContains(settings, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
+  assertContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
+  assertContains(settings, /id=(?:"status"|'status')/, '#status');
+  assertContains(settings, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
+  assertContains(settings, /id=(?:"pasteTranscript"|'pasteTranscript')/, '#pasteTranscript');
+  assertContains(settings, /id=(?:"summarizeOnce"|'summarizeOnce')/, '#summarizeOnce');
+  assertContains(settings, /summary/i, 'settings dialog labels');
 
   assert.equal(
     countMatches(html, /data-kind=(?:"transcription"|'transcription')/g),
@@ -96,9 +119,8 @@ test('helper panel groups settings and diagnostics into named secondary disclosu
     countMatches(settings, /data-kind=(?:"summarization"|'summarization')/g),
     'summary source controls should only live inside Settings'
   );
-  assert.equal(countMatches(html, /data-interval=(?:"|')?\d+(?:"|')?/g), 0, 'summary interval buttons should no longer exist');
-  assert.equal(countMatches(html, /id=(?:"bigger"|'bigger')/g), 0, 'bigger text button should no longer exist');
-  assert.equal(countMatches(html, /id=(?:"smaller"|'smaller')/g), 0, 'smaller text button should no longer exist');
+  assert.doesNotMatch(settings, /id=(?:"bigger"|'bigger')/g, 'bigger text button should no longer exist');
+  assert.doesNotMatch(settings, /id=(?:"smaller"|'smaller')/g, 'smaller text button should no longer exist');
 
   assertContains(diagnostics, /id=(?:"status"|'status')/, '#status');
   assertContains(diagnostics, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
@@ -114,15 +136,15 @@ test('helper panel groups settings and diagnostics into named secondary disclosu
   assertContains(html, /id=(?:"undo"|'undo')/, '#undo');
   assertContains(html, /id=(?:"clear"|'clear')/, '#clear');
   assertContains(html, /id=(?:"fullscreen"|'fullscreen')/, '#fullscreen');
-  assertContains(html, /id=(?:"hidePanel"|'hidePanel')/, '#hidePanel');
   assertContains(html, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
   assertContains(html, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
   assertContains(html, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
-  assertContains(html, /class=(?:"mode"|'mode')/, '.mode buttons');
+  assertContains(html, /class=(?:"[^"]*\bmode\b[^"]*"|'[^']*\bmode\b[^']*')/, '.mode buttons');
   assertContains(html, /data-mode=(?:"speaker"|'speaker')/, 'speaker mode button');
   assertContains(html, /data-mode=(?:"information"|'information')/, 'information mode button');
   assertContains(html, /data-mode=(?:"song"|'song')/, 'song mode button');
   assertContains(html, /data-mode=(?:"prayer"|'prayer')/, 'prayer mode button');
+  assertContains(html, /aria-label=(?:"Open settings"|'Open settings')/, 'gear settings button');
   assertContains(html, /role=(?:"log"|'log')/, 'transcript log region');
   assertContains(html, /aria-live=(?:"polite"|'polite')/, 'transcript live region');
 
@@ -135,10 +157,7 @@ test('helper panel groups settings and diagnostics into named secondary disclosu
     [/id=(?:"undo"|'undo')/, '#undo'],
     [/id=(?:"clear"|'clear')/, '#clear'],
     [/id=(?:"fullscreen"|'fullscreen')/, '#fullscreen'],
-    [/id=(?:"hidePanel"|'hidePanel')/, '#hidePanel'],
-    [/id=(?:"fontSize"|'fontSize')/, '#fontSize'],
-    [/id=(?:"displayMargin"|'displayMargin')/, '#displayMargin'],
-    [/id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval'],
+    [/id=(?:"settingsButton"|'settingsButton')/, '#settingsButton'],
     [/class=(?:"mode"|'mode')/, '.mode buttons']
   ];
 

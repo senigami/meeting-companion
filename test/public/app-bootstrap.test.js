@@ -8,6 +8,7 @@ function createElement(initial = {}) {
     value: initial.value || '',
     disabled: Boolean(initial.disabled),
     dataset: initial.dataset || {},
+    attributes: initial.attributes || {},
     children: initial.children || [],
     classList: {
       toggle() {}
@@ -15,7 +16,12 @@ function createElement(initial = {}) {
     replaceChildren(...nodes) {
       this.children = [...nodes];
     },
-    setAttribute() {},
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    getAttribute(name) {
+      return this.attributes[name];
+    },
     addEventListener() {},
     focus() {},
     requestFullscreen() {},
@@ -45,7 +51,10 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
-    secondaryControls: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    settingsButton: createElement({}),
+    closeSettings: createElement(),
     addManual: createElement(),
     summarizeOnce: createElement(),
     startListening: createElement(),
@@ -54,7 +63,6 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     undo: createElement(),
     clear: createElement(),
     fullscreen: createElement(),
-    hidePanel: createElement(),
   };
 
   const modeButtons = [
@@ -129,7 +137,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5vw');
     assert.equal(elements.summaryIntervalValue.textContent, '5s');
-    assert.equal(elements.hidePanel.textContent, 'Hide extras');
+    assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
+    assert.equal(elements.settingsPanel.hidden, true);
     assert.equal(summarizationButtons[1].disabled, true);
   } finally {
     global.document = originalDocument;

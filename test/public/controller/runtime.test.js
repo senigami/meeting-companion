@@ -10,6 +10,7 @@ function createElement(initial = {}) {
     value: initial.value || '',
     disabled: Boolean(initial.disabled),
     dataset: initial.dataset || {},
+    attributes: initial.attributes || {},
     children: initial.children || [],
     classList: {
       toggle() {}
@@ -17,7 +18,12 @@ function createElement(initial = {}) {
     replaceChildren(...nodes) {
       this.children = [...nodes];
     },
-    setAttribute() {},
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    getAttribute(name) {
+      return this.attributes[name];
+    },
     addEventListener() {},
     focus() {},
     ...initial
@@ -42,7 +48,10 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     displayMarginValue: createElement({ textContent: '' }),
     summaryIntervalInput: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
-    secondaryControls: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    settingsButton: createElement(),
+    closeSettings: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
@@ -113,7 +122,8 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
         listening: false,
         loopHandle: null,
         lastSentText: '',
-        panelOpen: true,
+        settingsOpen: false,
+        panelOpen: false,
         transcriptionSource: 'browser',
         summarizationSource: 'openai',
         openAiReady: false,
@@ -160,7 +170,10 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     displayMarginValue: createElement({ textContent: '' }),
     summaryIntervalInput: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
-    secondaryControls: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    settingsButton: createElement(),
+    closeSettings: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
@@ -222,7 +235,8 @@ test('runtime pauses and resumes the active transcription driver', async () => {
         listening: false,
         loopHandle: null,
         lastSentText: '',
-        panelOpen: true,
+        settingsOpen: false,
+        panelOpen: false,
         transcriptionSource: 'browser',
         summarizationSource: 'openai',
         openAiReady: true,
@@ -277,7 +291,10 @@ test('runtime falls back to a valid summarization source when persisted source i
     displayMarginValue: createElement({ textContent: '' }),
     summaryIntervalInput: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
-    secondaryControls: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    settingsButton: createElement(),
+    closeSettings: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
@@ -339,7 +356,8 @@ test('runtime falls back to a valid summarization source when persisted source i
         listening: false,
         loopHandle: null,
         lastSentText: '',
-        panelOpen: true,
+        settingsOpen: false,
+        panelOpen: false,
         transcriptionSource: 'browser',
         summarizationSource: 'stale-source',
         openAiReady: false,
@@ -383,13 +401,15 @@ test('runtime collapses only the secondary controls when extras are hidden', asy
     displayMarginValue: createElement({ textContent: '' }),
     summaryIntervalInput: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
-    secondaryControls: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    settingsButton: createElement(),
+    closeSettings: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
     transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
     transcriptStack: createElement(),
-    hidePanel: createElement({ textContent: 'Hide extras' })
   };
 
   global.localStorage = {
@@ -427,7 +447,8 @@ test('runtime collapses only the secondary controls when extras are hidden', asy
         listening: false,
         loopHandle: null,
         lastSentText: '',
-        panelOpen: true,
+        settingsOpen: false,
+        panelOpen: false,
         transcriptionSource: 'browser',
         summarizationSource: 'openai',
         openAiReady: true,
@@ -447,11 +468,11 @@ test('runtime collapses only the secondary controls when extras are hidden', asy
       fetchImpl: async () => ({ ok: true, json: async () => ({}) })
     });
 
-    runtime.setPanelOpen(false);
+    runtime.setSettingsOpen(false);
 
-    assert.equal(elements.secondaryControls.hidden, true);
+    assert.equal(elements.settingsPanel.hidden, true);
     assert.equal(elements.panel.hidden, false);
-    assert.equal(elements.hidePanel.textContent, 'Show extras');
+    assert.equal(elements.settingsButton.attributes['aria-expanded'], 'false');
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

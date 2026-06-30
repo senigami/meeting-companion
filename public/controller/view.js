@@ -42,22 +42,37 @@ export function renderDisplay(ctx) {
   ctx.dom.transcriptViewport.scrollTop = previousScrollTop;
 }
 
-export function setPanelOpen(ctx, open, { focusInput = false } = {}) {
-  ctx.state.panelOpen = open;
-  if (ctx.dom.secondaryControls) {
-    ctx.dom.secondaryControls.hidden = !open;
-    ctx.dom.secondaryControls.setAttribute('aria-hidden', String(!open));
-  }
-  if (ctx.dom.hidePanel) {
-    ctx.dom.hidePanel.textContent = open ? 'Hide extras' : 'Show extras';
-    ctx.dom.hidePanel.setAttribute('aria-expanded', String(open));
-    ctx.dom.hidePanel.setAttribute('aria-controls', 'secondaryControls');
+export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
+  const next = Boolean(open);
+  ctx.state.settingsOpen = next;
+  ctx.state.panelOpen = next;
+
+  if (ctx.dom.settingsPanel) {
+    ctx.dom.settingsPanel.hidden = !next;
+    ctx.dom.settingsPanel.setAttribute('aria-hidden', String(!next));
   }
 
-  if (open && focusInput) {
-    ctx.dom.manualInput.focus();
+  if (ctx.dom.settingsBackdrop) {
+    ctx.dom.settingsBackdrop.hidden = !next;
+  }
+
+  if (ctx.dom.settingsButton) {
+    ctx.dom.settingsButton.setAttribute('aria-expanded', String(next));
+    ctx.dom.settingsButton.setAttribute('aria-pressed', String(next));
+  }
+
+  if (next) {
+    const focusTarget = ctx.dom.closeSettings || ctx.dom.settingsPanel || ctx.dom.settingsButton;
+    globalThis.requestAnimationFrame?.(() => focusTarget?.focus?.());
+    return;
+  }
+
+  if (focusReturn) {
+    globalThis.requestAnimationFrame?.(() => ctx.dom.settingsButton?.focus?.());
   }
 }
+
+export const setPanelOpen = setSettingsOpen;
 
 export function bindTranscriptViewport(ctx) {
   if (!ctx.dom.transcriptViewport) return;
