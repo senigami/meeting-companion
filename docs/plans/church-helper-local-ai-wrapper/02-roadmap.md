@@ -30,7 +30,7 @@ graph TD
 - **Tasks:** 002
 - **Touches (map parts):** P1, P7
 - **Why now:** The UI must consume the source contracts without provider branching.
-- **Verify the workload:** The browser renders the five-line display and helper controls without module errors.
+- **Verify the workload:** The browser renders the transcript-card display and helper controls without module errors.
 
 ### Workload 3 - Docs and tests
 
@@ -39,4 +39,3 @@ graph TD
 - **Touches (map parts):** P8
 - **Why now:** The code is already in place; the last step is to codify the shape and keep tests mirrored.
 - **Verify the workload:** Specs exist, ADRs exist, `AGENTS.md` points to the index, and tests mirror the source tree.
-

@@ -54,7 +54,7 @@ Final system behavior:
 - [ ] `git diff --check` passes.
 - [ ] Docs reflect the new Settings and Diagnostics grouping.
 - [ ] Controller tests cover moved source, interval, status, and transcript elements.
-- [ ] No provider, storage, or five-line display behavior changed.
+- [ ] No provider, storage, or transcript-card display behavior changed.
 - [ ] Any map changes caused by implementation are reflected in `01-map.md`.
 
 ## Out Of Scope
@@ -62,4 +62,3 @@ Final system behavior:
 - Do not add new providers.
 - Do not change AI prompt behavior.
 - Do not add persistent settings beyond the existing localStorage-backed controls unless explicitly requested later.
-

@@ -8,8 +8,12 @@ function createElement(initial = {}) {
     value: initial.value || '',
     disabled: Boolean(initial.disabled),
     dataset: initial.dataset || {},
+    children: initial.children || [],
     classList: {
       toggle() {}
+    },
+    replaceChildren(...nodes) {
+      this.children = [...nodes];
     },
     setAttribute() {},
     addEventListener() {},
@@ -33,15 +37,15 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     pasteTranscript: createElement({ value: '' }),
     status: createElement({ textContent: '' }),
     liveTranscript: createElement({ textContent: '' }),
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement(),
     fontSize: createElement({ value: '84' }),
     fontSizeValue: createElement({ textContent: '' }),
     displayMargin: createElement({ value: '4.5' }),
     displayMarginValue: createElement({ textContent: '' }),
-    line1: createElement(),
-    line2: createElement(),
-    line3: createElement(),
-    line4: createElement(),
-    line5: createElement(),
+    summaryInterval: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    secondaryControls: createElement(),
     addManual: createElement(),
     summarizeOnce: createElement(),
     startListening: createElement(),
@@ -49,14 +53,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     pauseAi: createElement(),
     undo: createElement(),
     clear: createElement(),
-    bigger: createElement(),
-    smaller: createElement(),
     fullscreen: createElement(),
     hidePanel: createElement(),
-    interval2: createElement({ dataset: { interval: '2' } }),
-    interval5: createElement({ dataset: { interval: '5' } }),
-    interval10: createElement({ dataset: { interval: '10' } }),
-    interval15: createElement({ dataset: { interval: '15' } })
   };
 
   const modeButtons = [
@@ -74,13 +72,6 @@ test('app bootstrap loads without module errors and shows runtime warning when O
   const summarizationButtons = [
     createElement({ dataset: { kind: 'summarization', source: 'openai' } }),
     createElement({ dataset: { kind: 'summarization', source: 'claude' } })
-  ];
-
-  const intervalButtons = [
-    elements.interval2,
-    elements.interval5,
-    elements.interval10,
-    elements.interval15
   ];
 
   global.localStorage = {
@@ -121,7 +112,6 @@ test('app bootstrap loads without module errors and shows runtime warning when O
       if (selector === '.mode') return modeButtons;
       if (selector === '[data-kind="transcription"]') return transcriptionButtons;
       if (selector === '[data-kind="summarization"]') return summarizationButtons;
-      if (selector === '[data-interval]') return intervalButtons;
       return [];
     },
     addEventListener() {}
@@ -138,6 +128,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     assert.match(elements.status.textContent, /Browser transcription still works/i);
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5vw');
+    assert.equal(elements.summaryIntervalValue.textContent, '5s');
+    assert.equal(elements.hidePanel.textContent, 'Hide extras');
     assert.equal(summarizationButtons[1].disabled, true);
   } finally {
     global.document = originalDocument;

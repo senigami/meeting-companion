@@ -8,7 +8,7 @@
 | --- | --- |
 | [docs/01-scope.md](01-scope.md) | Product boundary, audience, and what is explicitly out of scope. |
 | [docs/02-system-architecture.md](02-system-architecture.md) | Client/server split, source registry, transcription and summary flow. |
-| [docs/03-data-model.md](03-data-model.md) | Runtime state, line model, transcript chunks, and API payload shapes. |
+| [docs/03-data-model.md](03-data-model.md) | Runtime state, transcript card model, transcript chunks, and API payload shapes. |
 | [docs/04-api-conventions.md](04-api-conventions.md) | HTTP endpoints, request/response shapes, env vars, and error behavior. |
 | [docs/05-code-organization.md](05-code-organization.md) | Folder layout, module boundaries, and mirrored test layout. |
 | [docs/06-test-strategy.md](06-test-strategy.md) | What is unit-tested, what is verified manually, and where tests live. |
@@ -16,11 +16,11 @@
 
 ## Product Summary
 
-Meeting Companion Display is a tiny local helper for one deaf and low-vision person during a church meeting. The laptop runs a browser UI that drives a five-line large-print TV display and a helper panel for manual entry, keyboard shortcuts, and AI-assisted transcription or summarization.
+Meeting Companion Display is a tiny local helper for one deaf and low-vision person during a church meeting. The laptop runs a browser UI that drives a large-print transcript stack on the TV and a helper panel for manual entry, keyboard shortcuts, and AI-assisted transcription or summarization.
 
-The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display never shows labels, only the five lines meant for the TV.
+The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display stays label-light and shows readable transcript cards rather than one dense wall of text.
 
-The helper panel is intentionally dense so it can be operated under pressure. It includes mode selection, source selection, manual lines, undo, clear, pause, and text-size controls. The visible output is always constrained to the five most recent lines.
+The helper panel is intentionally dense so it can be operated under pressure. It keeps quick controls, mode selection, and view options visible, while Settings holds source selection and Diagnostics holds runtime feedback and transcript tools. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
 
 ## Key Decisions
 
@@ -36,7 +36,10 @@ The helper panel is intentionally dense so it can be operated under pressure. It
 
 - Transcription source ids are stable contract values: `browser` and `openai`.
 - Summary source ids are stable contract values and currently `openai` and `claude`.
-- The visible display remains exactly five lines, with new lines appended at the bottom and older lines moving up.
+- The visible display renders a scrollable stack of digestible transcript cards, with new items appearing at the bottom and older items moving up.
+- Settings contains transcription source and summary source controls.
+- View options contains text size, margins, and update interval controls.
+- Diagnostics contains status and recent transcript tools.
 - Manual lines always take effect immediately, even if AI is paused.
 
 ## Open compliance items

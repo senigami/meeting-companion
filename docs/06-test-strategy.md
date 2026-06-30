@@ -18,14 +18,16 @@ The browser UI still needs manual verification because the TV display, helper pa
 - OpenAI transcription driver cancellation when a chunk is stopped in flight.
 - Claude summarization wrapper and server-side provider routing.
 - Express route behavior for `/api/config`, malformed JSON, and oversized payloads.
-- View-setting clamping for text size, margins, and summary interval buttons.
+- View-setting clamping for text size, margins, and the summary interval slider.
+- Helper panel structure tests that keep Settings, Diagnostics, and View options separate from the main control surface.
 - Server API behavior for `/api/transcribe` and `/api/summarize` route contracts.
 
 ## What to verify manually
 
-- The five-line TV display from a distance.
+- The transcript-card TV display from a distance.
 - `H` to hide/show the helper panel.
-- `Undo`, `Clear`, `Pause AI`, `Bigger text`, and `Smaller text`.
+- Keyboard interaction for the Settings and Diagnostics disclosure regions.
+- `Undo`, `Clear`, `Pause AI`, and the view sliders.
 - Browser transcription fallback and OpenAI disabled state when `OPENAI_API_KEY` is missing.
 - Summarization fallback to Claude when OpenAI is unavailable but Anthropic is configured.
 - The warning banner when OpenAI is unavailable.

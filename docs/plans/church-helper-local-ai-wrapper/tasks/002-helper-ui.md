@@ -14,7 +14,7 @@
 
 ## Goal
 
-Keep the helper panel easy to operate under pressure and keep the five-line TV display readable from a distance.
+Keep the helper panel easy to operate under pressure and keep the transcript-card TV display readable from a distance.
 
 ## Why this matters
 
@@ -22,11 +22,11 @@ The app is only useful if the helper can use it while a meeting is already in pr
 
 ## Context an executor needs
 
-`public/index.html` holds the semantic structure. `public/style.css` controls the large-print look. `public/controller/start-app.js` binds the UI. `public/controller/runtime.js` manages shortcuts, source selection, and the five-line state. `public/controller/view.js` keeps the display updates separate. The helper panel can be hidden with `H`.
+`public/index.html` holds the semantic structure. `public/style.css` controls the large-print look. `public/controller/start-app.js` binds the UI. `public/controller/runtime.js` manages shortcuts, source selection, and the transcript-item state. `public/controller/view.js` keeps the display updates separate. The extras can be hidden with `H`.
 
 ## Target shape / contract
 
-The visible display should stay label-free and contain only five lines. The helper panel should expose mode buttons, source buttons, manual input, undo, clear, pause AI, and text-size controls.
+The visible display should stay label-free and contain only a small stack of readable cards. The helper panel should expose mode buttons, source buttons, manual input, undo, clear, pause AI, and text-size controls.
 
 ## Steps
 
@@ -38,10 +38,10 @@ The visible display should stay label-free and contain only five lines. The help
 
 ## Acceptance criteria
 
-- [x] The helper panel can be hidden and restored with `H`.
+- [x] The extras can be hidden and restored with `H`.
 - [x] Manual lines appear immediately.
-- [x] Undo, clear, pause AI, bigger text, and smaller text are available by button and shortcut.
-- [x] The display remains exactly five visible lines.
+- [x] Undo, clear, pause AI, and the view sliders are available by button and shortcut.
+- [x] The display remains a readable stack of transcript cards.
 
 ## Out of scope
 
