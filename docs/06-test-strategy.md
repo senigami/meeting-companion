@@ -14,6 +14,7 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Model line cleanup and duplicate rejection.
 - Source catalog ids and the source registry contract.
 - App bootstrap smoke tests that catch module-load failures, the controller split, viewer controls, and missing OpenAI warnings.
+- Claude summarization wrapper and server-side provider routing.
 - View-setting clamping for text size, margins, and summary interval buttons.
 - Server API behavior for `/api/config`, `/api/transcribe`, and `/api/summarize` if a test harness is added later.
 
@@ -23,7 +24,9 @@ The browser UI still needs manual verification because the TV display, helper pa
 - `H` to hide/show the helper panel.
 - `Undo`, `Clear`, `Pause AI`, `Bigger text`, and `Smaller text`.
 - Browser transcription fallback and OpenAI disabled state when `OPENAI_API_KEY` is missing.
+- Summarization fallback to Claude when OpenAI is unavailable but Anthropic is configured.
 - The warning banner when OpenAI is unavailable.
+- Claude source availability when `ANTHROPIC_API_KEY` is missing.
 
 ## Test placement rules
 

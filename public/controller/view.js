@@ -33,7 +33,7 @@ export function updateModeButtons(ctx) {
 export function updateSourceButtons(ctx) {
   ctx.dom.transcriptionButtons.forEach((btn) => {
     const active = btn.dataset.source === ctx.state.transcriptionSource;
-    const unavailable = btn.dataset.source === 'openai' && !ctx.state.openAiReady;
+    const unavailable = isSourceUnavailable(ctx, btn.dataset.kind, btn.dataset.source);
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.disabled = unavailable;
@@ -41,7 +41,7 @@ export function updateSourceButtons(ctx) {
 
   ctx.dom.summarizationButtons.forEach((btn) => {
     const active = btn.dataset.source === ctx.state.summarizationSource;
-    const unavailable = btn.dataset.source === 'openai' && !ctx.state.openAiReady;
+    const unavailable = isSourceUnavailable(ctx, btn.dataset.kind, btn.dataset.source);
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.disabled = unavailable;
@@ -73,4 +73,18 @@ export function syncViewerControls(ctx) {
 export function applyViewerSettings(ctx) {
   document.documentElement.style.setProperty('--font-size', `${ctx.state.fontSize}px`);
   document.documentElement.style.setProperty('--display-margin', String(ctx.state.displayMargin));
+}
+
+function isSourceUnavailable(ctx, kind, source) {
+  if (kind === 'transcription') {
+    if (source === 'openai') return !ctx.state.openAiReady;
+    return false;
+  }
+
+  if (kind === 'summarization') {
+    if (source === 'openai') return !ctx.state.openAiReady;
+    if (source === 'claude') return !ctx.state.anthropicReady;
+  }
+
+  return false;
 }

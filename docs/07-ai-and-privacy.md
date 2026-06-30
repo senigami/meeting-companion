@@ -6,13 +6,13 @@
 
 The app uses AI in two places: speech transcription and summary generation. Those are separate responsibilities and are routed through separate source adapters so they can evolve independently.
 
-The browser source is preferred when it is available because it keeps transcription local to the laptop. OpenAI is available as a modular source for transcription and as the summarization provider.
+The browser source is preferred when it is available because it keeps transcription local to the laptop. OpenAI is available as a modular source for transcription, and OpenAI or Claude can provide summaries.
 
 ## Source rules
 
 - Browser transcription is a first-class source option.
 - OpenAI transcription is a first-class source option and is disabled when the key is missing.
-- OpenAI summarization is the only summary source for now.
+- OpenAI summarization and Claude summarization are both first-class summary source options.
 - Adding another source must happen by adding a module and registering it in the catalog and registry.
 
 ## Prompt rules
@@ -34,4 +34,3 @@ The browser source is preferred when it is available because it keeps transcript
 
 - [docs/02-system-architecture.md](02-system-architecture.md) - where the source modules fit.
 - [docs/04-api-conventions.md](04-api-conventions.md) - how provider calls are sent.
-

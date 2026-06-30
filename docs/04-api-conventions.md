@@ -1,6 +1,6 @@
 # API Conventions
 
-> **TL;DR:** The API is small, JSON-only, and local-first. Errors are simple JSON objects, and provider access is gated by the presence of `OPENAI_API_KEY`.
+> **TL;DR:** The API is small, JSON-only, and local-first. Errors are simple JSON objects, and provider access is gated by the presence of the relevant API key.
 
 ## Overview
 
@@ -12,7 +12,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 
 | Route | Method | Purpose | Response shape |
 | --- | --- | --- | --- |
-| `/api/config` | `GET` | Report OpenAI availability and source metadata. | `{ hasOpenAIKey, model, sources }` |
+| `/api/config` | `GET` | Report provider availability and source metadata. | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
 | `/api/transcribe` | `POST` | Transcribe a short audio chunk with OpenAI. | `{ text }` or `{ error }` |
 | `/api/summarize` | `POST` | Summarize recent transcript text into one useful line. | `{ line, reason? }` or `{ error }` |
 
@@ -21,6 +21,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 - Accept JSON only on `/api/transcribe` and `/api/summarize`.
 - Treat missing audio on `/api/transcribe` as an empty transcription request and return `{ text: "" }`.
 - Accept `mode` values `speaker`, `information`, `song`, and `prayer`.
+- Accept `source` values `openai` and `claude` on `/api/summarize`.
 - Send only the recent transcript text and visible lines needed to make the summary decision.
 
 ## Error handling
@@ -34,6 +35,8 @@ All request and response bodies are JSON except the static asset routes. The cli
 | Name | Required | Purpose |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | no | Enables OpenAI transcription and summarization. |
+| `ANTHROPIC_API_KEY` | no | Enables Claude summarization. |
+| `ANTHROPIC_MODEL` | no | Overrides the Claude model name. |
 | `PORT` | no | Overrides the local HTTP port. Defaults to `3000`. |
 | `HOST` | no | Overrides the listen host. Defaults to `127.0.0.1`. |
 
@@ -47,4 +50,3 @@ All request and response bodies are JSON except the static asset routes. The cli
 
 - [docs/02-system-architecture.md](02-system-architecture.md) - how the routes fit the app.
 - [docs/07-ai-and-privacy.md](07-ai-and-privacy.md) - privacy and provider use rules.
-

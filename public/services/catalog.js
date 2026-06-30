@@ -19,6 +19,11 @@ export function listAvailableSummarizationSources() {
       id: 'openai',
       label: 'OpenAI',
       description: 'Summarize text on the server with OpenAI.'
+    },
+    {
+      id: 'claude',
+      label: 'Claude',
+      description: 'Summarize text on the server with Claude.'
     }
   ];
 }

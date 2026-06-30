@@ -22,8 +22,9 @@ The important model rule is that the display state is append-only from the user'
 | `transcriptPreview` | `string` | The latest partial transcription text shown in the helper panel. |
 | `listening` | `boolean` | Whether transcription is active. |
 | `transcriptionSource` | `browser` \| `openai` | Which transcription driver is active. |
-| `summarizationSource` | `openai` | Which summarization driver is active. |
+| `summarizationSource` | `openai` \| `claude` | Which summarization driver is active. The runtime falls back to an available provider when the selected one is not configured. |
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
+| `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
 
 ## Display line shape
 
@@ -46,11 +47,10 @@ The server accepts and returns these JSON shapes:
 | Route | Request | Response |
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
-| `POST /api/summarize` | `{ mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
-| `GET /api/config` | none | `{ hasOpenAIKey, model, sources }` |
+| `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
+| `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
 
 ## Related specs
 
 - [docs/04-api-conventions.md](04-api-conventions.md) - exact route behavior and error handling.
 - [docs/07-ai-and-privacy.md](07-ai-and-privacy.md) - when text may be sent to a provider.
-

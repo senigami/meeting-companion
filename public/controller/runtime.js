@@ -276,6 +276,22 @@ export function createRuntime(ctx) {
     await setTranscriptionSource('browser');
   }
 
+  function resolveAvailableSummarizationSource() {
+    if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
+    if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
+    if (ctx.state.openAiReady) return 'openai';
+    if (ctx.state.anthropicReady) return 'claude';
+    return ctx.state.summarizationSource;
+  }
+
+  async function ensureSelectedSummarizationSourceExists() {
+    const nextSource = resolveAvailableSummarizationSource();
+    if (nextSource === ctx.state.summarizationSource) return;
+    ctx.state.summarizationSource = nextSource;
+    localStorage.setItem(STORAGE.summarizationSource, nextSource);
+    updateSourceButtons(ctx);
+  }
+
   function isTypingTarget(target) {
     return Boolean(target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)));
   }
@@ -285,10 +301,13 @@ export function createRuntime(ctx) {
       const response = await fetch('/api/config');
       if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
-      setOpenAiAvailability(Boolean(data.hasOpenAIKey));
+      ctx.state.openAiReady = Boolean(data.hasOpenAIKey);
+      ctx.state.anthropicReady = Boolean(data.hasAnthropicKey);
+      setOpenAiAvailability(ctx.state.openAiReady);
       if (!ctx.state.openAiReady && ctx.state.transcriptionSource === 'openai') {
         await setTranscriptionSource('browser');
       }
+      await ensureSelectedSummarizationSourceExists();
       await ensureSelectedTranscriptionSourceExists();
     } catch (error) {
       ctx.dom.apiWarning.hidden = false;

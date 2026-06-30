@@ -7,6 +7,7 @@ import {
 import { createBrowserTranscriptionDriver } from './transcription/browser.js';
 import { createOpenAITranscriptionDriver } from './transcription/openai.js';
 import { createOpenAISummarizer } from './summarization/openai.js';
+import { createClaudeSummarizer } from './summarization/claude.js';
 
 export function createTranscriptionDriver(source, deps = {}) {
   switch (source || getDefaultTranscriptionSource()) {
@@ -23,6 +24,8 @@ export function createSummarizationDriver(source, deps = {}) {
   switch (source || getDefaultSummarizationSource()) {
     case 'openai':
       return createOpenAISummarizer(deps);
+    case 'claude':
+      return createClaudeSummarizer(deps);
     default:
       throw new Error(`Unsupported summarization source: ${source}`);
   }

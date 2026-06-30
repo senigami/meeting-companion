@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { createRuntime } from '../../../public/controller/runtime.js';
+
 function createElement(initial = {}) {
   return {
     textContent: initial.textContent || '',
@@ -14,77 +16,49 @@ function createElement(initial = {}) {
     setAttribute() {},
     addEventListener() {},
     focus() {},
-    requestFullscreen() {},
     ...initial
   };
 }
 
-test('app bootstrap loads without module errors and shows runtime warning when OpenAI is missing', async () => {
+test('runtime falls back to Claude summarization when OpenAI is unavailable', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
   const originalFetch = global.fetch;
-  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
 
   const elements = {
-    display: createElement({ focus() {} }),
-    panel: createElement(),
     apiWarning: createElement({ hidden: true }),
-    manualInput: createElement({ value: '' }),
-    pasteTranscript: createElement({ value: '' }),
     status: createElement({ textContent: '' }),
-    liveTranscript: createElement({ textContent: '' }),
-    fontSize: createElement({ value: '84' }),
+    display: createElement(),
+    panel: createElement(),
+    manualInput: createElement(),
+    liveTranscript: createElement(),
+    fontSizeInput: createElement({ value: '84' }),
     fontSizeValue: createElement({ textContent: '' }),
-    displayMargin: createElement({ value: '4.5' }),
+    displayMarginInput: createElement({ value: '4.5' }),
     displayMarginValue: createElement({ textContent: '' }),
+    startListening: createElement(),
+    stopListening: createElement({ disabled: true }),
+    pauseAi: createElement(),
     line1: createElement(),
     line2: createElement(),
     line3: createElement(),
     line4: createElement(),
-    line5: createElement(),
-    addManual: createElement(),
-    summarizeOnce: createElement(),
-    startListening: createElement(),
-    stopListening: createElement({ disabled: true }),
-    pauseAi: createElement(),
-    undo: createElement(),
-    clear: createElement(),
-    bigger: createElement(),
-    smaller: createElement(),
-    fullscreen: createElement(),
-    hidePanel: createElement(),
-    interval2: createElement({ dataset: { interval: '2' } }),
-    interval5: createElement({ dataset: { interval: '5' } }),
-    interval10: createElement({ dataset: { interval: '10' } }),
-    interval15: createElement({ dataset: { interval: '15' } })
+    line5: createElement()
   };
-
-  const modeButtons = [
-    createElement({ dataset: { mode: 'speaker' } }),
-    createElement({ dataset: { mode: 'information' } }),
-    createElement({ dataset: { mode: 'song' } }),
-    createElement({ dataset: { mode: 'prayer' } })
-  ];
 
   const transcriptionButtons = [
     createElement({ dataset: { kind: 'transcription', source: 'browser' } }),
     createElement({ dataset: { kind: 'transcription', source: 'openai' } })
   ];
-
   const summarizationButtons = [
     createElement({ dataset: { kind: 'summarization', source: 'openai' } }),
     createElement({ dataset: { kind: 'summarization', source: 'claude' } })
   ];
 
-  const intervalButtons = [
-    elements.interval2,
-    elements.interval5,
-    elements.interval10,
-    elements.interval15
-  ];
-
   global.localStorage = {
-    getItem() { return null; },
+    getItem() {
+      return null;
+    },
     setItem() {}
   };
 
@@ -92,7 +66,7 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     ok: true,
     json: async () => ({
       hasOpenAIKey: false,
-      hasAnthropicKey: false,
+      hasAnthropicKey: true,
       model: null,
       sources: {
         transcription: [
@@ -107,46 +81,61 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     })
   });
 
-  Object.defineProperty(global, 'navigator', {
-    configurable: true,
-    value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } },
-    writable: true
-  });
   global.document = {
     documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
     getElementById(id) {
       return elements[id] || null;
     },
     querySelectorAll(selector) {
-      if (selector === '.mode') return modeButtons;
       if (selector === '[data-kind="transcription"]') return transcriptionButtons;
       if (selector === '[data-kind="summarization"]') return summarizationButtons;
-      if (selector === '[data-interval]') return intervalButtons;
+      if (selector === '[data-interval]') return [];
+      if (selector === '.mode') return [];
       return [];
     },
     addEventListener() {}
   };
 
-  delete global.window;
-
   try {
-    await import('../../public/app.js?bootstrap-test=' + Date.now());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const ctx = {
+      state: {
+        lines: [],
+        mode: 'speaker',
+        paused: false,
+        fontSize: 84,
+        displayMargin: 4.5,
+        summaryIntervalSeconds: 5,
+        transcriptChunks: [],
+        transcriptPreview: '',
+        listening: false,
+        loopHandle: null,
+        lastSentText: '',
+        panelOpen: true,
+        transcriptionSource: 'browser',
+        summarizationSource: 'openai',
+        openAiReady: false,
+        anthropicReady: false
+      },
+      dom: {
+        ...elements,
+        modeButtons: [],
+        transcriptionButtons,
+        summarizationButtons,
+        intervalButtons: []
+      }
+    };
 
+    const runtime = createRuntime(ctx);
+    await runtime.loadRuntimeConfig();
+
+    assert.equal(ctx.state.summarizationSource, 'claude');
+    assert.equal(summarizationButtons[0].disabled, true);
+    assert.equal(summarizationButtons[1].disabled, false);
     assert.equal(elements.apiWarning.hidden, false);
     assert.match(elements.apiWarning.textContent, /OPENAI_API_KEY is missing/i);
-    assert.match(elements.status.textContent, /Browser transcription still works/i);
-    assert.equal(elements.fontSizeValue.textContent, '84px');
-    assert.equal(elements.displayMarginValue.textContent, '4.5vw');
-    assert.equal(summarizationButtons[1].disabled, true);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
     global.fetch = originalFetch;
-    if (originalNavigatorDescriptor) {
-      Object.defineProperty(global, 'navigator', originalNavigatorDescriptor);
-    } else {
-      delete global.navigator;
-    }
   }
 });

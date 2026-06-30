@@ -21,6 +21,8 @@ The source tree is organized by responsibility, not by build artifact. The clien
 | `public/controller/runtime.js` | Controller state machine and app actions. |
 | `public/controller/view.js` | DOM/view updates for the display and helper panel. |
 | `public/services/` | Shared prompts, catalogs, registry, and provider adapters. |
+| `public/services/summarization/claude.js` | Claude summarization client wrapper. |
+| `server/summarization.js` | Server-side provider switch for OpenAI and Claude summarization. |
 | `summarizer.js` | Compatibility re-export for the summarizer helpers. |
 | `test/` | Separate test tree that mirrors source paths. |
 
@@ -33,6 +35,7 @@ The source tree is organized by responsibility, not by build artifact. The clien
 - `public/controller/runtime.js` handles state, shortcuts, source wiring, and AI loop behavior.
 - `public/controller/view.js` handles rendering and DOM updates.
 - `public/services/` handles prompt construction and provider adapters.
+- `server/summarization.js` keeps provider-specific summarization code out of the route handler.
 
 Do not put provider-specific logic in the HTML or the display renderer. The view should only know about the registry and the current state.
 
@@ -51,6 +54,8 @@ Mirror the source tree under `test/`:
 | `public/services/catalog.js` | `test/public/services/catalog.test.js` |
 | `public/services/transcription/prompt.js` | `test/public/services/transcription/prompt.test.js` |
 | `public/services/view-settings.js` | `test/public/services/view-settings.test.js` |
+| `public/services/summarization/claude.js` | `test/public/services/summarization/claude.test.js` |
+| `server/summarization.js` | `test/server/summarization.test.js` |
 
 This layout makes it obvious which tests cover which source file and keeps coverage easy to scan.
 
