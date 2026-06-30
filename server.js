@@ -1,27 +1,65 @@
 import 'dotenv/config';
 import express from 'express';
 import OpenAI from 'openai';
+import { toFile } from 'openai';
+import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from './public/services/summary-prompt.js';
+import { buildTranscriptionPrompt } from './public/services/transcription/prompt.js';
+import { listAvailableSources } from './public/services/registry.js';
+import { normalizeText } from './public/services/text.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
+const host = process.env.HOST || '127.0.0.1';
 const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const MODEL = 'gpt-4o-mini';
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static('public'));
 
-function modeInstruction(mode) {
-  switch (mode) {
-    case 'information':
-      return 'Focus on exact instructions, dates, times, locations, assignments, hymn numbers, and announcements.';
-    case 'song':
-      return 'Only state the hymn or song status. Do not summarize lyrics.';
-    case 'prayer':
-      return 'Do not summarize the prayer. Only show a simple respectful status if needed.';
-    case 'speaker':
-    default:
-      return 'Focus on the specific story, experience, teaching, feeling, invitation, or example.';
+app.get('/api/config', (req, res) => {
+  res.json({
+    hasOpenAIKey: Boolean(client),
+    model: client ? MODEL : null,
+    sources: listAvailableSources()
+  });
+});
+
+app.post('/api/transcribe', async (req, res) => {
+  try {
+    if (!client) {
+      return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
+    }
+
+    const { audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm', mode = 'speaker' } = req.body || {};
+    if (!audioBase64) {
+      return res.json({ text: '' });
+    }
+
+    const audioBuffer = Buffer.from(String(audioBase64), 'base64');
+    const file = await toFile(audioBuffer, filename, { type: mimeType });
+    const transcription = await client.audio.transcriptions.create({
+      file,
+      model: 'gpt-4o-transcribe',
+      prompt: buildTranscriptionPrompt(mode),
+      language: 'en',
+      stream: true
+    });
+
+    let text = '';
+    for await (const event of transcription) {
+      if (event.type === 'transcript.text.delta') {
+        text += event.delta || '';
+      } else if (event.type === 'transcript.text.done') {
+        text = event.text || text;
+      }
+    }
+
+    res.json({ text: normalizeText(text) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Transcription failed.' });
   }
-}
+});
 
 app.post('/api/summarize', async (req, res) => {
   try {
@@ -36,10 +74,10 @@ app.post('/api/summarize', async (req, res) => {
       return res.json({ line: '' });
     }
 
-    const prompt = `You are creating large-print assistive text for one deaf and low-vision person during a church meeting.\n\nReturn zero or one line.\n\nThe line should summarize what is being communicated right now.\nDo not use labels such as "main point," "speaker," "summary," or "announcement."\nDo not say "still talking about."\nUse plain, specific language.\nPreserve names, dates, times, hymn numbers, scripture references, assignments, and places.\nMaximum 14 words.\nDo not add information.\nIf nothing new or useful was communicated, return an empty string.\n\nMode: ${mode}\n${modeInstruction(mode)}\n\nVisible lines already shown:\n${visibleLines.filter(Boolean).join('\n')}\n\nRecent transcript:\n${text}`;
+    const prompt = buildSummarizePrompt({ mode, recentTranscript: text, visibleLines });
 
     const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: MODEL,
       temperature: 0.2,
       messages: [
         { role: 'system', content: 'Return only the line text or an empty string. No quotes. No markdown.' },
@@ -47,8 +85,8 @@ app.post('/api/summarize', async (req, res) => {
       ]
     });
 
-    let line = completion.choices?.[0]?.message?.content?.trim() || '';
-    line = line.replace(/^[-•*]\s*/, '').replace(/^"|"$/g, '').trim();
+    let line = cleanModelLine(completion.choices?.[0]?.message?.content || '');
+    if (!shouldAcceptModelLine(line, visibleLines)) line = '';
     if (line.length > 140) line = line.slice(0, 137).trimEnd() + '...';
     res.json({ line });
   } catch (error) {
@@ -57,6 +95,6 @@ app.post('/api/summarize', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Meeting Companion Display running at http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`Meeting Companion Display running at http://${host}:${port}`);
 });

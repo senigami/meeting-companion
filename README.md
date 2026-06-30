@@ -1,67 +1,96 @@
 # Meeting Companion Display
 
-A tiny local helper app for showing a five-line, large-print summary during a church meeting.
+A tiny local helper app for a church meeting display.
 
-It is designed for a setup where a laptop is connected to a TV. The helper can manually add lines, or optionally use browser speech recognition and AI summarization.
+It runs on a laptop connected to a TV and shows five large-print lines for a deaf and low-vision viewer. The helper uses the laptop-side panel to type manual lines, change the viewing size, adjust the margins, and control how often AI updates the display.
 
 ## What it does
 
 - Shows only five large-print lines on the TV.
-- New lines appear at the bottom.
-- Older lines move up.
-- Helper can add manual lines instantly.
+- New lines appear at the bottom and older lines move up.
+- Manual lines appear immediately.
 - Helper can choose modes: Speaker, Information, Song, Prayer.
-- Helper can undo, clear, pause AI, and change text size.
+- Helper can choose transcription source: Browser or OpenAI.
+- Helper can choose summarization source: OpenAI.
+- Helper can adjust text size, margins, and update interval.
+- Helper can undo, clear, pause AI, and hide the helper panel with `H`.
 - No database.
-- No saved transcript by default.
+- No saved transcript or audio by default.
 
 ## Run it
 
-1. Install Node.js.
+1. Install Node.js 18 or newer.
 2. Open this folder in a terminal.
 3. Run:
 
 ```bash
 npm install
-cp .env.example .env
 npm start
 ```
 
-4. Open:
-
-```text
-http://localhost:3000
-```
-
+4. Open [http://localhost:3000](http://localhost:3000).
 5. Connect the laptop to the TV and make the browser fullscreen.
 6. Press `H` to hide or show the helper panel.
+7. Allow microphone access only if you want live browser transcription.
+8. If `OPENAI_API_KEY` is missing, the app shows a warning and stays usable in manual mode and browser transcription mode.
 
-## AI summarization
+## Setup
 
-Manual mode works without an API key.
-
-To enable AI summarization, edit `.env` and set:
+Create a `.env` file in the project root:
 
 ```text
 OPENAI_API_KEY=your_api_key_here
+PORT=3000
 ```
 
-Then restart the app.
+The app stays local. It does not save audio or transcripts unless you add that later.
 
-## Speech recognition
+## Sunday use
 
-The current prototype uses the browser's Web Speech API when available. It is easiest to test in Chrome or Edge. If speech recognition is not available, use manual input or paste text and click **Summarize Once**.
+1. Start the app before the meeting and open it fullscreen.
+2. Keep the TV on the large-print display and the helper panel on the laptop.
+3. Use `Speaker` mode for sermons and stories.
+4. Use `Information` mode for dates, times, places, hymn numbers, assignments, and announcements.
+5. Use `Song` mode for hymn or song status only.
+6. Use `Prayer` mode for prayer status only.
+7. Use `Browser` transcription first if the browser supports speech recognition.
+8. Switch to `OpenAI` transcription if you want the server-backed path.
+9. Type a manual line and press Enter if something needs to appear immediately.
+10. Use `Undo` if the last line was wrong.
+11. Use `Pause AI` if summaries are getting noisy.
+12. Adjust `Text size`, `Margins`, or `Update interval` if the TV distance or pace changes.
 
-## Suggested Sunday workflow
+## Keyboard shortcuts
 
-1. Start with manual mode.
-2. Use the mode buttons to tell the app what is happening.
-3. During a talk, use Speaker mode.
-4. During announcements, use Information mode.
-5. During a hymn, use Song mode.
-6. During prayer, use Prayer mode.
-7. If AI output is wrong, click Undo and type a manual line.
+- `H` hide or show the helper panel
+- `1` Speaker mode
+- `2` Information mode
+- `3` Song mode
+- `4` Prayer mode
+- `U` Undo
+- `C` Clear
+- `P` Pause or resume AI
+- `+` Bigger text
+- `-` Smaller text
+- `Ctrl+Enter` summarize pasted transcript
 
-## Privacy note
+## AI rules
 
-This app does not intentionally save transcripts or audio. If AI summarization is enabled, recent transcript text is sent to the AI provider for summarization.
+- Speaker mode should summarize the specific story, event, teaching, feeling, invitation, or example.
+- Information mode should prioritize exact dates, times, places, hymn numbers, assignments, and announcements.
+- Song mode should only show hymn or song status.
+- Prayer mode should not summarize line by line.
+- AI should only add a line when something useful changed.
+
+## Accessibility and design
+
+- The TV display is the priority surface.
+- The helper panel is for quick operation, not assistive reading.
+- The interface uses large type, wide controls, and a high-contrast dark surface.
+- The display and controls are designed to stay readable at a distance and easy to adjust under pressure.
+
+## Docs
+
+- [Specs index](docs/00-index.md)
+- [Implementation plan](docs/plans/church-helper-local-ai-wrapper/README.md)
+- [Wiki starter](wiki/Home.md)
