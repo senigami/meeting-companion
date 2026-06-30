@@ -8,13 +8,13 @@ The app keeps its working state in memory in the browser. A small amount of user
 
 The server keeps no durable business data. It only receives JSON payloads for config, transcription, and summarization, then returns compact JSON responses.
 
-The important model rule is that the display state is append-only from the user's point of view. Lines can be added, undone, or cleared, but the latest five lines are what matter.
+The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
 ## Runtime state
 
 | Field | Type | Purpose |
 | --- | --- | --- |
-| `lines` | `string[]` | The ordered output lines shown on the TV, capped to the latest twenty in memory and rendered as the latest five. |
+| `transcriptItems` | `TranscriptItem[]` | The ordered output cards shown on the TV, capped in memory and rendered as a scrollable stack. |
 | `mode` | `speaker` \| `information` \| `song` \| `prayer` | The summarization mode chosen by the helper. |
 | `paused` | `boolean` | Whether AI summarization and transcription should stop producing new lines. |
 | `fontSize` | `number` | The large-print size used by the TV display. |
@@ -26,9 +26,21 @@ The important model rule is that the display state is append-only from the user'
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
 | `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
 
-## Display line shape
+## Transcript item shape
 
-The display layer treats each line as a cleaned string, not as a structured object. A line must be normalized before storage so duplicates and accidental spacing differences do not create repeated output.
+The display layer treats each visible item as a structured object so the UI can show mode, source, and time metadata without parsing a raw string.
+
+```ts
+type TranscriptItem = {
+  id: string;
+  mode: 'speaker' | 'information' | 'song' | 'prayer';
+  text: string;
+  createdAt: number;
+  source?: 'ai' | 'manual';
+};
+```
+
+Transcript text must be normalized before storage so duplicates and accidental spacing differences do not create repeated output.
 
 ## Transcript chunk shape
 

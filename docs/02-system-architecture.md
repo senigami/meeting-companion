@@ -6,7 +6,7 @@
 
 The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
 
-The client owns the UI state, keyboard shortcuts, and rendering of the five-line display. It loads source metadata from the registry and creates transcription and summarization drivers based on the helper's chosen source.
+The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry and creates transcription and summarization drivers based on the helper's chosen source.
 
 Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI and Claude are summarization drivers. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
 
@@ -29,7 +29,7 @@ graph TD
   Summarize --> OpenAI
   Summarize --> Claude[(Anthropic API)]
   Runtime --> View[public/controller/view.js]
-  View --> UIState[five-line display + helper panel]
+  View --> UIState[transcript-card display + helper panel]
 ```
 
 ## Parts
@@ -60,7 +60,7 @@ graph TD
 
 ## Invariants & things to keep in mind
 
-- **INV-1** - The TV display always shows five lines and only the five newest lines.
+- **INV-1** - The TV display always shows a bounded stack of transcript cards and only the newest items remain in view.
 - **INV-2** - Manual lines must appear immediately and must not wait on AI.
 - **INV-3** - Source ids are public contract values; adding a source means adding it to the catalog and registry together.
 - **INV-4** - Browser transcription is optional and must fail gracefully when the browser lacks the API.

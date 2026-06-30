@@ -1,5 +1,18 @@
-import { clampDisplayMargin, clampFontSize, clampSummaryIntervalSeconds } from '../services/view-settings.js';
-import { renderDisplay, setPanelOpen, syncViewerControls, updateModeButtons, updatePauseButton, updateSourceButtons } from './view.js';
+import {
+  clampDisplayMargin,
+  clampFontSize,
+  clampSummaryIntervalSeconds,
+  summaryIntervalSecondsFromSliderIndex
+} from '../services/view-settings.js';
+import {
+  renderDisplay,
+  bindTranscriptViewport,
+  setPanelOpen,
+  syncViewerControls,
+  updateModeButtons,
+  updatePauseButton,
+  updateSourceButtons
+} from './view.js';
 import { createRuntime } from './runtime.js';
 
 const STORAGE = {
@@ -13,7 +26,7 @@ const STORAGE = {
 export function startApp() {
   const ctx = {
     state: {
-      lines: [],
+      transcriptItems: [],
       mode: 'speaker',
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
@@ -24,6 +37,8 @@ export function startApp() {
       listening: false,
       loopHandle: null,
       lastSentText: '',
+      stickToBottom: true,
+      prefersReducedMotion: Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),
       panelOpen: true,
       transcriptionSource: localStorage.getItem(STORAGE.transcriptionSource) || 'browser',
       summarizationSource: localStorage.getItem(STORAGE.summarizationSource) || 'openai',
@@ -32,34 +47,35 @@ export function startApp() {
     },
     dom: {
       display: $('display'),
+      transcriptViewport: $('transcriptViewport'),
+      transcriptStack: $('transcriptStack'),
       panel: $('panel'),
       apiWarning: $('apiWarning'),
       manualInput: $('manualInput'),
       pasteTranscript: $('pasteTranscript'),
       status: $('status'),
       liveTranscript: $('liveTranscript'),
-      line1: $('line1'),
-      line2: $('line2'),
-      line3: $('line3'),
-      line4: $('line4'),
-      line5: $('line5'),
       fontSizeInput: $('fontSize'),
       fontSizeValue: $('fontSizeValue'),
       displayMarginInput: $('displayMargin'),
       displayMarginValue: $('displayMarginValue'),
+      summaryIntervalInput: $('summaryInterval'),
+      summaryIntervalValue: $('summaryIntervalValue'),
+      secondaryControls: $('secondaryControls'),
+      hidePanel: $('hidePanel'),
       pauseAi: $('pauseAi'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
-      summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
-      intervalButtons: Array.from(document.querySelectorAll('[data-interval]'))
+      summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]'))
     }
   };
 
   const runtime = createRuntime(ctx);
 
   function bindEvents() {
+    bindTranscriptViewport(ctx);
     bindManualEntry(ctx, runtime);
     bindTranscriptSummaries(ctx, runtime);
     bindControlButtons(ctx, runtime);
@@ -109,8 +125,6 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.pauseAi.addEventListener('click', runtime.togglePauseAi);
   $('undo').addEventListener('click', runtime.undoLine);
   $('clear').addEventListener('click', runtime.clearLines);
-  $('bigger').addEventListener('click', () => runtime.setFontSize(ctx.state.fontSize + 8));
-  $('smaller').addEventListener('click', () => runtime.setFontSize(ctx.state.fontSize - 8));
   $('fullscreen').addEventListener('click', () => document.documentElement.requestFullscreen?.());
   $('hidePanel').addEventListener('click', () => runtime.setPanelOpen(false));
 }
@@ -118,13 +132,15 @@ function bindControlButtons(ctx, runtime) {
 function bindViewerControls(ctx, runtime) {
   ctx.dom.fontSizeInput.addEventListener('input', (e) => runtime.setFontSize(e.target.value));
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
+  ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
+    runtime.setSummaryInterval(summaryIntervalSecondsFromSliderIndex(e.target.value, ctx.state.summaryIntervalSeconds));
+  });
 }
 
 function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.modeButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setMode(btn.dataset.mode)));
   ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setTranscriptionSource(btn.dataset.source)));
   ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setSummarizationSource(btn.dataset.source)));
-  ctx.dom.intervalButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setSummaryInterval(Number(btn.dataset.interval))));
 }
 
 function bindKeyboardShortcuts(ctx, runtime) {
@@ -161,18 +177,6 @@ function bindKeyboardShortcuts(ctx, runtime) {
     if (key === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       ctx.dom.pauseAi.click();
-      return;
-    }
-
-    if ((e.key === '+' || e.key === '=') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      $('bigger').click();
-      return;
-    }
-
-    if (e.key === '-' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      $('smaller').click();
       return;
     }
 

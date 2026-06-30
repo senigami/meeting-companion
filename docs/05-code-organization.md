@@ -28,7 +28,7 @@ The source tree is organized by responsibility, not by build artifact. The clien
 
 ## Frontend layering
 
-- `public/index.html` defines the semantic structure.
+- `public/index.html` defines the semantic structure for the full-window display and helper rail.
 - `public/style.css` handles the skin and readability tuning.
 - `public/app.js` only starts the controller.
 - `public/controller/start-app.js` handles bootstrap and event wiring.
@@ -56,6 +56,7 @@ Mirror the source tree under `test/`:
 | `public/services/transcription/openai.js` | `test/public/services/transcription/openai.test.js` |
 | `public/services/view-settings.js` | `test/public/services/view-settings.test.js` |
 | `public/services/summarization/claude.js` | `test/public/services/summarization/claude.test.js` |
+| `public/index.html` | `test/public/helper-panel-structure.test.js` |
 | `server.js` | `test/server/app.test.js` |
 | `server/summarization.js` | `test/server/summarization.test.js` |
 

@@ -23,7 +23,7 @@ The current controls are functional but visually crowded. A cleaner hierarchy re
 ## Context An Executor Needs
 
 - Edit `public/style.css`.
-- Existing styles include the glassy fixed `.panel`, `.section`, `.section-label`, `.mode-row`, `.source-row`, `.interval-row`, `.button-grid`, `.manual-row`, active button styles, focus-visible styles, `.status`, and `.transcript`.
+- Existing styles include the glassy fixed `.panel`, `.panel-main`, `.panel-footer`, `.section`, `.section-label`, `.mode-row`, `.source-row`, `.range-field`, `.button-grid`, `.manual-row`, active button styles, focus-visible styles, `.status`, and `.transcript`.
 - The visual direction should remain Apple-inspired: calm material surfaces, clear spacing, soft shadows, and precise typography.
 - Avoid making the controller UI look like a generic dashboard with too many bordered boxes.
 
@@ -32,6 +32,7 @@ The current controls are functional but visually crowded. A cleaner hierarchy re
 Add or adapt classes for:
 
 - A primary control stack with more breathing room and clearer grouping.
+- A visible view-options block for text size, margins, and summary interval.
 - A compact Settings disclosure that reads as configuration, not a primary action.
 - A Diagnostics disclosure that keeps status and transcript readable but secondary.
 - Disclosure summary rows with obvious click/tap affordance and visible focus.
@@ -56,6 +57,7 @@ CSS should preserve:
 ## Acceptance Criteria
 
 - [ ] Primary controls are visually dominant over Settings and Diagnostics.
+- [ ] View options remain quick to operate and visually distinct from Settings.
 - [ ] Settings and Diagnostics are easy to identify and keyboard-focusable.
 - [ ] Active button styling still works.
 - [ ] Viewer controls remain quick to operate.
@@ -67,4 +69,3 @@ CSS should preserve:
 - Do not change JS behavior.
 - Do not redesign the TV display beyond preserving readability.
 - Do not add external fonts, frameworks, CSS preprocessors, or icon libraries.
-

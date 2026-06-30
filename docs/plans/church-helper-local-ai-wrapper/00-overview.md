@@ -4,7 +4,7 @@
 
 ## Goal
 
-The app should run as a local Express site with a five-line display, a helper panel, and a standardized provider wrapper for transcription and summarization.
+The app should run as a local Express site with a transcript-card display, a helper panel, and a standardized provider wrapper for transcription and summarization.
 
 ## Scope & boundary
 
@@ -14,7 +14,7 @@ In scope: modular source catalog and registry, browser, OpenAI, and Claude drive
 
 - Keep the app runnable with `npm start`.
 - Keep the source ids stable.
-- Keep the display limited to five large-print lines.
+- Keep the display limited to a small stack of large-print transcript cards.
 - Do not save audio or transcripts by default.
 - Keep tests in a separate tree that mirrors the source layout.
 

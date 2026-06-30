@@ -5,7 +5,9 @@ import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds,
-  summaryIntervalOptions
+  summaryIntervalOptions,
+  summaryIntervalSecondsFromSliderIndex,
+  summaryIntervalSliderIndexFromSeconds
 } from '../../../public/services/view-settings.js';
 
 test('view settings clamp to safe display ranges', () => {
@@ -19,4 +21,15 @@ test('view settings clamp to safe display ranges', () => {
 
 test('summary interval options stay quick to adjust', () => {
   assert.deepEqual(summaryIntervalOptions, [2, 5, 10, 15]);
+});
+
+test('summary interval slider maps to the same discrete values', () => {
+  assert.equal(summaryIntervalSliderIndexFromSeconds(2), 0);
+  assert.equal(summaryIntervalSliderIndexFromSeconds(5), 1);
+  assert.equal(summaryIntervalSliderIndexFromSeconds(10), 2);
+  assert.equal(summaryIntervalSliderIndexFromSeconds(15), 3);
+  assert.equal(summaryIntervalSecondsFromSliderIndex(0), 2);
+  assert.equal(summaryIntervalSecondsFromSliderIndex(1), 5);
+  assert.equal(summaryIntervalSecondsFromSliderIndex(2), 10);
+  assert.equal(summaryIntervalSecondsFromSliderIndex(3), 15);
 });

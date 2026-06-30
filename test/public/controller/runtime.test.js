@@ -10,8 +10,12 @@ function createElement(initial = {}) {
     value: initial.value || '',
     disabled: Boolean(initial.disabled),
     dataset: initial.dataset || {},
+    children: initial.children || [],
     classList: {
       toggle() {}
+    },
+    replaceChildren(...nodes) {
+      this.children = [...nodes];
     },
     setAttribute() {},
     addEventListener() {},
@@ -36,14 +40,14 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     fontSizeValue: createElement({ textContent: '' }),
     displayMarginInput: createElement({ value: '4.5' }),
     displayMarginValue: createElement({ textContent: '' }),
+    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    secondaryControls: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
-    line1: createElement(),
-    line2: createElement(),
-    line3: createElement(),
-    line4: createElement(),
-    line5: createElement()
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement()
   };
 
   const transcriptionButtons = [
@@ -89,7 +93,6 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     querySelectorAll(selector) {
       if (selector === '[data-kind="transcription"]') return transcriptionButtons;
       if (selector === '[data-kind="summarization"]') return summarizationButtons;
-      if (selector === '[data-interval]') return [];
       if (selector === '.mode') return [];
       return [];
     },
@@ -99,7 +102,7 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
   try {
     const ctx = {
       state: {
-        lines: [],
+        transcriptItems: [],
         mode: 'speaker',
         paused: false,
         fontSize: 84,
@@ -121,7 +124,6 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
         modeButtons: [],
         transcriptionButtons,
         summarizationButtons,
-        intervalButtons: []
       }
     };
 
@@ -156,14 +158,14 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     fontSizeValue: createElement({ textContent: '' }),
     displayMarginInput: createElement({ value: '4.5' }),
     displayMarginValue: createElement({ textContent: '' }),
+    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    secondaryControls: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
-    line1: createElement(),
-    line2: createElement(),
-    line3: createElement(),
-    line4: createElement(),
-    line5: createElement()
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement()
   };
 
   const driver = {
@@ -200,7 +202,6 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     querySelectorAll(selector) {
       if (selector === '[data-kind="transcription"]') return [createElement({ dataset: { kind: 'transcription', source: 'browser' } })];
       if (selector === '[data-kind="summarization"]') return [createElement({ dataset: { kind: 'summarization', source: 'openai' } })];
-      if (selector === '[data-interval]') return [];
       if (selector === '.mode') return [];
       return [];
     },
@@ -210,7 +211,7 @@ test('runtime pauses and resumes the active transcription driver', async () => {
   try {
     const ctx = {
       state: {
-        lines: [],
+        transcriptItems: [],
         mode: 'speaker',
         paused: false,
         fontSize: 84,
@@ -232,7 +233,6 @@ test('runtime pauses and resumes the active transcription driver', async () => {
         modeButtons: [],
         transcriptionButtons: [],
         summarizationButtons: [],
-        intervalButtons: []
       }
     };
 
@@ -275,14 +275,14 @@ test('runtime falls back to a valid summarization source when persisted source i
     fontSizeValue: createElement({ textContent: '' }),
     displayMarginInput: createElement({ value: '4.5' }),
     displayMarginValue: createElement({ textContent: '' }),
+    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    secondaryControls: createElement(),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
-    line1: createElement(),
-    line2: createElement(),
-    line3: createElement(),
-    line4: createElement(),
-    line5: createElement()
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement()
   };
 
   global.localStorage = {
@@ -319,7 +319,6 @@ test('runtime falls back to a valid summarization source when persisted source i
     querySelectorAll(selector) {
       if (selector === '[data-kind="transcription"]') return [];
       if (selector === '[data-kind="summarization"]') return [];
-      if (selector === '[data-interval]') return [];
       if (selector === '.mode') return [];
       return [];
     },
@@ -329,7 +328,7 @@ test('runtime falls back to a valid summarization source when persisted source i
   try {
     const ctx = {
       state: {
-        lines: [],
+        transcriptItems: [],
         mode: 'speaker',
         paused: false,
         fontSize: 84,
@@ -351,7 +350,6 @@ test('runtime falls back to a valid summarization source when persisted source i
         modeButtons: [],
         transcriptionButtons: [],
         summarizationButtons: [],
-        intervalButtons: []
       }
     };
 
@@ -365,5 +363,97 @@ test('runtime falls back to a valid summarization source when persisted source i
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
     global.fetch = originalFetch;
+  }
+});
+
+test('runtime collapses only the secondary controls when extras are hidden', async () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+
+  const elements = {
+    apiWarning: createElement({ hidden: true }),
+    status: createElement({ textContent: '' }),
+    display: createElement(),
+    panel: createElement(),
+    manualInput: createElement(),
+    liveTranscript: createElement(),
+    fontSizeInput: createElement({ value: '84' }),
+    fontSizeValue: createElement({ textContent: '' }),
+    displayMarginInput: createElement({ value: '4.5' }),
+    displayMarginValue: createElement({ textContent: '' }),
+    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    secondaryControls: createElement(),
+    startListening: createElement(),
+    stopListening: createElement({ disabled: true }),
+    pauseAi: createElement(),
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement(),
+    hidePanel: createElement({ textContent: 'Hide extras' })
+  };
+
+  global.localStorage = {
+    getItem() {
+      return null;
+    },
+    setItem() {}
+  };
+
+  global.document = {
+    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    getElementById(id) {
+      return elements[id] || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-kind="transcription"]') return [];
+      if (selector === '[data-kind="summarization"]') return [];
+      if (selector === '.mode') return [];
+      return [];
+    },
+    addEventListener() {}
+  };
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [],
+        mode: 'speaker',
+        paused: false,
+        fontSize: 84,
+        displayMargin: 4.5,
+        summaryIntervalSeconds: 5,
+        transcriptChunks: [],
+        transcriptPreview: '',
+        listening: false,
+        loopHandle: null,
+        lastSentText: '',
+        panelOpen: true,
+        transcriptionSource: 'browser',
+        summarizationSource: 'openai',
+        openAiReady: true,
+        anthropicReady: false
+      },
+      dom: {
+        ...elements,
+        modeButtons: [],
+        transcriptionButtons: [],
+        summarizationButtons: []
+      }
+    };
+
+    const runtime = createRuntime(ctx, {
+      createTranscriptionDriverFn: () => ({ id: 'browser', start: async () => {}, stop: async () => {} }),
+      createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+      fetchImpl: async () => ({ ok: true, json: async () => ({}) })
+    });
+
+    runtime.setPanelOpen(false);
+
+    assert.equal(elements.secondaryControls.hidden, true);
+    assert.equal(elements.panel.hidden, false);
+    assert.equal(elements.hidePanel.textContent, 'Show extras');
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
   }
 });

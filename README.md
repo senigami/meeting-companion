@@ -2,20 +2,23 @@
 
 Meeting Companion Display is a small local helper app for church meetings.
 
-It runs on a laptop connected to a TV and shows five large-print lines for one deaf and low-vision viewer. The helper uses the laptop-side panel to type manual lines, adjust the viewing size, change the margins, and slow down or speed up AI updates when the room pace changes.
+It runs on a laptop connected to a TV and shows a large-print stack of digestible transcript cards for one deaf and low-vision viewer. The helper uses a side rail that fills the laptop window to type manual lines, adjust the viewing size, change the margins, and slow down or speed up AI updates when the room pace changes. Less-frequent settings live in a separate Settings disclosure, and live status text plus transcript tools live in Diagnostics.
 
 ![Meeting Companion helper panel showing the warning banner, mode buttons, and viewer controls](public/wiki/screenshots/meeting-companion-render.png)
 
 ## What it does
 
-- Shows only five large-print lines on the TV.
-- New lines appear at the bottom and older lines move up.
+- Shows a scrollable stack of large-print transcript cards on the TV.
+- New items appear at the bottom and older items move up.
 - Manual lines appear immediately.
 - Helper can choose modes: Speaker, Information, Song, Prayer.
-- Helper can choose transcription source: Browser or OpenAI.
-- Helper can choose summarization source: OpenAI or Claude.
+- Helper can choose transcription source: Browser or OpenAI from Settings.
+- Helper can choose summarization source: OpenAI or Claude from Settings.
 - Helper can adjust text size, margins, and update interval.
-- Helper can undo, clear, pause AI, and hide the helper panel with `H`.
+- Helper can undo, clear, pause AI, and collapse the extras with `H`.
+- Quick controls stay visible.
+- Settings keeps source controls out of the main operating surface.
+- Diagnostics keeps status, transcript tools, and recent transcript text separate from the live controls.
 - No database.
 - No saved transcript or audio by default.
 - The screen stays readable from across the room.
@@ -33,7 +36,7 @@ npm start
 
 4. Open [http://localhost:3000](http://localhost:3000).
 5. Connect the laptop to the TV and make the browser fullscreen.
-6. Press `H` to hide or show the helper panel.
+6. Press `H` to hide or show the extras.
 7. Allow microphone access only if you want live browser transcription.
 8. If `OPENAI_API_KEY` is missing, the app shows a warning and stays usable in manual mode and browser transcription mode.
 9. If `ANTHROPIC_API_KEY` is missing, Claude summaries stay disabled.
@@ -68,7 +71,7 @@ The app stays local. It does not save audio or transcripts unless you add that l
 
 ## Keyboard shortcuts
 
-- `H` hide or show the helper panel
+- `H` hide or show the extras
 - `1` Speaker mode
 - `2` Information mode
 - `3` Song mode
@@ -76,8 +79,6 @@ The app stays local. It does not save audio or transcripts unless you add that l
 - `U` Undo
 - `C` Clear
 - `P` Pause or resume AI
-- `+` Bigger text
-- `-` Smaller text
 - `Ctrl+Enter` summarize pasted transcript
 
 ## AI rules
@@ -95,10 +96,11 @@ The app stays local. It does not save audio or transcripts unless you add that l
 - The interface uses large type, wide controls, and a high-contrast dark surface.
 - The display and controls are designed to stay readable at a distance and easy to adjust under pressure.
 - The helper controls are dense on purpose, but each control stays labeled and keyboard accessible.
+- The helper panel groups live controls, Settings, and Diagnostics so the operator does not have to parse everything at once.
 
 ## Docs
 
 - [Specs index](docs/00-index.md)
-- [Implementation plan](docs/plans/church-helper-local-ai-wrapper/README.md)
+- [Implementation plan](docs/plans/helper-panel-reorganization/README.md)
 - [Public wiki](public/wiki/index.html)
 - [Wiki starter](wiki/Home.md)

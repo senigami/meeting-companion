@@ -1,5 +1,9 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
 import {
+  appendTranscriptItems,
+  createTranscriptItems
+} from '../services/transcript-display.js';
+import {
   createSummarizationDriver,
   createTranscriptionDriver,
   listAvailableSources
@@ -19,7 +23,7 @@ import {
   updateSourceButtons,
   updateStatus,
   syncViewerControls,
-  updateIntervalButtons
+  updateSummaryIntervalControl
 } from './view.js';
 
 const STORAGE = {
@@ -48,20 +52,23 @@ export function createRuntime(ctx, deps = {}) {
   function addLine(line) {
     const clean = normalizeText(line);
     if (!clean) return;
-    const last = ctx.state.lines[ctx.state.lines.length - 1] || '';
-    if (normalizeText(last).toLowerCase() === clean.toLowerCase()) return;
-    ctx.state.lines.push(clean);
-    ctx.state.lines = ctx.state.lines.slice(-20);
+    const nextItems = createTranscriptItems({
+      text: clean,
+      mode: ctx.state.mode,
+      source: 'manual'
+    });
+    if (!nextItems.length) return;
+    ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, nextItems);
     renderDisplay(ctx);
   }
 
   function undoLine() {
-    ctx.state.lines.pop();
+    ctx.state.transcriptItems.pop();
     renderDisplay(ctx);
   }
 
   function clearLines() {
-    ctx.state.lines = [];
+    ctx.state.transcriptItems = [];
     renderDisplay(ctx);
   }
 
@@ -140,7 +147,7 @@ export function createRuntime(ctx, deps = {}) {
       const result = await driver.summarize({
         mode: ctx.state.mode,
         recentTranscript: recent,
-        visibleLines: ctx.state.lines.slice(-5)
+        visibleLines: ctx.state.transcriptItems.slice(-5).map((item) => item.text)
       });
 
       if (ctx.state.paused) return;
@@ -181,7 +188,7 @@ export function createRuntime(ctx, deps = {}) {
     if (next === ctx.state.summaryIntervalSeconds) return;
     ctx.state.summaryIntervalSeconds = next;
     localStorage.setItem(STORAGE.summaryInterval, String(next));
-    updateIntervalButtons(ctx);
+    updateSummaryIntervalControl(ctx);
     updateStatus(ctx, `Update interval set to ${next}s.`);
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();

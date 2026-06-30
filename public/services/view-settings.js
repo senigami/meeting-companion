@@ -3,6 +3,7 @@ export const FONT_SIZE_MAX = 144;
 export const DISPLAY_MARGIN_MIN = 0;
 export const DISPLAY_MARGIN_MAX = 10;
 export const summaryIntervalOptions = [2, 5, 10, 15];
+export const summaryIntervalSliderMax = summaryIntervalOptions.length - 1;
 
 function clampNumber(value, min, max, fallback) {
   const numeric = Number(value);
@@ -33,4 +34,15 @@ export function clampDisplayMargin(value, fallback = 4.5) {
 export function clampSummaryIntervalSeconds(value, fallback = 5) {
   const numeric = clampNumber(value, summaryIntervalOptions[0], summaryIntervalOptions.at(-1), fallback);
   return nearestOption(numeric, summaryIntervalOptions, fallback);
+}
+
+export function summaryIntervalSliderIndexFromSeconds(value, fallback = 5) {
+  const seconds = clampSummaryIntervalSeconds(value, fallback);
+  const index = summaryIntervalOptions.indexOf(seconds);
+  return index === -1 ? 0 : index;
+}
+
+export function summaryIntervalSecondsFromSliderIndex(value, fallback = 5) {
+  const index = Math.round(clampNumber(value, 0, summaryIntervalSliderMax, 0));
+  return summaryIntervalOptions[index] ?? clampSummaryIntervalSeconds(fallback, fallback);
 }

@@ -4,7 +4,7 @@
 
 ## Big picture
 
-The current build keeps the TV display and helper controls in a plain browser UI, with source-specific transcription and summarization hidden behind a stable registry. Browser transcription is the local-first path; OpenAI transcription plus OpenAI or Claude summarization are opt-in and server-backed. The server should remain thin and only expose runtime config plus provider proxy routes. The rest of the app is a client state machine that turns input into five visible lines.
+The current build keeps the TV display and helper controls in a plain browser UI, with source-specific transcription and summarization hidden behind a stable registry. Browser transcription is the local-first path; OpenAI transcription plus OpenAI or Claude summarization are opt-in and server-backed. The server should remain thin and only expose runtime config plus provider proxy routes. The rest of the app is a client state machine that turns input into a readable stack of transcript cards.
 
 ## The parts
 
@@ -48,7 +48,7 @@ graph TD
 
 ## Invariants & things to keep in mind
 
-- **INV-1** - The display always shows five lines, and the newest line belongs at the bottom.
+- **INV-1** - The display always shows a readable stack of transcript cards, and the newest item belongs at the bottom.
 - **INV-2** - Manual lines must appear immediately.
 - **INV-3** - Source ids are stable contract values, not display labels.
 - **INV-4** - OpenAI features must stay disabled when the API key is missing.

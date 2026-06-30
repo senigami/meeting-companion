@@ -12,7 +12,7 @@
 This was a code-based critique of the current browser UI and its supporting controller/CSS. I reviewed the live layout semantics, control grouping, visual hierarchy, keyboard shortcuts, and the CSS treatment that makes the page feel dense or airy. No screenshot set was available in this workspace, so the critique is grounded in code and the documented lane checklists.
 
 ## What's working
-- The five-line TV display is clean and extremely focused.
+- The transcript-card TV display is clean and extremely focused.
 - Keyboard shortcuts are already present for the helper workflow.
 - The viewer-specific controls for text size and margins are surfaced clearly.
 - The visual system is consistent: one material surface, one accent family, one typography stack.

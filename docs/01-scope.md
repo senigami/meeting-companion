@@ -4,16 +4,16 @@
 
 ## Overview
 
-The app exists to replace a Word document that a helper manually updated during church meetings. It runs on a laptop connected to a TV and shows a five-line, large-print display for the person watching the screen.
+The app exists to replace a Word document that a helper manually updated during church meetings. It runs on a laptop connected to a TV and shows a large-print transcript stack for the person watching the screen.
 
-The helper controls the app from the laptop. They can type a line manually, pick a mode, select a transcription source, pause AI, undo, clear, and adjust text size. The visible TV display never shows labels or control chrome.
+The helper controls the app from the laptop. They can type a line manually, pick a mode, adjust text size, margins, and update interval, pause AI, undo, clear, and open Settings when they need to change transcription source or summarization source. Status and transcript tools live in Diagnostics. The visible TV display stays label-light and focuses on separated transcript cards, not control chrome.
 
 The speech and summary behavior is intentionally narrow. Speaker mode summarizes the specific story, event, teaching, feeling, invitation, or example. Information mode prioritizes exact dates, times, places, hymn numbers, assignments, and announcements. Song mode only shows hymn or song status. Prayer mode does not summarize line by line.
 
 ## In scope
 
-- Five-line large-print TV output.
-- Helper panel controls for manual typing, modes, source selection, undo, clear, pause, and text size.
+- Large-print transcript-card TV output.
+- Helper panel controls for manual typing, modes, view options, source selection, Settings, Diagnostics, undo, clear, and pause.
 - Browser transcription when the browser supports it.
 - OpenAI transcription and OpenAI or Claude summarization when the relevant API key is configured.
 - Keyboard shortcuts for the helper workflow.
@@ -29,4 +29,4 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 
 ## Success boundary
 
-The app is done when the helper can run it locally with `npm start`, keep the TV on the five-line display, and use the helper panel without needing to think about hidden state or background setup.
+The app is done when the helper can run it locally with `npm start`, keep the TV on the transcript-card display, and use the helper panel without needing to think about hidden state or background setup.
