@@ -24,15 +24,19 @@ function createElement(initial = {}) {
     },
     addEventListener() {},
     focus() {},
+    select() {},
     requestFullscreen() {},
     ...initial
   };
 }
 
-test('app bootstrap loads without module errors and shows runtime warning when OpenAI is missing', async () => {
+test('bootstrap starts the demo feed when requested in the query string', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
   const originalFetch = global.fetch;
+  const originalLocation = global.location;
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
   const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
 
   const elements = {
@@ -65,7 +69,7 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     pauseAi: createElement(),
     undo: createElement(),
     clear: createElement(),
-    fullscreen: createElement(),
+    fullscreen: createElement()
   };
 
   const modeButtons = [
@@ -84,6 +88,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     createElement({ dataset: { kind: 'summarization', source: 'openai' } }),
     createElement({ dataset: { kind: 'summarization', source: 'claude' } })
   ];
+
+  const scheduled = [];
 
   global.localStorage = {
     getItem() { return null; },
@@ -109,11 +115,19 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     })
   });
 
+  global.location = { search: '?demo=1' };
+  global.setTimeout = (fn, delay) => {
+    scheduled.push({ fn, delay });
+    return scheduled.length;
+  };
+  global.clearTimeout = () => {};
+
   Object.defineProperty(global, 'navigator', {
     configurable: true,
     value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } },
     writable: true
   });
+
   global.document = {
     documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
     getElementById(id) {
@@ -131,27 +145,21 @@ test('app bootstrap loads without module errors and shows runtime warning when O
   delete global.window;
 
   try {
-    await import('../../public/app.js?bootstrap-test=' + Date.now());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await import('../../public/app.js?demo-mode-test=' + Date.now());
+    await Promise.resolve();
 
-    assert.equal(elements.apiWarning.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
-    assert.match(elements.apiWarning.textContent, /Claude key is missing/i);
-    assert.match(elements.status.textContent, /Browser transcription still works/i);
-    assert.equal(elements.fontSizeValue.textContent, '84px');
-    assert.equal(elements.displayMarginValue.textContent, '4.5%');
-    assert.equal(elements.summaryIntervalValue.textContent, '5s');
-    assert.equal(elements.alertButton.hidden, false);
-    assert.equal(elements.alertsSection.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
-    assert.match(elements.status.textContent, /Browser transcription still works/i);
-    assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
-    assert.equal(elements.settingsPanel.hidden, true);
-    assert.equal(summarizationButtons[1].disabled, false);
+    assert.equal(scheduled.length >= 4, true);
+    scheduled[0].fn();
+    assert.equal(elements.transcriptStack.children.length > 0, true);
+    assert.match(elements.transcriptStack.children[0].children[1].textContent, /hospital visit/i);
+    assert.match(elements.railTranscript.textContent, /hospital visit/i);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
     global.fetch = originalFetch;
+    global.location = originalLocation;
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
     if (originalNavigatorDescriptor) {
       Object.defineProperty(global, 'navigator', originalNavigatorDescriptor);
     } else {

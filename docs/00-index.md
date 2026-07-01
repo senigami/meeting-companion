@@ -20,7 +20,7 @@ Meeting Companion Display is a tiny local helper for one deaf and low-vision per
 
 The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display stays label-light and shows readable transcript cards rather than one dense wall of text.
 
-The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings holds transcription and summary source selection plus provider key setup. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Provider keys are managed by the local server session, not browser storage. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
+The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings holds transcription and summary source selection plus provider key setup. A compact live transcript preview can stay visible in the rail so the helper can see the raw incoming stream. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Provider keys are managed by the local server session, not browser storage. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
 
 ## Key Decisions
 
@@ -38,7 +38,9 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 - Summary source ids are stable contract values and currently `openai` and `claude`.
 - The visible display renders a scrollable stack of digestible transcript cards, with new items appearing at the bottom and older items moving up.
 - Settings contains transcription source and summary source controls, provider key setup, alerts, and diagnostics.
+- The live transcript preview in the operator rail shows the raw stream tail and can be collapsed.
 - View options contains text size, margins, and update interval controls.
+- Display margins are percentage-based and are visualized with red guides on the TV display.
 - Diagnostics is hidden behind Settings by default.
 - Manual lines always take effect immediately, even if AI is paused.
 

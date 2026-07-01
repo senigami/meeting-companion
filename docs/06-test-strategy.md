@@ -19,6 +19,7 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Claude summarization wrapper and server-side provider routing.
 - Express route behavior for `/api/config`, malformed JSON, and oversized payloads.
 - View-setting clamping for text size, margins, and the summary interval slider.
+- Percentage-based display-margin guides and the small operator-rail raw transcript preview.
 - Helper panel structure tests that keep Settings, Diagnostics, and View options separate from the main control surface.
 - Server API behavior for `/api/transcribe` and `/api/summarize` route contracts.
 
@@ -26,6 +27,8 @@ The browser UI still needs manual verification because the TV display, helper pa
 
 - The transcript-card TV display from a distance.
 - `H` to hide/show the helper panel.
+- The red margin guide lines at different display sizes.
+- The compact raw transcript preview in the operator rail.
 - Keyboard interaction for the Settings and Diagnostics disclosure regions.
 - `Undo`, `Clear`, `Pause AI`, and the view sliders.
 - Browser transcription fallback and OpenAI disabled state when `OPENAI_API_KEY` is missing.

@@ -15,7 +15,6 @@ import {
   clampSummaryIntervalSeconds
 } from '../services/view-settings.js';
 import {
-  applyViewerSettings,
   renderDisplay,
   setSettingsOpen,
   updateModeButtons,
@@ -26,6 +25,13 @@ import {
   syncViewerControls,
   updateSummaryIntervalControl
 } from './view.js';
+import { buildLiveTranscriptText } from './live-transcript.js';
+import { flashDisplayMarginGuides } from './margin-guides.js';
+import { saveViewerSettings } from './view-settings-sync.js';
+import {
+  isProviderConfigured,
+  isSourceConfigured
+} from './provider-availability.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -41,33 +47,10 @@ export function createRuntime(ctx, deps = {}) {
   const {
     createTranscriptionDriverFn = createTranscriptionDriver,
     createSummarizationDriverFn = createSummarizationDriver,
-    fetchImpl = fetch
+    fetchImpl = fetch,
+    setTimeoutFn = setTimeout,
+    clearTimeoutFn = clearTimeout
   } = deps;
-
-  function saveViewerSettings() {
-    applyViewerSettings(ctx);
-    localStorage.setItem(STORAGE.fontSize, String(ctx.state.fontSize));
-    localStorage.setItem(STORAGE.displayMargin, String(ctx.state.displayMargin));
-  }
-
-  function refreshProviderAvailability() {
-    ctx.state.openAiReady = Boolean(ctx.state.providerKeys?.openai?.configured || ctx.state.serverOpenAiReady);
-    ctx.state.anthropicReady = Boolean(ctx.state.providerKeys?.claude?.configured || ctx.state.serverAnthropicReady);
-    updateProviderAvailability();
-    updateSourceButtons(ctx);
-    syncSettingsPanel(ctx);
-  }
-
-  function isProviderConfigured(provider) {
-    if (provider === 'openai') return Boolean(ctx.state.providerKeys?.openai?.configured || ctx.state.openAiReady);
-    if (provider === 'claude') return Boolean(ctx.state.providerKeys?.claude?.configured || ctx.state.anthropicReady);
-    return true;
-  }
-
-  function isSourceConfigured(kind, source) {
-    if (kind === 'transcription' && source === 'browser') return Boolean(globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition);
-    return isProviderConfigured(source);
-  }
 
   function clearPendingSelection(provider) {
     if (ctx.state.pendingProviderSelection?.provider === provider) {
@@ -99,17 +82,18 @@ export function createRuntime(ctx, deps = {}) {
     });
   }
 
-  function addLine(line) {
+  function addLine(line, { source = 'manual', mode = ctx.state.mode } = {}) {
     const clean = normalizeText(line);
     if (!clean) return;
     const nextItems = createTranscriptItems({
       text: clean,
-      mode: ctx.state.mode,
-      source: 'manual'
+      mode,
+      source
     });
     if (!nextItems.length) return;
     ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, nextItems);
     renderDisplay(ctx);
+    showRecentTranscript();
   }
 
   function undoLine() {
@@ -122,19 +106,15 @@ export function createRuntime(ctx, deps = {}) {
     renderDisplay(ctx);
   }
 
-  function recentTranscript(seconds = 30) {
-    const pruneBefore = Date.now() - 5 * 60 * 1000;
-    ctx.state.transcriptChunks = ctx.state.transcriptChunks.filter((chunk) => chunk.at >= pruneBefore);
-    const cutoff = Date.now() - seconds * 1000;
-    return ctx.state.transcriptChunks
-      .filter((chunk) => chunk.at >= cutoff)
-      .map((chunk) => chunk.text)
-      .join(' ')
-      .trim();
-  }
-
   function showRecentTranscript() {
-    ctx.dom.liveTranscript.textContent = [recentTranscript(20), ctx.state.transcriptPreview].filter(Boolean).join(' ').trim();
+    ctx.state.transcriptChunks = ctx.state.transcriptChunks.filter((chunk) => chunk.at >= Date.now() - 5 * 60 * 1000);
+    const preview = buildLiveTranscriptText(ctx.state.transcriptChunks, ctx.state.transcriptPreview);
+    if (ctx.dom.liveTranscript) {
+      ctx.dom.liveTranscript.textContent = preview;
+    }
+    if (ctx.dom.railTranscript) {
+      ctx.dom.railTranscript.textContent = preview;
+    }
   }
 
   function handleTranscriptEvent(event) {
@@ -187,7 +167,9 @@ export function createRuntime(ctx, deps = {}) {
 
   async function summarizeCurrentText(text) {
     if (ctx.state.paused) return;
-    const recent = normalizeText(text || recentTranscript(30));
+    const recent = normalizeText(
+      text || buildLiveTranscriptText(ctx.state.transcriptChunks, ctx.state.transcriptPreview, { seconds: 30 })
+    );
     if (!recent || recent === ctx.state.lastSentText) return;
     ctx.state.lastSentText = recent;
     updateStatus(ctx, 'Summarizing...');
@@ -202,7 +184,7 @@ export function createRuntime(ctx, deps = {}) {
 
       if (ctx.state.paused) return;
       if (result.line) {
-        addLine(result.line);
+        addLine(result.line, { source: 'ai', mode: ctx.state.mode });
         updateStatus(ctx, `Added: ${result.line}`);
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.');
@@ -223,13 +205,14 @@ export function createRuntime(ctx, deps = {}) {
 
   function setFontSize(nextSize) {
     ctx.state.fontSize = clampFontSize(nextSize, ctx.state.fontSize);
-    saveViewerSettings();
+    saveViewerSettings(ctx);
     syncViewerControls(ctx);
   }
 
   function setDisplayMargin(nextMargin) {
     ctx.state.displayMargin = clampDisplayMargin(nextMargin, ctx.state.displayMargin);
-    saveViewerSettings();
+    flashDisplayMarginGuides(ctx, { setTimeoutFn, clearTimeoutFn });
+    saveViewerSettings(ctx);
     syncViewerControls(ctx);
   }
 
@@ -460,7 +443,9 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.anthropicReady = Boolean(
       ctx.state.providerKeys.claude?.configured || ctx.state.serverAnthropicReady
     );
-    refreshProviderAvailability();
+    updateProviderAvailability();
+    updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
   }
 
   function updateProviderAvailability() {
@@ -482,10 +467,9 @@ export function createRuntime(ctx, deps = {}) {
     deleteProviderKey,
     focusProviderKey: openSettingsForProvider,
     isTypingTarget,
-    isProviderConfigured,
-    isSourceConfigured,
+    isProviderConfigured: (provider) => isProviderConfigured(ctx, provider),
+    isSourceConfigured: (kind, source) => isSourceConfigured(ctx, kind, source),
     loadRuntimeConfig,
-    recentTranscript,
     setDisplayMargin,
     setFontSize,
     setMode,
@@ -494,7 +478,6 @@ export function createRuntime(ctx, deps = {}) {
     setSummarizationSource,
     setTranscriptionSource,
     promptProviderSetup,
-    refreshProviderAvailability,
     saveProviderKey,
     showRecentTranscript,
     startListening,
@@ -509,7 +492,7 @@ export function createRuntime(ctx, deps = {}) {
     setSettingsOpen: (open, options) => setSettingsOpen(ctx, open, options),
     updateSourceButtons: () => updateSourceButtons(ctx),
     syncViewerControls: () => syncViewerControls(ctx),
-    saveViewerSettings,
+    saveViewerSettings: () => saveViewerSettings(ctx),
     renderDisplay: () => renderDisplay(ctx)
   };
 }

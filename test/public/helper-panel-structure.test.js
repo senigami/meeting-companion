@@ -73,6 +73,7 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(html, /class=(?:"[^"]*\brailBody\b[^"]*"|'[^']*\brailBody\b[^']*')/, '.railBody');
   assertContains(html, /class=(?:"[^"]*\bmanualBar\b[^"]*"|'[^']*\bmanualBar\b[^']*')/, '.manualBar');
   assertContains(html, /class=(?:"[^"]*\bmanualBarInner\b[^"]*"|'[^']*\bmanualBarInner\b[^']*')/, '.manualBarInner');
+  assertContains(html, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
   assertContains(html, /class=(?:"[^"]*\bsettingsOverlay\b[^"]*"|'[^']*\bsettingsOverlay\b[^']*')/, '.settingsOverlay');
   assertContains(html, /class=(?:"[^"]*\bsettingsModal\b[^"]*"|'[^']*\bsettingsModal\b[^']*')/, '.settingsModal');
   assertContains(html, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
@@ -90,6 +91,8 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assert.ok(railMatch, 'Operator rail is missing');
   const rail = railMatch[0];
   assertContains(rail, /class=(?:"[^"]*\brailActions\b[^"]*"|'[^']*\brailActions\b[^']*')/, '.railActions');
+  assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
+  assertContains(rail, /class=(?:"[^"]*\brailTranscriptDisclosure\b[^"]*"|'[^']*\brailTranscriptDisclosure\b[^']*')/, '.railTranscriptDisclosure');
   assertNotContains(rail, /<h1\b/i, 'large Controls heading');
   assertNotContains(rail, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 
@@ -147,4 +150,6 @@ test('helper panel keeps quick actions compact and settings centered', async () 
     assertNotContains(settings, selector, description);
     assertNotContains(alerts, selector, description);
   }
+
+  assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
 });

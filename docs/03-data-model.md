@@ -10,6 +10,8 @@ The server keeps no durable business data. It only receives JSON payloads for co
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
+The helper surface also keeps a compact raw transcript preview in the operator rail so the operator can see the incoming stream without scrolling the TV display.
+
 Provider keys are treated as server-managed configuration when the helper saves them in Settings. The app stores them in the running local server process, never echoes the full secret in diagnostics, and only returns masked status to the browser.
 
 ## Runtime state
@@ -20,6 +22,7 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | `mode` | `speaker` \| `information` \| `song` \| `prayer` | The summarization mode chosen by the helper. |
 | `paused` | `boolean` | Whether AI summarization and transcription should stop producing new lines. |
 | `fontSize` | `number` | The large-print size used by the TV display. |
+| `displayMargin` | `number` | Percentage-based inset used to place the red display guides and tune line wrapping on any screen size. |
 | `transcriptChunks` | `{ text: string, at: number }[]` | Recent final transcript chunks used to build summary context. |
 | `transcriptPreview` | `string` | The latest partial transcription text shown in the helper panel. |
 | `listening` | `boolean` | Whether transcription is active. |

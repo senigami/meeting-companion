@@ -9,3 +9,4 @@
 7. Tighten or loosen the display with `Margins`.
 8. Increase or decrease `Text size` for the room.
 9. Slow down or speed up `Update interval` if summaries are too fast or too slow.
+10. Use `http://localhost:3000/?demo=1` before Sunday if you want to rehearse the layout with sample cards.

@@ -14,6 +14,7 @@ import {
   updateSourceButtons
 } from './view.js';
 import { createRuntime } from './runtime.js';
+import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -32,6 +33,7 @@ export function startApp() {
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
+      displayMarginGuidesVisible: false,
       transcriptChunks: [],
       transcriptPreview: '',
       listening: false,
@@ -59,6 +61,7 @@ export function startApp() {
       pasteTranscript: $('pasteTranscript'),
       status: $('status'),
       liveTranscript: $('liveTranscript'),
+      railTranscript: $('railTranscript'),
       fontSizeInput: $('fontSize'),
       fontSizeValue: $('fontSizeValue'),
       displayMarginInput: $('displayMargin'),
@@ -94,6 +97,7 @@ export function startApp() {
       claudeKeyTest: $('claudeKeyTest'),
       claudeKeyDelete: $('claudeKeyDelete'),
       pauseAi: $('pauseAi'),
+      pauseAiLabel: $('pauseAiLabel'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
@@ -124,7 +128,12 @@ export function startApp() {
   setSettingsOpen(ctx, false);
   renderDisplay(ctx);
   runtime.showRecentTranscript();
-  runtime.loadRuntimeConfig();
+  const runtimeConfig = runtime.loadRuntimeConfig();
+  if (isDemoModeEnabled(globalThis.location?.search)) {
+    runtimeConfig.finally?.(() => {
+      startDemoFeed(runtime);
+    });
+  }
   const ticker = setInterval(runtime.showRecentTranscript, 1000);
   ticker.unref?.();
 }

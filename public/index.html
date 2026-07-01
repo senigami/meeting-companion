@@ -68,7 +68,7 @@
             </button>
             <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" aria-pressed="false">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
-              <span class="buttonLabel">Pause</span>
+              <span id="pauseAiLabel" class="buttonLabel">Pause</span>
             </button>
             <button id="undo" type="button" class="railButton" aria-label="Undo last line">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
@@ -106,6 +106,13 @@
             </button>
           </div>
         </section>
+
+        <details class="helper-disclosure railSection railTranscriptDisclosure" open>
+          <summary class="helper-disclosure-summary section-label">Live transcript</summary>
+          <div class="helper-disclosure-body">
+            <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
+          </div>
+        </details>
       </div>
     </aside>
 
