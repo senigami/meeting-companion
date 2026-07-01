@@ -20,8 +20,7 @@ export function createClaudeSummarizer({
           source: 'claude',
           mode,
           recentTranscript: text,
-          visibleLines,
-          apiKey: String(getApiKey('claude') || '').trim() || undefined
+          visibleLines
         })
       });
 

@@ -20,7 +20,7 @@ Meeting Companion Display is a tiny local helper for one deaf and low-vision per
 
 The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display stays label-light and shows readable transcript cards rather than one dense wall of text.
 
-The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings holds transcription and summary source selection plus provider key setup. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
+The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings holds transcription and summary source selection plus provider key setup. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Provider keys are managed by the local server session, not browser storage. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
 
 ## Key Decisions
 

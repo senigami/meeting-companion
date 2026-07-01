@@ -156,6 +156,94 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
   }
 });
 
+test('runtime treats browser speech recognition as available without microphone capture', async () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+  const originalWindow = global.window;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+
+  const browserButton = createElement({ dataset: { kind: 'transcription', source: 'browser' } });
+
+  global.localStorage = {
+    getItem() {
+      return null;
+    },
+    setItem() {}
+  };
+
+  class FakeSpeechRecognition {
+    start() {}
+    stop() {}
+  }
+
+  global.window = { SpeechRecognition: FakeSpeechRecognition };
+  Object.defineProperty(global, 'navigator', {
+    configurable: true,
+    value: {},
+    writable: true
+  });
+
+  global.document = {
+    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    getElementById(id) {
+      if (id === 'transcriptionBrowser') return browserButton;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-kind="transcription"]') return [browserButton];
+      if (selector === '[data-kind="summarization"]') return [];
+      if (selector === '.mode') return [];
+      return [];
+    },
+    addEventListener() {}
+  };
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [],
+        mode: 'speaker',
+        paused: false,
+        fontSize: 84,
+        displayMargin: 4.5,
+        summaryIntervalSeconds: 5,
+        transcriptChunks: [],
+        transcriptPreview: '',
+        listening: false,
+        loopHandle: null,
+        lastSentText: '',
+        settingsOpen: false,
+        panelOpen: false,
+        transcriptionSource: 'browser',
+        summarizationSource: 'openai',
+        openAiReady: false,
+        anthropicReady: false
+      },
+      dom: {
+        transcriptionButtons: [browserButton],
+        summarizationButtons: [],
+        modeButtons: [],
+        transcriptionBrowser: browserButton
+      }
+    };
+
+    const runtime = createRuntime(ctx);
+
+    assert.equal(runtime.isSourceConfigured('transcription', 'browser'), true);
+    runtime.updateSourceButtons();
+    assert.equal(browserButton.disabled, false);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+    global.window = originalWindow;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(global, 'navigator', originalNavigatorDescriptor);
+    } else {
+      delete global.navigator;
+    }
+  }
+});
+
 test('runtime pauses and resumes the active transcription driver', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
@@ -272,6 +360,102 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     assert.equal(driver.lastStartMode, 'information');
     assert.equal(ctx.state.paused, false);
     assert.equal(ctx.state.listening, true);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+  }
+});
+
+test('settings open state keeps alert and settings buttons in sync', async () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+
+  const elements = {
+    status: createElement({ textContent: '' }),
+    display: createElement(),
+    panel: createElement(),
+    manualInput: createElement(),
+    liveTranscript: createElement(),
+    fontSizeInput: createElement({ value: '84' }),
+    fontSizeValue: createElement({ textContent: '' }),
+    displayMarginInput: createElement({ value: '4.5' }),
+    displayMarginValue: createElement({ textContent: '' }),
+    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    apiWarning: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
+    settingsButton: createElement({ hidden: true }),
+    closeSettings: createElement(),
+    startListening: createElement(),
+    stopListening: createElement({ disabled: true }),
+    pauseAi: createElement(),
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement()
+  };
+
+  global.localStorage = {
+    getItem() {
+      return null;
+    },
+    setItem() {}
+  };
+
+  global.document = {
+    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    getElementById(id) {
+      return elements[id] || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-kind="transcription"]') return [];
+      if (selector === '[data-kind="summarization"]') return [];
+      if (selector === '.mode') return [];
+      return [];
+    },
+    addEventListener() {}
+  };
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [],
+        mode: 'speaker',
+        paused: false,
+        fontSize: 84,
+        displayMargin: 4.5,
+        summaryIntervalSeconds: 5,
+        transcriptChunks: [],
+        transcriptPreview: '',
+        listening: false,
+        loopHandle: null,
+        lastSentText: '',
+        settingsOpen: false,
+        panelOpen: false,
+        transcriptionSource: 'browser',
+        summarizationSource: 'openai',
+        openAiReady: false,
+        anthropicReady: false
+      },
+      dom: {
+        ...elements,
+        modeButtons: [],
+        transcriptionButtons: [],
+        summarizationButtons: []
+      }
+    };
+
+    const runtime = createRuntime(ctx);
+    runtime.setSettingsOpen(true);
+
+    assert.equal(elements.settingsButton.attributes['aria-expanded'], 'true');
+    assert.equal(elements.alertButton.attributes['aria-expanded'], 'true');
+
+    runtime.setSettingsOpen(false);
+
+    assert.equal(elements.settingsButton.attributes['aria-expanded'], 'false');
+    assert.equal(elements.alertButton.attributes['aria-expanded'], 'false');
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

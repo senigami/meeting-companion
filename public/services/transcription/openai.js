@@ -52,8 +52,7 @@ export function createOpenAITranscriptionDriver({
           audioBase64,
           mimeType: blob.type || recorder?.mimeType || 'audio/webm',
           filename: `meeting-companion-${currentSession}.webm`,
-          mode,
-          apiKey: String(getApiKey('openai') || '').trim() || undefined
+          mode
         })
       });
 

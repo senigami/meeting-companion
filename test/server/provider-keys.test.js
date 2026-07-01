@@ -91,21 +91,21 @@ async function invoke(app, requestOptions) {
   return finished();
 }
 
-test('provider key test endpoint validates local override credentials', async () => {
-  let openaiKey = null;
-  let anthropicKey = null;
+test('provider keys stay on the server and surface through config/status routes', async () => {
+  let openaiClientKeys = [];
+  let anthropicKeys = [];
 
   const app = createApp({
     createOpenAIClientFn: (apiKey) => {
-      openaiKey = apiKey;
+      openaiClientKeys.push(apiKey);
       return {
         models: {
           list: async () => ({ data: [] })
         }
       };
     },
-    fetchImpl: async (url, options) => {
-      anthropicKey = options.headers['x-api-key'];
+    fetchImpl: async (url, options = {}) => {
+      anthropicKeys.push(options.headers?.['x-api-key'] || '');
       return {
         ok: true,
         json: async () => ({ content: [{ type: 'text', text: 'ok' }] })
@@ -113,26 +113,60 @@ test('provider key test endpoint validates local override credentials', async ()
     }
   });
 
-  const openaiResponse = await invoke(app, {
+  const saveOpenAI = await invoke(app, {
     method: 'POST',
-    url: '/api/provider/test',
+    url: '/api/provider/key',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ provider: 'openai', apiKey: 'local-openai-key' })
   });
-  const openaiData = JSON.parse(openaiResponse.body);
+  assert.equal(saveOpenAI.statusCode, 200);
 
-  const claudeResponse = await invoke(app, {
+  const openaiConfig = JSON.parse((await invoke(app, { method: 'GET', url: '/api/config' })).body);
+  assert.equal(openaiConfig.providerKeys.openai.configured, true);
+  assert.equal(openaiConfig.providerKeys.openai.origin, 'local');
+  assert.match(openaiConfig.providerKeys.openai.masked, /^sk?|^loc/);
+  assert.doesNotMatch(JSON.stringify(openaiConfig), /local-openai-key/);
+
+  const openaiTest = JSON.parse((await invoke(app, {
     method: 'POST',
     url: '/api/provider/test',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'openai' })
+  })).body);
+  assert.equal(openaiTest.ok, true);
+  assert.equal(openaiClientKeys.at(-1), 'local-openai-key');
+
+  const saveClaude = await invoke(app, {
+    method: 'POST',
+    url: '/api/provider/key',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ provider: 'claude', apiKey: 'local-claude-key' })
   });
-  const claudeData = JSON.parse(claudeResponse.body);
+  assert.equal(saveClaude.statusCode, 200);
 
-  assert.equal(openaiResponse.statusCode, 200);
-  assert.equal(openaiData.ok, true);
-  assert.equal(openaiKey, 'local-openai-key');
-  assert.equal(claudeResponse.statusCode, 200);
-  assert.equal(claudeData.ok, true);
-  assert.equal(anthropicKey, 'local-claude-key');
+  const claudeTest = JSON.parse((await invoke(app, {
+    method: 'POST',
+    url: '/api/provider/test',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'claude' })
+  })).body);
+  assert.equal(claudeTest.ok, true);
+  assert.equal(anthropicKeys.at(-1), 'local-claude-key');
+
+  await invoke(app, {
+    method: 'DELETE',
+    url: '/api/provider/key',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'openai' })
+  });
+  await invoke(app, {
+    method: 'DELETE',
+    url: '/api/provider/key',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'claude' })
+  });
+
+  const clearedConfig = JSON.parse((await invoke(app, { method: 'GET', url: '/api/config' })).body);
+  assert.equal(clearedConfig.providerKeys.openai.configured, false);
+  assert.equal(clearedConfig.providerKeys.claude.configured, false);
 });
