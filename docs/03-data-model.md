@@ -4,13 +4,13 @@
 
 ## Overview
 
-The app keeps its working state in memory in the browser. A small amount of user preference state is stored in `localStorage` so the helper does not have to reset font size or source selection on every refresh.
+The app keeps its working state in memory in the browser. A small amount of user preference state is stored in `localStorage` so the helper does not have to reset font size on every refresh.
 
-The server keeps no durable business data. It only receives JSON payloads for config, transcription, and summarization, then returns compact JSON responses.
+The server keeps no durable business data. It only receives JSON payloads for config, provider-key management, transcription, and summarization, then returns compact JSON responses.
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
-Provider keys are treated as browser-local configuration when the helper saves them in Settings. The app stores only a masked local copy, never echoes the full secret in diagnostics, and uses the saved value when testing or sending provider requests from this browser.
+Provider keys are treated as server-managed configuration when the helper saves them in Settings. The app stores them in the running local server process, never echoes the full secret in diagnostics, and only returns masked status to the browser.
 
 ## Runtime state
 
@@ -27,7 +27,7 @@ Provider keys are treated as browser-local configuration when the helper saves t
 | `summarizationSource` | `openai` \| `claude` | Which summarization driver is active. The runtime falls back to an available provider when the selected one is not configured. |
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
 | `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
-| `providerKeys` | `{ openai?: string, claude?: string }` | Browser-local provider overrides saved in Settings. |
+| `providerKeys` | `Record<'openai' | 'claude', { configured: boolean, origin: string, label: string, masked: string }>` | Masked provider configuration status returned by the server. |
 
 ## Transcript item shape
 
@@ -64,6 +64,8 @@ The server accepts and returns these JSON shapes:
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
 | `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
+| `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
+| `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |
 | `POST /api/provider/test` | `{ provider, apiKey }` | `{ ok: true }` or `{ error }` |
 
 ## Related specs

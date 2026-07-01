@@ -1,7 +1,6 @@
 import {
   summaryIntervalSliderIndexFromSeconds
 } from '../services/view-settings.js';
-import { getProviderKeyState } from '../services/provider-credentials.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -69,6 +68,10 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
   if (ctx.dom.settingsButton) {
     ctx.dom.settingsButton.setAttribute('aria-expanded', String(next));
     ctx.dom.settingsButton.setAttribute('aria-pressed', String(next));
+  }
+  if (ctx.dom.alertButton) {
+    ctx.dom.alertButton.setAttribute('aria-expanded', String(next));
+    ctx.dom.alertButton.setAttribute('aria-pressed', String(next));
   }
 
   if (next) {
@@ -258,10 +261,12 @@ function isSourceUnavailable(ctx, kind, source) {
 }
 
 function syncProviderCard(ctx, provider, refs) {
-  const state = getProviderKeyState({
-    serverReady: provider === 'openai' ? ctx.state.serverOpenAiReady : ctx.state.serverAnthropicReady,
-    localKey: ctx.state.providerKeys?.[provider] || ''
-  });
+  const state = ctx.state.providerKeys?.[provider] || {
+    configured: false,
+    origin: 'missing',
+    label: 'Needs key',
+    masked: ''
+  };
 
   if (refs.description) {
     refs.description.textContent = state.origin === 'local'
@@ -330,17 +335,21 @@ function getProviderState(ctx, kind, source) {
   }
 
   if (source === 'openai') {
-    return getProviderKeyState({
-      serverReady: Boolean(ctx.state.serverOpenAiReady),
-      localKey: ctx.state.providerKeys?.openai || ''
-    });
+    return ctx.state.providerKeys?.openai || {
+      configured: Boolean(ctx.state.serverOpenAiReady),
+      origin: Boolean(ctx.state.serverOpenAiReady) ? 'server' : 'missing',
+      label: Boolean(ctx.state.serverOpenAiReady) ? 'Configured on server' : 'Needs key',
+      masked: ''
+    };
   }
 
   if (source === 'claude') {
-    return getProviderKeyState({
-      serverReady: Boolean(ctx.state.serverAnthropicReady),
-      localKey: ctx.state.providerKeys?.claude || ''
-    });
+    return ctx.state.providerKeys?.claude || {
+      configured: Boolean(ctx.state.serverAnthropicReady),
+      origin: Boolean(ctx.state.serverAnthropicReady) ? 'server' : 'missing',
+      label: Boolean(ctx.state.serverAnthropicReady) ? 'Configured on server' : 'Needs key',
+      masked: ''
+    };
   }
 
   return {
@@ -372,7 +381,7 @@ function buildAlerts(ctx) {
 }
 
 function browserSpeechAvailable() {
-  return Boolean(globalThis.navigator?.mediaDevices?.getUserMedia);
+  return Boolean(globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition);
 }
 
 function isTranscriptNearBottom(viewport, threshold = 96) {

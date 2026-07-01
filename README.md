@@ -14,7 +14,7 @@ It runs on a laptop connected to a TV and shows a large-print stack of digestibl
 - Helper can choose modes: Speaker, Information, Song, Prayer.
 - Helper can choose transcription source: Browser or OpenAI from Settings.
 - Helper can choose summarization source: OpenAI or Claude from Settings.
-- Helper can save, test, replace, or delete local browser provider keys in Settings.
+- Helper can save, test, replace, or delete provider keys in Settings. Keys stay on the local server for the running app session and are masked in the UI.
 - Helper can adjust text size, margins, and update interval.
 - Helper can undo, clear, pause AI, and collapse the extras with `H`.
 - Quick controls stay visible.
@@ -53,7 +53,7 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 PORT=3000
 ```
 
-The app stays local. It does not save audio or transcripts unless you add that later.
+The app stays local. It does not save audio or transcripts unless you add that later. Provider keys are stored on the local server for the running session, not in browser storage.
 
 ## Sunday use
 

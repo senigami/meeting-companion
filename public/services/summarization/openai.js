@@ -19,8 +19,7 @@ export function createOpenAISummarizer({
         body: JSON.stringify({
           mode,
           recentTranscript: text,
-          visibleLines,
-          apiKey: String(getApiKey('openai') || '').trim() || undefined
+          visibleLines
         })
       });
 

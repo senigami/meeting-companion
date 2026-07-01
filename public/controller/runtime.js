@@ -10,12 +10,6 @@ import {
 } from '../services/registry.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
-  deleteProviderKey as removeProviderKey,
-  getProviderKeyState,
-  readProviderKeys,
-  saveProviderKey as storeProviderKey
-} from '../services/provider-credentials.js';
-import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds
@@ -57,22 +51,21 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function refreshProviderAvailability() {
-    ctx.state.providerKeys = readProviderKeys(localStorage);
-    ctx.state.openAiReady = Boolean(ctx.state.serverOpenAiReady || ctx.state.providerKeys.openai);
-    ctx.state.anthropicReady = Boolean(ctx.state.serverAnthropicReady || ctx.state.providerKeys.claude);
+    ctx.state.openAiReady = Boolean(ctx.state.providerKeys?.openai?.configured || ctx.state.serverOpenAiReady);
+    ctx.state.anthropicReady = Boolean(ctx.state.providerKeys?.claude?.configured || ctx.state.serverAnthropicReady);
     updateProviderAvailability();
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);
   }
 
   function isProviderConfigured(provider) {
-    if (provider === 'openai') return Boolean(ctx.state.openAiReady);
-    if (provider === 'claude') return Boolean(ctx.state.anthropicReady);
+    if (provider === 'openai') return Boolean(ctx.state.providerKeys?.openai?.configured || ctx.state.openAiReady);
+    if (provider === 'claude') return Boolean(ctx.state.providerKeys?.claude?.configured || ctx.state.anthropicReady);
     return true;
   }
 
   function isSourceConfigured(kind, source) {
-    if (kind === 'transcription' && source === 'browser') return Boolean(globalThis.navigator?.mediaDevices?.getUserMedia);
+    if (kind === 'transcription' && source === 'browser') return Boolean(globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition);
     return isProviderConfigured(source);
   }
 
@@ -94,6 +87,10 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function openSettingsForProvider(provider) {
+    if (provider === 'browser') {
+      updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
+      return;
+    }
     setSettingsOpen(ctx, true);
     globalThis.requestAnimationFrame?.(() => {
       const target = provider === 'claude' ? ctx.dom.claudeKeyInput : ctx.dom.openaiKeyInput;
@@ -157,16 +154,14 @@ export function createRuntime(ctx, deps = {}) {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl,
-      getApiKey: (provider) => ctx.state.providerKeys?.[provider] || ''
+      fetchImpl
     });
   }
 
   function buildSummarizationDriver() {
     return createSummarizationDriverFn(ctx.state.summarizationSource, {
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl,
-      getApiKey: (provider) => ctx.state.providerKeys?.[provider] || ''
+      fetchImpl
     });
   }
 
@@ -333,20 +328,32 @@ export function createRuntime(ctx, deps = {}) {
 
   function promptProviderSetup(kind, source) {
     if (!kind || !source) return;
+    if (source === 'browser') {
+      updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
+      return;
+    }
     ctx.state.pendingProviderSelection = { kind, source };
     updateStatus(ctx, `Add a ${source === 'openai' ? 'OpenAI' : 'Claude'} key to use this provider.`);
     openSettingsForProvider(source);
   }
 
-  function saveProviderKey(provider, value) {
+  async function saveProviderKey(provider, value) {
     const clean = normalizeText(value || '');
     if (!clean) {
       updateStatus(ctx, `Paste a ${provider === 'claude' ? 'Claude' : 'OpenAI'} key before saving.`);
       return;
     }
-    storeProviderKey(localStorage, provider, clean);
-    refreshProviderAvailability();
-    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key saved locally in this browser.`);
+    const response = await fetchImpl('/api/provider/key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, apiKey: clean })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Saving provider key failed.');
+    }
+    applyProviderConfig(data);
+    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key saved.`);
     applyPendingSelection(provider);
   }
 
@@ -372,10 +379,18 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  function deleteProviderKey(provider) {
-    removeProviderKey(localStorage, provider);
-    refreshProviderAvailability();
-    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} local key removed.`);
+  async function deleteProviderKey(provider) {
+    const response = await fetchImpl('/api/provider/key', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Deleting provider key failed.');
+    }
+    applyProviderConfig(data);
+    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key removed.`);
     clearPendingSelection(provider);
   }
 
@@ -421,9 +436,7 @@ export function createRuntime(ctx, deps = {}) {
       const response = await fetch('/api/config');
       if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
-      ctx.state.serverOpenAiReady = Boolean(data.hasOpenAIKey);
-      ctx.state.serverAnthropicReady = Boolean(data.hasAnthropicKey);
-      refreshProviderAvailability();
+      applyProviderConfig(data);
       await ensureSelectedSummarizationSourceExists();
       await ensureSelectedTranscriptionSourceExists();
     } catch (error) {
@@ -435,6 +448,19 @@ export function createRuntime(ctx, deps = {}) {
       }
       updateStatus(ctx, `Could not read AI status: ${error.message}`);
     }
+  }
+
+  function applyProviderConfig(data = {}) {
+    ctx.state.providerKeys = data.providerKeys || ctx.state.providerKeys || {};
+    ctx.state.serverOpenAiReady = Boolean(data.hasOpenAIKey);
+    ctx.state.serverAnthropicReady = Boolean(data.hasAnthropicKey);
+    ctx.state.openAiReady = Boolean(
+      ctx.state.providerKeys.openai?.configured || ctx.state.serverOpenAiReady
+    );
+    ctx.state.anthropicReady = Boolean(
+      ctx.state.providerKeys.claude?.configured || ctx.state.serverAnthropicReady
+    );
+    refreshProviderAvailability();
   }
 
   function updateProviderAvailability() {

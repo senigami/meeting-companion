@@ -7,7 +7,7 @@
 The app uses AI in two places: speech transcription and summary generation. Those are separate responsibilities and are routed through separate source adapters so they can evolve independently.
 
 The browser source is preferred when it is available because it keeps transcription local to the laptop. OpenAI is available as a modular source for transcription, and OpenAI or Claude can provide summaries.
-When the helper saves a provider key in Settings, the key stays local to that browser profile unless the server is using an environment variable. The UI should show masked key status only and never reveal the full secret in diagnostics.
+When the helper saves a provider key in Settings, the key stays in the running local server process unless the server is using an environment variable. The UI should show masked key status only and never reveal the full secret in diagnostics.
 
 ## Source rules
 
@@ -16,6 +16,7 @@ When the helper saves a provider key in Settings, the key stays local to that br
 - OpenAI summarization and Claude summarization are both first-class summary source options.
 - Adding another source must happen by adding a module and registering it in the catalog and registry.
 - Provider selection should stay tied to configuration: if a provider has no key, the UI should prompt for setup instead of pretending it is ready.
+- Provider keys are never written to browser storage.
 
 ## Prompt rules
 

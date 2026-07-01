@@ -16,9 +16,9 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 - Slim operator rail controls for manual typing, modes, view options, undo, clear, pause, fullscreen, and Settings access.
 - Settings for transcription source, summarization source, provider keys, alerts, and diagnostics.
 - Browser transcription when the browser supports it.
-- OpenAI transcription and OpenAI or Claude summarization when the relevant API key is configured or supplied locally for this browser.
+- OpenAI transcription and OpenAI or Claude summarization when the relevant API key is configured on the local server or saved through Settings.
 - Keyboard shortcuts for the helper workflow.
-- Local storage only for UI preferences and provider keys the helper saves in this browser.
+- Local storage only for UI preferences. Provider keys stay on the local server for the running session.
 
 ## Out of scope
 

@@ -4,7 +4,6 @@ import {
   clampSummaryIntervalSeconds,
   summaryIntervalSecondsFromSliderIndex
 } from '../services/view-settings.js';
-import { readProviderKeys } from '../services/provider-credentials.js';
 import {
   renderDisplay,
   bindTranscriptViewport,
@@ -49,7 +48,7 @@ export function startApp() {
       anthropicReady: false,
       serverOpenAiReady: false,
       serverAnthropicReady: false,
-      providerKeys: readProviderKeys(localStorage)
+      providerKeys: {}
     },
     dom: {
       display: $('display'),
@@ -121,7 +120,6 @@ export function startApp() {
   updateSourceButtons(ctx);
   updatePauseButton(ctx);
   syncViewerControls(ctx);
-  runtime.refreshProviderAvailability();
   runtime.saveViewerSettings();
   setSettingsOpen(ctx, false);
   renderDisplay(ctx);
@@ -196,21 +194,39 @@ function wireProviderActions(ctx, runtime, provider) {
   const remove = ctx.dom[`${prefix}KeyDelete`];
 
   save?.addEventListener('click', () => {
-    runtime.saveProviderKey(provider, input?.value || '');
-    if (input) input.value = '';
+    runtime.saveProviderKey(provider, input?.value || '')
+      .then(() => {
+        if (input) input.value = '';
+      })
+      .catch((error) => {
+        runtime.setSettingsOpen(true);
+        $('status').textContent = error.message;
+      });
   });
 
-  test?.addEventListener('click', () => runtime.testProviderKey(provider, input?.value || ''));
+  test?.addEventListener('click', () => runtime.testProviderKey(provider, input?.value || '').catch((error) => {
+    $('status').textContent = error.message;
+  }));
   remove?.addEventListener('click', () => {
-    runtime.deleteProviderKey(provider);
-    if (input) input.value = '';
+    runtime.deleteProviderKey(provider)
+      .then(() => {
+        if (input) input.value = '';
+      })
+      .catch((error) => {
+        $('status').textContent = error.message;
+      });
   });
 
   input?.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    runtime.saveProviderKey(provider, input.value || '');
-    input.value = '';
+    runtime.saveProviderKey(provider, input.value || '')
+      .then(() => {
+        input.value = '';
+      })
+      .catch((error) => {
+        $('status').textContent = error.message;
+      });
   });
 }
 

@@ -13,6 +13,8 @@ All request and response bodies are JSON except the static asset routes. The cli
 | Route | Method | Purpose | Response shape |
 | --- | --- | --- | --- |
 | `/api/config` | `GET` | Report provider availability and source metadata. | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
+| `/api/provider/key` | `POST` | Save a provider key in the local server session. | `{ ok: true, provider, providerKeys }` |
+| `/api/provider/key` | `DELETE` | Delete a provider key from the local server session. | `{ ok: true, provider, providerKeys }` |
 | `/api/transcribe` | `POST` | Transcribe a short audio chunk with OpenAI. | `{ text }` or `{ error }` |
 | `/api/summarize` | `POST` | Summarize recent transcript text into one useful line. | `{ line, reason? }` or `{ error }` |
 | `/api/provider/test` | `POST` | Validate a candidate OpenAI or Claude key without exposing it back to the UI. | `{ ok: true }` or `{ error }` |
@@ -23,7 +25,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 - Treat missing audio on `/api/transcribe` as an empty transcription request and return `{ text: "" }`.
 - Accept `mode` values `speaker`, `information`, `song`, and `prayer`.
 - Accept `source` values `openai` and `claude` on `/api/summarize`.
-- Accept optional `apiKey` overrides on `/api/transcribe`, `/api/summarize`, and `/api/provider/test` for local browser-saved provider keys.
+- Accept optional `apiKey` overrides on `/api/transcribe`, `/api/summarize`, and `/api/provider/test` for ad hoc provider checks.
 - Send only the recent transcript text and visible lines needed to make the summary decision.
 
 ## Error handling
