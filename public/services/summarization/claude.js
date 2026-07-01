@@ -1,10 +1,12 @@
 import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
+import { fetchWithTimeout } from '../fetch-timeout.js';
 
 export function createClaudeSummarizer({
   fetchImpl = fetch,
   onStatus = () => {},
-  getApiKey = () => ''
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout
 } = {}) {
   return {
     id: 'claude',
@@ -13,7 +15,7 @@ export function createClaudeSummarizer({
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
-      const response = await fetchImpl('/api/summarize', {
+      const response = await fetchWithTimeout(fetchImpl, '/api/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -22,7 +24,7 @@ export function createClaudeSummarizer({
           recentTranscript: text,
           visibleLines
         })
-      });
+      }, { setTimeoutFn, clearTimeoutFn });
 
       const data = await readResponseJson(response);
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));

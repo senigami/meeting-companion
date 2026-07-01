@@ -299,3 +299,96 @@ test('runtime registers a service and reveals it in the available source lists',
     assert.match(elements.serviceRegistrationKeyInput.value, /^$/);
   });
 });
+
+test('three consecutive summarize failures escalate the alert surface and double the effective interval', async () => {
+  const failingDriver = {
+    id: 'openai',
+    summarize: async () => {
+      throw new Error('rate limited');
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => failingDriver,
+    stateOverrides: {
+      summaryIntervalSeconds: 5,
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.summarizeCurrentText('first failure text');
+    assert.equal(ctx.state.summarizeFailureCount, 1);
+    assert.equal(elements.alertsSection.hidden, true);
+
+    await runtime.summarizeCurrentText('second failure text');
+    assert.equal(ctx.state.summarizeFailureCount, 2);
+    assert.equal(elements.alertsSection.hidden, true);
+
+    await runtime.summarizeCurrentText('third failure text');
+    assert.equal(ctx.state.summarizeFailureCount, 3);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.apiWarning.hidden, false);
+    assert.match(elements.apiWarning.textContent, /AI summaries are failing\. Manual lines still work\./);
+    assert.equal(ctx.state.effectiveIntervalSeconds, 10);
+  });
+});
+
+test('a summarize success after failures clears the alert, resets the counter, and restores the interval', async () => {
+  let callCount = 0;
+  const flakyDriver = {
+    id: 'openai',
+    summarize: async () => {
+      callCount += 1;
+      if (callCount <= 3) {
+        throw new Error('rate limited');
+      }
+      return { line: '' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => flakyDriver,
+    stateOverrides: {
+      summaryIntervalSeconds: 5,
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.summarizeCurrentText('failure one');
+    await runtime.summarizeCurrentText('failure two');
+    await runtime.summarizeCurrentText('failure three');
+
+    assert.equal(ctx.state.summarizeFailureCount, 3);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.equal(ctx.state.effectiveIntervalSeconds, 10);
+
+    await runtime.summarizeCurrentText('now it works');
+
+    assert.equal(ctx.state.summarizeFailureCount, 0);
+    assert.equal(ctx.state.effectiveIntervalSeconds, null);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+    assert.equal(elements.apiWarning.hidden, true);
+    assert.equal(elements.apiWarning.textContent, '');
+  });
+});
+
+test('a summarize success without prior failures does not touch the alert surface', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: '' })
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      summaryIntervalSeconds: 5,
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.summarizeCurrentText('all good');
+
+    assert.equal(ctx.state.summarizeFailureCount, 0);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+  });
+});

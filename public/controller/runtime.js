@@ -7,6 +7,7 @@ import {
   createSummarizationDriver,
   createTranscriptionDriver
 } from '../services/registry.js';
+import { fetchWithTimeout } from '../services/fetch-timeout.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
   clampDisplayMargin,
@@ -133,14 +134,18 @@ export function createRuntime(ctx, deps = {}) {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl
+      fetchImpl,
+      setTimeoutFn,
+      clearTimeoutFn
     });
   }
 
   function buildSummarizationDriver() {
     return createSummarizationDriverFn(ctx.state.summarizationSource, {
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl
+      fetchImpl,
+      setTimeoutFn,
+      clearTimeoutFn
     });
   }
 
@@ -160,8 +165,52 @@ export function createRuntime(ctx, deps = {}) {
 
   function startLoop() {
     clearInterval(ctx.state.loopHandle);
-    ctx.state.loopHandle = setInterval(() => summarizeCurrentText(), ctx.state.summaryIntervalSeconds * 1000);
+    const intervalSeconds = ctx.state.effectiveIntervalSeconds || ctx.state.summaryIntervalSeconds;
+    ctx.state.loopHandle = setInterval(() => summarizeCurrentText(), intervalSeconds * 1000);
     ctx.state.loopHandle.unref?.();
+  }
+
+  function clearSummarizeFailureAlert() {
+    if (!ctx.state.summarizeFailureAlertActive) return;
+    ctx.state.summarizeFailureAlertActive = false;
+    if (ctx.dom.apiWarning) {
+      ctx.dom.apiWarning.hidden = true;
+      ctx.dom.apiWarning.textContent = '';
+    }
+    if (ctx.dom.alertsSection) {
+      ctx.dom.alertsSection.hidden = true;
+    }
+    if (ctx.dom.settingsAlertBadge) {
+      ctx.dom.settingsAlertBadge.hidden = true;
+    }
+  }
+
+  function resetSummarizeBackoff() {
+    ctx.state.summarizeFailureCount = 0;
+    const hadBackoff = Boolean(ctx.state.effectiveIntervalSeconds);
+    ctx.state.effectiveIntervalSeconds = null;
+    clearSummarizeFailureAlert();
+    if (hadBackoff && ctx.state.listening && !ctx.state.paused) {
+      startLoop();
+    }
+  }
+
+  function escalateSummarizeFailure() {
+    if (ctx.dom.apiWarning) {
+      ctx.dom.apiWarning.hidden = false;
+      ctx.dom.apiWarning.textContent = 'AI summaries are failing. Manual lines still work.';
+    }
+    if (ctx.dom.alertsSection) {
+      ctx.dom.alertsSection.hidden = false;
+    }
+    if (ctx.dom.settingsAlertBadge) {
+      ctx.dom.settingsAlertBadge.hidden = false;
+    }
+    ctx.state.summarizeFailureAlertActive = true;
+    ctx.state.effectiveIntervalSeconds = Math.min(ctx.state.summaryIntervalSeconds * 2, 30);
+    if (ctx.state.listening && !ctx.state.paused) {
+      startLoop();
+    }
   }
 
   async function summarizeCurrentText(text) {
@@ -181,6 +230,8 @@ export function createRuntime(ctx, deps = {}) {
         visibleLines: ctx.state.transcriptItems.slice(-5).map((item) => item.text)
       });
 
+      resetSummarizeBackoff();
+
       if (ctx.state.paused) return;
       if (result.line) {
         addLine(result.line, { source: 'ai', mode: ctx.state.mode });
@@ -189,6 +240,10 @@ export function createRuntime(ctx, deps = {}) {
         updateStatus(ctx, result.reason || 'No new useful line.');
       }
     } catch (error) {
+      ctx.state.summarizeFailureCount = (ctx.state.summarizeFailureCount || 0) + 1;
+      if (ctx.state.summarizeFailureCount === 3) {
+        escalateSummarizeFailure();
+      }
       updateStatus(ctx, `Could not summarize: ${error.message}`);
     }
   }
@@ -360,14 +415,14 @@ export function createRuntime(ctx, deps = {}) {
     const clean = normalizeText(value || ctx.state.providerKeys?.[provider] || '');
     updateStatus(ctx, `Testing ${provider === 'claude' ? 'Claude' : 'OpenAI'} key...`);
     try {
-      const response = await fetchImpl('/api/provider/test', {
+      const response = await fetchWithTimeout(fetchImpl, '/api/provider/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
           apiKey: clean
         })
-      });
+      }, { setTimeoutFn, clearTimeoutFn });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.error || 'Provider test failed.');

@@ -16,6 +16,9 @@ export function createBrowserTranscriptionDriver({
   let recognition = null;
   let listening = false;
   let started = false;
+  let restartFailureCount = 0;
+
+  const MAX_RESTART_FAILURES = 2;
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
@@ -43,6 +46,7 @@ export function createBrowserTranscriptionDriver({
         else interimText += `${text} `;
       }
 
+      restartFailureCount = 0;
       if (finalText.trim()) emit('final', finalText, { source: 'browser' });
       if (interimText.trim()) emit('partial', interimText, { source: 'browser' });
     };
@@ -64,7 +68,14 @@ export function createBrowserTranscriptionDriver({
         try {
           recognition.start();
           started = true;
-        } catch {}
+          restartFailureCount = 0;
+        } catch {
+          restartFailureCount += 1;
+          if (restartFailureCount >= MAX_RESTART_FAILURES) {
+            listening = false;
+            onStatus('Microphone stopped. Click Start to try again.');
+          }
+        }
       }
     };
 
@@ -81,6 +92,7 @@ export function createBrowserTranscriptionDriver({
       const rec = ensureRecognition();
       if (!rec) throw new Error('Speech recognition is not available in this browser.');
       listening = true;
+      restartFailureCount = 0;
       if (!started) {
         rec.start();
         started = true;
