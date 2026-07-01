@@ -15,6 +15,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 | `/api/config` | `GET` | Report provider availability and source metadata. | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
 | `/api/transcribe` | `POST` | Transcribe a short audio chunk with OpenAI. | `{ text }` or `{ error }` |
 | `/api/summarize` | `POST` | Summarize recent transcript text into one useful line. | `{ line, reason? }` or `{ error }` |
+| `/api/provider/test` | `POST` | Validate a candidate OpenAI or Claude key without exposing it back to the UI. | `{ ok: true }` or `{ error }` |
 
 ## Request rules
 
@@ -22,6 +23,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 - Treat missing audio on `/api/transcribe` as an empty transcription request and return `{ text: "" }`.
 - Accept `mode` values `speaker`, `information`, `song`, and `prayer`.
 - Accept `source` values `openai` and `claude` on `/api/summarize`.
+- Accept optional `apiKey` overrides on `/api/transcribe`, `/api/summarize`, and `/api/provider/test` for local browser-saved provider keys.
 - Send only the recent transcript text and visible lines needed to make the summary decision.
 
 ## Error handling
@@ -45,6 +47,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 
 - `/api/transcribe` must keep using `gpt-4o-transcribe` unless the provider wrapper is updated everywhere.
 - `/api/summarize` must keep the prompt policy centralized in `public/services/summary-prompt.js`.
+- `/api/provider/test` must stay lightweight and must not echo the key value back in logs or responses.
 - The server must not save audio or transcripts by default.
 
 ## Related specs

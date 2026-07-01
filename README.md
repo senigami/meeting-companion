@@ -2,7 +2,7 @@
 
 Meeting Companion Display is a small local helper app for church meetings.
 
-It runs on a laptop connected to a TV and shows a large-print stack of digestible transcript cards for one deaf and low-vision viewer. The helper uses a side rail that fills the laptop window to type manual lines, adjust the viewing size, change the margins, and slow down or speed up AI updates when the room pace changes. Less-frequent settings live in a separate Settings disclosure, and live status text plus transcript tools live in Diagnostics.
+It runs on a laptop connected to a TV and shows a large-print stack of digestible transcript cards for one deaf and low-vision viewer. The helper uses a slim operator rail for the live controls, a bottom bar for manual lines, and a centered Settings modal for transcription source, summarization source, provider keys, alerts, and diagnostics. The TV display stays the visual hero.
 
 ![Meeting Companion helper panel showing the warning banner, mode buttons, and viewer controls](public/wiki/screenshots/meeting-companion-render.png)
 
@@ -14,11 +14,12 @@ It runs on a laptop connected to a TV and shows a large-print stack of digestibl
 - Helper can choose modes: Speaker, Information, Song, Prayer.
 - Helper can choose transcription source: Browser or OpenAI from Settings.
 - Helper can choose summarization source: OpenAI or Claude from Settings.
+- Helper can save, test, replace, or delete local browser provider keys in Settings.
 - Helper can adjust text size, margins, and update interval.
 - Helper can undo, clear, pause AI, and collapse the extras with `H`.
 - Quick controls stay visible.
-- Settings keeps source controls out of the main operating surface.
-- Diagnostics keeps status, transcript tools, and recent transcript text separate from the live controls.
+- Settings keeps source controls, provider keys, alerts, and diagnostics out of the main operating surface.
+- The operator rail stays icon-first and compact so the display remains the focus.
 - No database.
 - No saved transcript or audio by default.
 - The screen stays readable from across the room.
@@ -96,7 +97,7 @@ The app stays local. It does not save audio or transcripts unless you add that l
 - The interface uses large type, wide controls, and a high-contrast dark surface.
 - The display and controls are designed to stay readable at a distance and easy to adjust under pressure.
 - The helper controls are dense on purpose, but each control stays labeled and keyboard accessible.
-- The helper panel groups live controls, Settings, and Diagnostics so the operator does not have to parse everything at once.
+- The helper surface is split into a live operator rail, a manual input bar, and a Settings modal so the operator does not have to parse everything at once.
 
 ## Docs
 

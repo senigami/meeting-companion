@@ -50,6 +50,8 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     summaryIntervalValue: createElement({ textContent: '' }),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
     settingsButton: createElement(),
     closeSettings: createElement(),
     startListening: createElement(),
@@ -141,11 +143,12 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     await runtime.loadRuntimeConfig();
 
     assert.equal(ctx.state.summarizationSource, 'claude');
-    assert.equal(summarizationButtons[0].disabled, true);
-    assert.equal(summarizationButtons[1].disabled, false);
-    assert.equal(elements.apiWarning.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OPENAI_API_KEY is missing/i);
-    assert.match(elements.apiWarning.textContent, /Claude summaries are available/i);
+    assert.equal(elements.alertButton.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.equal(summarizationButtons[0].dataset.configured, 'false');
+    assert.equal(summarizationButtons[1].dataset.configured, 'true');
+    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
+    assert.match(elements.apiWarning.textContent, /Claude summaries remain available/i);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
@@ -172,6 +175,8 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     summaryIntervalValue: createElement({ textContent: '' }),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
     settingsButton: createElement(),
     closeSettings: createElement(),
     startListening: createElement(),
@@ -293,6 +298,8 @@ test('runtime falls back to a valid summarization source when persisted source i
     summaryIntervalValue: createElement({ textContent: '' }),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
     settingsButton: createElement(),
     closeSettings: createElement(),
     startListening: createElement(),
@@ -375,8 +382,9 @@ test('runtime falls back to a valid summarization source when persisted source i
     await runtime.loadRuntimeConfig();
 
     assert.equal(ctx.state.summarizationSource, 'openai');
-    assert.equal(elements.apiWarning.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OPENAI_API_KEY is missing/i);
+    assert.equal(elements.alertButton.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
@@ -403,6 +411,8 @@ test('runtime collapses only the secondary controls when extras are hidden', asy
     summaryIntervalValue: createElement({ textContent: '' }),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
     settingsButton: createElement(),
     closeSettings: createElement(),
     startListening: createElement(),

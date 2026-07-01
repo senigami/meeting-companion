@@ -20,7 +20,8 @@ export function createOpenAITranscriptionDriver({
   onEvent = () => {},
   onStatus = () => {},
   fetchImpl = fetch,
-  chunkMs = 3500
+  chunkMs = 3500,
+  getApiKey = () => ''
 } = {}) {
   let stream = null;
   let recorder = null;
@@ -51,7 +52,8 @@ export function createOpenAITranscriptionDriver({
           audioBase64,
           mimeType: blob.type || recorder?.mimeType || 'audio/webm',
           filename: `meeting-companion-${currentSession}.webm`,
-          mode
+          mode,
+          apiKey: String(getApiKey('openai') || '').trim() || undefined
         })
       });
 

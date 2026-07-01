@@ -1,6 +1,7 @@
 import {
   summaryIntervalSliderIndexFromSeconds
 } from '../services/view-settings.js';
+import { getProviderKeyState } from '../services/provider-credentials.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -50,10 +51,19 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
   if (ctx.dom.settingsPanel) {
     ctx.dom.settingsPanel.hidden = !next;
     ctx.dom.settingsPanel.setAttribute('aria-hidden', String(!next));
+    if (next && typeof ctx.dom.settingsPanel.showModal === 'function' && !ctx.dom.settingsPanel.open) {
+      ctx.dom.settingsPanel.showModal();
+    } else if (next && !ctx.dom.settingsPanel.open) {
+      ctx.dom.settingsPanel.setAttribute('open', '');
+    } else if (!next && ctx.dom.settingsPanel.open && typeof ctx.dom.settingsPanel.close === 'function') {
+      ctx.dom.settingsPanel.close();
+    } else if (!next) {
+      ctx.dom.settingsPanel.removeAttribute?.('open');
+    }
   }
 
   if (ctx.dom.settingsBackdrop) {
-    ctx.dom.settingsBackdrop.hidden = !next;
+    ctx.dom.settingsBackdrop.hidden = true;
   }
 
   if (ctx.dom.settingsButton) {
@@ -69,6 +79,10 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
 
   if (focusReturn) {
     globalThis.requestAnimationFrame?.(() => ctx.dom.settingsButton?.focus?.());
+  }
+
+  if (!next) {
+    ctx.state.pendingProviderSelection = null;
   }
 }
 
@@ -96,6 +110,7 @@ export function updateSourceButtons(ctx) {
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.disabled = unavailable;
+    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source);
   });
 
   ctx.dom.summarizationButtons.forEach((btn) => {
@@ -104,6 +119,7 @@ export function updateSourceButtons(ctx) {
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.disabled = unavailable;
+    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source);
   });
 }
 
@@ -133,6 +149,58 @@ export function syncViewerControls(ctx) {
 export function applyViewerSettings(ctx) {
   document.documentElement.style.setProperty('--font-size', `${ctx.state.fontSize}px`);
   document.documentElement.style.setProperty('--display-margin', String(ctx.state.displayMargin));
+}
+
+export function syncSettingsPanel(ctx) {
+  const alerts = buildAlerts(ctx);
+  const hasAlerts = alerts.length > 0;
+
+  if (ctx.dom.alertButton) {
+    ctx.dom.alertButton.hidden = !hasAlerts;
+    ctx.dom.alertButton.setAttribute('aria-expanded', String(Boolean(ctx.state.settingsOpen)));
+  }
+
+  if (ctx.dom.alertsSection) {
+    ctx.dom.alertsSection.hidden = !hasAlerts;
+  }
+
+  if (ctx.dom.apiWarning) {
+    ctx.dom.apiWarning.hidden = !hasAlerts;
+    ctx.dom.apiWarning.textContent = hasAlerts ? alerts.map((alert) => alert.message).join(' ') : '';
+  }
+
+  syncProviderCard(ctx, 'openai', {
+    description: ctx.dom.openaiKeyDescription,
+    masked: ctx.dom.openaiKeyMasked,
+    state: ctx.dom.openaiKeyState,
+    input: ctx.dom.openaiKeyInput,
+    save: ctx.dom.openaiKeySave,
+    test: ctx.dom.openaiKeyTest,
+    remove: ctx.dom.openaiKeyDelete
+  });
+
+  syncProviderCard(ctx, 'claude', {
+    description: ctx.dom.claudeKeyDescription,
+    masked: ctx.dom.claudeKeyMasked,
+    state: ctx.dom.claudeKeyState,
+    input: ctx.dom.claudeKeyInput,
+    save: ctx.dom.claudeKeySave,
+    test: ctx.dom.claudeKeyTest,
+    remove: ctx.dom.claudeKeyDelete
+  });
+
+  if (ctx.dom.transcriptionBrowser) {
+    updateProviderOptionLabel(ctx.dom.transcriptionBrowser, ctx, 'transcription', 'browser');
+  }
+  if (ctx.dom.transcriptionOpenAi) {
+    updateProviderOptionLabel(ctx.dom.transcriptionOpenAi, ctx, 'transcription', 'openai');
+  }
+  if (ctx.dom.summaryOpenAi) {
+    updateProviderOptionLabel(ctx.dom.summaryOpenAi, ctx, 'summarization', 'openai');
+  }
+  if (ctx.dom.summaryClaude) {
+    updateProviderOptionLabel(ctx.dom.summaryClaude, ctx, 'summarization', 'claude');
+  }
 }
 
 function createTranscriptCard(item, active = false) {
@@ -182,16 +250,129 @@ function createTranscriptCard(item, active = false) {
 
 function isSourceUnavailable(ctx, kind, source) {
   if (kind === 'transcription') {
-    if (source === 'openai') return !ctx.state.openAiReady;
+    if (source === 'browser') return !browserSpeechAvailable();
     return false;
   }
 
-  if (kind === 'summarization') {
-    if (source === 'openai') return !ctx.state.openAiReady;
-    if (source === 'claude') return !ctx.state.anthropicReady;
+  return false;
+}
+
+function syncProviderCard(ctx, provider, refs) {
+  const state = getProviderKeyState({
+    serverReady: provider === 'openai' ? ctx.state.serverOpenAiReady : ctx.state.serverAnthropicReady,
+    localKey: ctx.state.providerKeys?.[provider] || ''
+  });
+
+  if (refs.description) {
+    refs.description.textContent = state.origin === 'local'
+      ? 'Saved locally in this browser.'
+      : state.origin === 'server'
+        ? 'Using the server key. Paste a local override if needed.'
+        : 'No key saved in this browser.';
   }
 
-  return false;
+  if (refs.state) {
+    refs.state.className = `statusPill ${state.configured ? 'ok' : 'warning'}`;
+    refs.state.textContent = state.label;
+  }
+
+  if (refs.masked) {
+    refs.masked.hidden = !state.masked;
+    refs.masked.textContent = state.masked || '';
+  }
+
+  if (refs.input) {
+    refs.input.placeholder = state.origin === 'local'
+      ? 'Paste a new key to replace the saved local key'
+      : state.origin === 'server'
+        ? 'Paste a local override if you want one in this browser'
+        : 'Paste API key or local override';
+  }
+
+  if (refs.remove) {
+    refs.remove.disabled = state.origin !== 'local';
+  }
+
+  if (refs.save) {
+    refs.save.textContent = state.origin === 'local' ? 'Replace key' : 'Save key';
+  }
+
+  if (refs.test) {
+    refs.test.textContent = 'Test key';
+  }
+}
+
+function updateProviderOptionLabel(button, ctx, kind, source) {
+  if (!button) return;
+  const state = getProviderState(ctx, kind, source);
+  const statusNode = typeof button.querySelector === 'function'
+    ? button.querySelector('.providerStatus')
+    : null;
+  if (statusNode) {
+    statusNode.textContent = state.label;
+  } else if (typeof button.textContent === 'string' && button.dataset?.statusLabel) {
+    button.textContent = button.dataset.statusLabel.replace('{status}', state.label);
+  }
+  button.dataset.configured = String(state.configured);
+  button.dataset.origin = state.origin;
+  if (kind === 'transcription' && source === 'browser') {
+    button.disabled = !browserSpeechAvailable();
+  }
+}
+
+function getProviderState(ctx, kind, source) {
+  if (kind === 'transcription' && source === 'browser') {
+    return {
+      configured: browserSpeechAvailable(),
+      origin: 'local',
+      label: browserSpeechAvailable() ? 'Local' : 'Unavailable'
+    };
+  }
+
+  if (source === 'openai') {
+    return getProviderKeyState({
+      serverReady: Boolean(ctx.state.serverOpenAiReady),
+      localKey: ctx.state.providerKeys?.openai || ''
+    });
+  }
+
+  if (source === 'claude') {
+    return getProviderKeyState({
+      serverReady: Boolean(ctx.state.serverAnthropicReady),
+      localKey: ctx.state.providerKeys?.claude || ''
+    });
+  }
+
+  return {
+    configured: false,
+    origin: 'missing',
+    label: 'Needs key'
+  };
+}
+
+function buildAlerts(ctx) {
+  const alerts = [];
+  if (!ctx.state.openAiReady) {
+    alerts.push({
+      provider: 'openai',
+      message: ctx.state.anthropicReady
+        ? 'OpenAI key is missing. Browser transcription still works, and Claude summaries remain available.'
+        : 'OpenAI key is missing. Browser transcription still works, but OpenAI transcription and summaries are off.'
+    });
+  }
+  if (!ctx.state.anthropicReady) {
+    alerts.push({
+      provider: 'claude',
+      message: ctx.state.openAiReady
+        ? 'Claude key is missing. OpenAI features are available.'
+        : 'Claude key is missing. Add one to enable Claude summaries.'
+    });
+  }
+  return alerts;
+}
+
+function browserSpeechAvailable() {
+  return Boolean(globalThis.navigator?.mediaDevices?.getUserMedia);
 }
 
 function isTranscriptNearBottom(viewport, threshold = 96) {

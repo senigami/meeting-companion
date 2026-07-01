@@ -10,6 +10,12 @@ import {
 } from '../services/registry.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
+  deleteProviderKey as removeProviderKey,
+  getProviderKeyState,
+  readProviderKeys,
+  saveProviderKey as storeProviderKey
+} from '../services/provider-credentials.js';
+import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds
@@ -22,6 +28,7 @@ import {
   updatePauseButton,
   updateSourceButtons,
   updateStatus,
+  syncSettingsPanel,
   syncViewerControls,
   updateSummaryIntervalControl
 } from './view.js';
@@ -47,6 +54,52 @@ export function createRuntime(ctx, deps = {}) {
     applyViewerSettings(ctx);
     localStorage.setItem(STORAGE.fontSize, String(ctx.state.fontSize));
     localStorage.setItem(STORAGE.displayMargin, String(ctx.state.displayMargin));
+  }
+
+  function refreshProviderAvailability() {
+    ctx.state.providerKeys = readProviderKeys(localStorage);
+    ctx.state.openAiReady = Boolean(ctx.state.serverOpenAiReady || ctx.state.providerKeys.openai);
+    ctx.state.anthropicReady = Boolean(ctx.state.serverAnthropicReady || ctx.state.providerKeys.claude);
+    updateProviderAvailability();
+    updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
+  }
+
+  function isProviderConfigured(provider) {
+    if (provider === 'openai') return Boolean(ctx.state.openAiReady);
+    if (provider === 'claude') return Boolean(ctx.state.anthropicReady);
+    return true;
+  }
+
+  function isSourceConfigured(kind, source) {
+    if (kind === 'transcription' && source === 'browser') return Boolean(globalThis.navigator?.mediaDevices?.getUserMedia);
+    return isProviderConfigured(source);
+  }
+
+  function clearPendingSelection(provider) {
+    if (ctx.state.pendingProviderSelection?.provider === provider) {
+      ctx.state.pendingProviderSelection = null;
+    }
+  }
+
+  function applyPendingSelection(provider) {
+    const pending = ctx.state.pendingProviderSelection;
+    if (!pending || pending.provider !== provider) return;
+    ctx.state.pendingProviderSelection = null;
+    if (pending.kind === 'transcription') {
+      setTranscriptionSource(pending.source);
+    } else if (pending.kind === 'summarization') {
+      setSummarizationSource(pending.source);
+    }
+  }
+
+  function openSettingsForProvider(provider) {
+    setSettingsOpen(ctx, true);
+    globalThis.requestAnimationFrame?.(() => {
+      const target = provider === 'claude' ? ctx.dom.claudeKeyInput : ctx.dom.openaiKeyInput;
+      target?.focus?.();
+      target?.select?.();
+    });
   }
 
   function addLine(line) {
@@ -104,14 +157,16 @@ export function createRuntime(ctx, deps = {}) {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl
+      fetchImpl,
+      getApiKey: (provider) => ctx.state.providerKeys?.[provider] || ''
     });
   }
 
   function buildSummarizationDriver() {
     return createSummarizationDriverFn(ctx.state.summarizationSource, {
       onStatus: (text) => updateStatus(ctx, text),
-      fetchImpl
+      fetchImpl,
+      getApiKey: (provider) => ctx.state.providerKeys?.[provider] || ''
     });
   }
 
@@ -260,6 +315,7 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.transcriptionSource = source;
     localStorage.setItem(STORAGE.transcriptionSource, source);
     updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
 
     if (shouldResume) {
       await startListening();
@@ -272,25 +328,78 @@ export function createRuntime(ctx, deps = {}) {
     localStorage.setItem(STORAGE.summarizationSource, source);
     summarizationDriver = null;
     updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
+  }
+
+  function promptProviderSetup(kind, source) {
+    if (!kind || !source) return;
+    ctx.state.pendingProviderSelection = { kind, source };
+    updateStatus(ctx, `Add a ${source === 'openai' ? 'OpenAI' : 'Claude'} key to use this provider.`);
+    openSettingsForProvider(source);
+  }
+
+  function saveProviderKey(provider, value) {
+    const clean = normalizeText(value || '');
+    if (!clean) {
+      updateStatus(ctx, `Paste a ${provider === 'claude' ? 'Claude' : 'OpenAI'} key before saving.`);
+      return;
+    }
+    storeProviderKey(localStorage, provider, clean);
+    refreshProviderAvailability();
+    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key saved locally in this browser.`);
+    applyPendingSelection(provider);
+  }
+
+  async function testProviderKey(provider, value) {
+    const clean = normalizeText(value || ctx.state.providerKeys?.[provider] || '');
+    updateStatus(ctx, `Testing ${provider === 'claude' ? 'Claude' : 'OpenAI'} key...`);
+    try {
+      const response = await fetchImpl('/api/provider/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          apiKey: clean
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Provider test failed.');
+      }
+      updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key verified.`);
+    } catch (error) {
+      updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} key test failed: ${error.message}`);
+    }
+  }
+
+  function deleteProviderKey(provider) {
+    removeProviderKey(localStorage, provider);
+    refreshProviderAvailability();
+    updateStatus(ctx, `${provider === 'claude' ? 'Claude' : 'OpenAI'} local key removed.`);
+    clearPendingSelection(provider);
   }
 
   async function ensureSelectedTranscriptionSourceExists() {
-    const sourceSummary = listAvailableSources();
-    if (sourceSummary.transcription.some((source) => source.id === ctx.state.transcriptionSource)) return;
+    if (ctx.state.transcriptionSource === 'browser') return;
+    if (ctx.state.transcriptionSource === 'openai' && ctx.state.openAiReady) return;
     await setTranscriptionSource('browser');
   }
 
   function resolveAvailableSummarizationSource() {
     const availableSummarizationSources = listAvailableSources().summarization.map((source) => source.id);
     const availableSummarizationSet = new Set(availableSummarizationSources);
-    if (!availableSummarizationSet.has(ctx.state.summarizationSource)) {
-      if (ctx.state.openAiReady && availableSummarizationSet.has('openai')) return 'openai';
-      if (ctx.state.anthropicReady && availableSummarizationSet.has('claude')) return 'claude';
+    const sourceReady = (source) => {
+      if (source === 'openai') return Boolean(ctx.state.openAiReady);
+      if (source === 'claude') return Boolean(ctx.state.anthropicReady);
+      return false;
+    };
+
+    if (availableSummarizationSet.has(ctx.state.summarizationSource) && sourceReady(ctx.state.summarizationSource)) {
+      return ctx.state.summarizationSource;
     }
-    if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
-    if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
-    if (ctx.state.openAiReady) return 'openai';
-    if (ctx.state.anthropicReady) return 'claude';
+
+    if (ctx.state.openAiReady && availableSummarizationSet.has('openai')) return 'openai';
+    if (ctx.state.anthropicReady && availableSummarizationSet.has('claude')) return 'claude';
     return availableSummarizationSources[0] || getDefaultSummarizationSource();
   }
 
@@ -300,6 +409,7 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.summarizationSource = nextSource;
     localStorage.setItem(STORAGE.summarizationSource, nextSource);
     updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
   }
 
   function isTypingTarget(target) {
@@ -311,43 +421,43 @@ export function createRuntime(ctx, deps = {}) {
       const response = await fetch('/api/config');
       if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
-      ctx.state.openAiReady = Boolean(data.hasOpenAIKey);
-      ctx.state.anthropicReady = Boolean(data.hasAnthropicKey);
-      updateProviderAvailability();
-      if (!ctx.state.openAiReady && ctx.state.transcriptionSource === 'openai') {
-        await setTranscriptionSource('browser');
-      }
+      ctx.state.serverOpenAiReady = Boolean(data.hasOpenAIKey);
+      ctx.state.serverAnthropicReady = Boolean(data.hasAnthropicKey);
+      refreshProviderAvailability();
       await ensureSelectedSummarizationSourceExists();
       await ensureSelectedTranscriptionSourceExists();
     } catch (error) {
-      ctx.dom.apiWarning.hidden = false;
-      ctx.dom.apiWarning.textContent = 'Could not read AI status. Manual lines still work.';
+      if (ctx.dom.apiWarning) {
+        ctx.dom.apiWarning.textContent = 'Could not read AI status. Manual lines still work.';
+      }
+      if (ctx.dom.alertsSection) {
+        ctx.dom.alertsSection.hidden = false;
+      }
       updateStatus(ctx, `Could not read AI status: ${error.message}`);
     }
   }
 
   function updateProviderAvailability() {
-    if (ctx.state.openAiReady) {
-      ctx.dom.apiWarning.hidden = true;
-      ctx.dom.apiWarning.textContent = '';
-      updateStatus(ctx, 'Manual mode is ready. OpenAI key detected.');
-      return;
-    }
-
-    ctx.dom.apiWarning.hidden = false;
-    if (ctx.state.anthropicReady) {
-      ctx.dom.apiWarning.textContent = 'OPENAI_API_KEY is missing. Browser transcription still works; Claude summaries are available.';
-    } else {
-      ctx.dom.apiWarning.textContent = 'OPENAI_API_KEY is missing. Browser transcription still works; OpenAI transcription and summaries are off.';
-    }
-    updateStatus(ctx, 'OPENAI_API_KEY is missing. Browser transcription still works.');
+    syncSettingsPanel(ctx);
+    updateStatus(
+      ctx,
+      ctx.state.openAiReady
+        ? 'Manual mode is ready. OpenAI key detected.'
+        : ctx.state.anthropicReady
+          ? 'OpenAI key is missing. Browser transcription still works; Claude summaries are available.'
+          : 'OpenAI key is missing. Browser transcription still works.'
+    );
   }
 
   return {
     addLine,
     clearLines,
     handleTranscriptEvent,
+    deleteProviderKey,
+    focusProviderKey: openSettingsForProvider,
     isTypingTarget,
+    isProviderConfigured,
+    isSourceConfigured,
     loadRuntimeConfig,
     recentTranscript,
     setDisplayMargin,
@@ -357,10 +467,14 @@ export function createRuntime(ctx, deps = {}) {
     setSummaryInterval,
     setSummarizationSource,
     setTranscriptionSource,
+    promptProviderSetup,
+    refreshProviderAvailability,
+    saveProviderKey,
     showRecentTranscript,
     startListening,
     startLoop,
     stopListening,
+    testProviderKey,
     summarizeCurrentText,
     togglePauseAi,
     undoLine,

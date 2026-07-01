@@ -3,7 +3,8 @@ import { readResponseJson, responseErrorMessage } from '../response.js';
 
 export function createOpenAISummarizer({
   fetchImpl = fetch,
-  onStatus = () => {}
+  onStatus = () => {},
+  getApiKey = () => ''
 } = {}) {
   return {
     id: 'openai',
@@ -18,7 +19,8 @@ export function createOpenAISummarizer({
         body: JSON.stringify({
           mode,
           recentTranscript: text,
-          visibleLines
+          visibleLines,
+          apiKey: String(getApiKey('openai') || '').trim() || undefined
         })
       });
 

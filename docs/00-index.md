@@ -20,7 +20,7 @@ Meeting Companion Display is a tiny local helper for one deaf and low-vision per
 
 The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display stays label-light and shows readable transcript cards rather than one dense wall of text.
 
-The helper panel is intentionally dense so it can be operated under pressure. It keeps quick controls, mode selection, and view options visible, while Settings holds source selection and Diagnostics holds runtime feedback and transcript tools. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
+The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings holds transcription and summary source selection plus provider key setup. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
 
 ## Key Decisions
 
@@ -37,9 +37,9 @@ The helper panel is intentionally dense so it can be operated under pressure. It
 - Transcription source ids are stable contract values: `browser` and `openai`.
 - Summary source ids are stable contract values and currently `openai` and `claude`.
 - The visible display renders a scrollable stack of digestible transcript cards, with new items appearing at the bottom and older items moving up.
-- Settings contains transcription source and summary source controls.
+- Settings contains transcription source and summary source controls, provider key setup, alerts, and diagnostics.
 - View options contains text size, margins, and update interval controls.
-- Diagnostics contains status and recent transcript tools.
+- Diagnostics is hidden behind Settings by default.
 - Manual lines always take effect immediately, even if AI is paused.
 
 ## Open compliance items
