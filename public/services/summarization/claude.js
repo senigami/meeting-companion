@@ -3,7 +3,8 @@ import { readResponseJson, responseErrorMessage } from '../response.js';
 
 export function createClaudeSummarizer({
   fetchImpl = fetch,
-  onStatus = () => {}
+  onStatus = () => {},
+  getApiKey = () => ''
 } = {}) {
   return {
     id: 'claude',
@@ -19,7 +20,8 @@ export function createClaudeSummarizer({
           source: 'claude',
           mode,
           recentTranscript: text,
-          visibleLines
+          visibleLines,
+          apiKey: String(getApiKey('claude') || '').trim() || undefined
         })
       });
 

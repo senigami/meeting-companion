@@ -15,24 +15,27 @@ test('mode icons use svg masks', async () => {
   assert.doesNotMatch(css, /prayer\.png/);
 });
 
-test('helper panel exposes secondary disclosure styling hooks', async () => {
+test('operator rail and settings modal expose compact responsive hooks', async () => {
   const css = await readFile(new URL('../../public/style.css', import.meta.url), 'utf8');
 
   assert.match(css, /\.meetingShell/);
   assert.match(css, /\.operatorRail/);
-  assert.match(css, /\.railHeader/);
+  assert.match(css, /\.railTop/);
+  assert.match(css, /\.railActions/);
   assert.match(css, /\.railBody/);
   assert.match(css, /\.railButton/);
   assert.match(css, /\.manualBar/);
-  assert.match(css, /\.settingsPanel/);
-  assert.match(css, /\.settingsBackdrop/);
-  assert.match(css, /\.settingsSection/);
-  assert.match(css, /\.settingsStack/);
-  assert.match(css, /\.settingsDetailsBody/);
+  assert.match(css, /\.settingsOverlay/);
+  assert.match(css, /\.settingsModal/);
+  assert.match(css, /\.settingsBody/);
+  assert.match(css, /\.settingsGrid/);
+  assert.match(css, /\.settingsCard/);
+  assert.match(css, /\.providerCard/);
+  assert.match(css, /\.apiKeyBox/);
   assert.match(css, /\.iconButton/);
 });
 
-test('display text is centered in the viewing area', async () => {
+test('display text stays centered and viewport-safe', async () => {
   const css = await readFile(new URL('../../public/style.css', import.meta.url), 'utf8');
 
   assert.match(css, /html,\s*body,\s*#root\s*\{[^}]*overflow:\s*hidden;/s);
@@ -44,9 +47,13 @@ test('display text is centered in the viewing area', async () => {
   assert.match(css, /\.manualBar[\s\S]*grid-area:\s*manual;/s);
   assert.match(css, /\.manualBarInner[\s\S]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/s);
   assert.match(css, /\.quickControlsGrid[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.railButton[\s\S]*min-height:\s*64px;/s);
   assert.match(css, /\.modeGrid[\s\S]*grid-template-columns:\s*1fr;/s);
-  assert.match(css, /\.settingsPanel[\s\S]*position:\s*fixed;/s);
-  assert.match(css, /\.settingsStack[\s\S]*flex-direction:\s*column;/s);
+  assert.match(css, /\.settingsModal[\s\S]*width:\s*min\(920px, calc\(100vw - 2rem\)\);/s);
+  assert.match(css, /\.settingsCard[\s\S]*display:\s*grid;/s);
+  assert.match(css, /\.settingsGrid[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.settingsOverlay\.settingsModal[\s\S]*margin:\s*auto;/s);
+  assert.match(css, /\.settingsOverlay\.settingsModal::backdrop[\s\S]*backdrop-filter:\s*blur\(18px\);/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*overflow-y:\s*auto;/s);
   assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*clamp\(2rem, min\(5vw, 7vh\), 5\.25rem\);/s);
 });
@@ -60,7 +67,7 @@ test('layout stacks and scrolls on narrower screens', async () => {
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-rows:\s*minmax\(0, 1fr\) auto auto;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[\s\S]*flex-direction:\s*row;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.manualBarInner[\s\S]*grid-template-columns:\s*1fr auto;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsPanel[\s\S]*bottom:\s*0\.5rem;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsModal[\s\S]*width:\s*100%;/s);
 });
 
 test('range sliders use discrete Apple-style tick marks', async () => {

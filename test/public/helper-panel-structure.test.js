@@ -48,105 +48,86 @@ function findNamedContainer(html, namePattern) {
 }
 
 function assertContains(block, selector, description) {
-  assert.ok(
-    selector.test(block),
-    `${description} was not found inside the expected container`
-  );
+  assert.ok(selector.test(block), `${description} was not found inside the expected container`);
 }
 
 function assertNotContains(block, selector, description) {
-  assert.ok(
-    !selector.test(block),
-    `${description} should stay outside the expected container`
-  );
+  assert.ok(!selector.test(block), `${description} should stay outside the expected container`);
 }
 
 function countMatches(text, pattern) {
   return (text.match(pattern) || []).length;
 }
 
-test('helper panel groups settings and diagnostics into named secondary disclosures', async () => {
+test('helper panel keeps quick actions compact and settings centered', async () => {
   const html = await readHtml();
 
-  assert.match(html, /class=(?:"[^"]*\bapp-shell\b[^"]*"|'[^']*\bapp-shell\b[^']*')/);
+  assert.match(html, /class=(?:"[^"]*\bmeetingShell\b[^"]*"|'[^']*\bmeetingShell\b[^']*')/);
   assert.match(html, /id=(?:"root"|'root')/);
   assert.match(html, /<main\b[^>]*id=(?:"display"|'display')/);
   assert.match(html, /<aside\b[^>]*id=(?:"panel"|'panel')/);
   assertContains(html, /id=(?:"transcriptViewport"|'transcriptViewport')/, '#transcriptViewport');
   assertContains(html, /id=(?:"transcriptStack"|'transcriptStack')/, '#transcriptStack');
-  assertContains(html, /class=(?:"[^"]*\bmeetingShell\b[^"]*"|'[^']*\bmeetingShell\b[^']*')/, '.meetingShell');
-  assertContains(html, /class=(?:"[^"]*\bcontrolPanel\b[^"]*"|'[^']*\bcontrolPanel\b[^']*')/, '.controlPanel');
   assertContains(html, /class=(?:"[^"]*\boperatorRail\b[^"]*"|'[^']*\boperatorRail\b[^']*')/, '.operatorRail');
-  assertContains(html, /class=(?:"[^"]*\brailHeader\b[^"]*"|'[^']*\brailHeader\b[^']*')/, '.railHeader');
+  assertContains(html, /class=(?:"[^"]*\brailTop\b[^"]*"|'[^']*\brailTop\b[^']*')/, '.railTop');
   assertContains(html, /class=(?:"[^"]*\brailBody\b[^"]*"|'[^']*\brailBody\b[^']*')/, '.railBody');
   assertContains(html, /class=(?:"[^"]*\bmanualBar\b[^"]*"|'[^']*\bmanualBar\b[^']*')/, '.manualBar');
   assertContains(html, /class=(?:"[^"]*\bmanualBarInner\b[^"]*"|'[^']*\bmanualBarInner\b[^']*')/, '.manualBarInner');
-  assertContains(html, /class=(?:"[^"]*\bsettingsPanel\b[^"]*"|'[^']*\bsettingsPanel\b[^']*')/, '.settingsPanel');
+  assertContains(html, /class=(?:"[^"]*\bsettingsOverlay\b[^"]*"|'[^']*\bsettingsOverlay\b[^']*')/, '.settingsOverlay');
+  assertContains(html, /class=(?:"[^"]*\bsettingsModal\b[^"]*"|'[^']*\bsettingsModal\b[^']*')/, '.settingsModal');
+  assertContains(html, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
+  assertContains(html, /class=(?:"[^"]*\bsettingsCard\b[^"]*"|'[^']*\bsettingsCard\b[^']*')/, '.settingsCard');
+  assertContains(html, /class=(?:"[^"]*\bsettingsGrid\b[^"]*"|'[^']*\bsettingsGrid\b[^']*')/, '.settingsGrid');
   assertContains(html, /class=(?:"[^"]*\bsettingsBackdrop\b[^"]*"|'[^']*\bsettingsBackdrop\b[^']*')/, '.settingsBackdrop');
   assertContains(html, /id=(?:"settingsButton"|'settingsButton')/, '#settingsButton');
-  assertContains(html, /id=(?:"closeSettings"|'closeSettings')/, '#closeSettings');
+  assertContains(html, /id=(?:"alertButton"|'alertButton')/, '#alertButton');
   assertContains(html, /class=(?:"[^"]*\bquickControlsGrid\b[^"]*"|'[^']*\bquickControlsGrid\b[^']*')/, '.quickControlsGrid');
   assertContains(html, /class=(?:"[^"]*\bmodeGrid\b[^"]*"|'[^']*\bmodeGrid\b[^']*')/, '.modeGrid');
   assertContains(html, /class=(?:"[^"]*\brailButton\b[^"]*"|'[^']*\brailButton\b[^']*')/, '.railButton');
   assertContains(html, /class=(?:"[^"]*\biconButton\b[^"]*"|'[^']*\biconButton\b[^']*')/, '.iconButton');
-  assertContains(html, /hidden/, 'settings panel hidden state');
 
-  const settingsMatch = html.match(/<aside\b[^>]*id=(?:"settingsPanel"|'settingsPanel')[^>]*[\s\S]*?<\/aside>/i);
+  const railMatch = html.match(/<aside\b[^>]*id=(?:"panel"|'panel')[^>]*[\s\S]*?<\/aside>/i);
+  assert.ok(railMatch, 'Operator rail is missing');
+  const rail = railMatch[0];
+  assertContains(rail, /class=(?:"[^"]*\brailActions\b[^"]*"|'[^']*\brailActions\b[^']*')/, '.railActions');
+  assertNotContains(rail, /<h1\b/i, 'large Controls heading');
+  assertNotContains(rail, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
+
+  const settingsMatch = html.match(/<dialog\b[^>]*id=(?:"settingsPanel"|'settingsPanel')[^>]*[\s\S]*?<\/dialog>/i);
   assert.ok(settingsMatch, 'Settings dialog is missing');
   const settings = settingsMatch[0];
 
-  const diagnostics = findNamedContainer(settings, /diagnostics/i);
-  assert.ok(diagnostics, 'Diagnostics disclosure or region is missing');
-
-  assertContains(settings, /data-kind=(?:"transcription"|'transcription')/, 'transcription source control');
-  assertContains(settings, /data-kind=(?:"summarization"|'summarization')/, 'summary source control');
-  assertContains(settings, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
-  assertContains(settings, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
+  assertContains(settings, /role=(?:"dialog"|'dialog')/, 'dialog role');
+  assertContains(settings, /aria-modal=(?:"true"|'true')/, 'modal flag');
+  assertContains(settings, /class=(?:"[^"]*\bsettingsHeader\b[^"]*"|'[^']*\bsettingsHeader\b[^']*')/, '.settingsHeader');
+  assertContains(settings, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
+  assertContains(settings, /id=(?:"openaiKeyInput"|'openaiKeyInput')/, '#openaiKeyInput');
+  assertContains(settings, /id=(?:"claudeKeyInput"|'claudeKeyInput')/, '#claudeKeyInput');
+  assertContains(settings, /id=(?:"openaiKeySave"|'openaiKeySave')/, '#openaiKeySave');
+  assertContains(settings, /id=(?:"openaiKeyTest"|'openaiKeyTest')/, '#openaiKeyTest');
+  assertContains(settings, /id=(?:"openaiKeyDelete"|'openaiKeyDelete')/, '#openaiKeyDelete');
+  assertContains(settings, /id=(?:"claudeKeySave"|'claudeKeySave')/, '#claudeKeySave');
+  assertContains(settings, /id=(?:"claudeKeyTest"|'claudeKeyTest')/, '#claudeKeyTest');
+  assertContains(settings, /id=(?:"claudeKeyDelete"|'claudeKeyDelete')/, '#claudeKeyDelete');
   assertContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
+  assertContains(settings, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
+  assertContains(settings, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
   assertContains(settings, /id=(?:"status"|'status')/, '#status');
   assertContains(settings, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
   assertContains(settings, /id=(?:"pasteTranscript"|'pasteTranscript')/, '#pasteTranscript');
   assertContains(settings, /id=(?:"summarizeOnce"|'summarizeOnce')/, '#summarizeOnce');
   assertContains(settings, /summary/i, 'settings dialog labels');
 
-  assert.equal(
-    countMatches(html, /data-kind=(?:"transcription"|'transcription')/g),
-    countMatches(settings, /data-kind=(?:"transcription"|'transcription')/g),
-    'transcription source controls should only live inside Settings'
-  );
-  assert.equal(
-    countMatches(html, /data-kind=(?:"summarization"|'summarization')/g),
-    countMatches(settings, /data-kind=(?:"summarization"|'summarization')/g),
-    'summary source controls should only live inside Settings'
-  );
-  assert.doesNotMatch(settings, /id=(?:"bigger"|'bigger')/g, 'bigger text button should no longer exist');
-  assert.doesNotMatch(settings, /id=(?:"smaller"|'smaller')/g, 'smaller text button should no longer exist');
+  const alertsMatch = settings.match(/<section\b[^>]*id=(?:"alertsSection"|'alertsSection')[^>]*[\s\S]*?<\/section>/i);
+  assert.ok(alertsMatch, 'Alerts card is missing');
+  const alerts = alertsMatch[0];
+  assertContains(alerts, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 
-  assertContains(diagnostics, /id=(?:"status"|'status')/, '#status');
-  assertContains(diagnostics, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
-  assertContains(diagnostics, /id=(?:"pasteTranscript"|'pasteTranscript')/, '#pasteTranscript');
-  assertContains(diagnostics, /id=(?:"summarizeOnce"|'summarizeOnce')/, '#summarizeOnce');
-  assert.doesNotMatch(diagnostics, /<details\b[^>]*\bopen\b/i, 'Diagnostics should stay collapsed by default');
+  const providerSections = countMatches(settings, /class=(?:"[^"]*\bproviderCard\b[^"]*"|'[^']*\bproviderCard\b[^']*')/g);
+  assert.ok(providerSections >= 2, 'provider key cards should be visible');
 
-  assertContains(html, /id=(?:"manualInput"|'manualInput')/, '#manualInput');
-  assertContains(html, /id=(?:"addManual"|'addManual')/, '#addManual');
-  assertContains(html, /id=(?:"startListening"|'startListening')/, '#startListening');
-  assertContains(html, /id=(?:"stopListening"|'stopListening')/, '#stopListening');
-  assertContains(html, /id=(?:"pauseAi"|'pauseAi')/, '#pauseAi');
-  assertContains(html, /id=(?:"undo"|'undo')/, '#undo');
-  assertContains(html, /id=(?:"clear"|'clear')/, '#clear');
-  assertContains(html, /id=(?:"fullscreen"|'fullscreen')/, '#fullscreen');
-  assertContains(html, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
-  assertContains(html, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
-  assertContains(html, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
-  assertContains(html, /class=(?:"[^"]*\bmode\b[^"]*"|'[^']*\bmode\b[^']*')/, '.mode buttons');
-  assertContains(html, /data-mode=(?:"speaker"|'speaker')/, 'speaker mode button');
-  assertContains(html, /data-mode=(?:"information"|'information')/, 'information mode button');
-  assertContains(html, /data-mode=(?:"song"|'song')/, 'song mode button');
-  assertContains(html, /data-mode=(?:"prayer"|'prayer')/, 'prayer mode button');
-  assertContains(html, /aria-label=(?:"Open settings"|'Open settings')/, 'gear settings button');
-  assertContains(html, /role=(?:"log"|'log')/, 'transcript log region');
-  assertContains(html, /aria-live=(?:"polite"|'polite')/, 'transcript live region');
+  assertContains(settings, /data-kind=(?:"transcription"|'transcription')/, 'transcription source control');
+  assertContains(settings, /data-kind=(?:"summarization"|'summarization')/, 'summary source control');
 
   const primarySelectors = [
     [/id=(?:"manualInput"|'manualInput')/, '#manualInput'],
@@ -158,11 +139,12 @@ test('helper panel groups settings and diagnostics into named secondary disclosu
     [/id=(?:"clear"|'clear')/, '#clear'],
     [/id=(?:"fullscreen"|'fullscreen')/, '#fullscreen'],
     [/id=(?:"settingsButton"|'settingsButton')/, '#settingsButton'],
+    [/id=(?:"alertButton"|'alertButton')/, '#alertButton'],
     [/class=(?:"mode"|'mode')/, '.mode buttons']
   ];
 
   for (const [selector, description] of primarySelectors) {
     assertNotContains(settings, selector, description);
-    assertNotContains(diagnostics, selector, description);
+    assertNotContains(alerts, selector, description);
   }
 });

@@ -14,6 +14,7 @@ const MAIN_FILE = fileURLToPath(import.meta.url);
 
 export function createApp({
   openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
+  createOpenAIClientFn = (apiKey) => new OpenAI({ apiKey }),
   openaiModel = DEFAULT_OPENAI_MODEL,
   anthropicApiKey = process.env.ANTHROPIC_API_KEY || '',
   anthropicModel = DEFAULT_ANTHROPIC_MODEL,
@@ -36,18 +37,18 @@ export function createApp({
 
   app.post('/api/transcribe', async (req, res) => {
     try {
-      if (!openaiClient) {
+      const { apiKey = '', audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm', mode = 'speaker' } = req.body || {};
+      const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn });
+      if (!client) {
         return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
       }
-
-      const { audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm', mode = 'speaker' } = req.body || {};
       if (!audioBase64) {
         return res.json({ text: '' });
       }
 
       const audioBuffer = Buffer.from(String(audioBase64), 'base64');
       const file = await toFile(audioBuffer, filename, { type: mimeType });
-      const transcription = await openaiClient.audio.transcriptions.create({
+      const transcription = await client.audio.transcriptions.create({
         file,
         model: 'gpt-4o-transcribe',
         prompt: buildTranscriptionPrompt(mode),
@@ -73,14 +74,14 @@ export function createApp({
 
   app.post('/api/summarize', async (req, res) => {
     try {
-      const { source = 'openai', mode = 'speaker', recentTranscript = '', visibleLines = [] } = req.body || {};
+      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', visibleLines = [] } = req.body || {};
       const result = await summarizeWithSource({
         source,
         mode,
         recentTranscript,
         visibleLines,
-        openaiClient,
-        anthropicApiKey,
+        openaiClient: resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn }),
+        anthropicApiKey: apiKey && source === 'claude' ? String(apiKey).trim() : anthropicApiKey,
         anthropicModel,
         fetchImpl
       });
@@ -88,6 +89,44 @@ export function createApp({
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Summarization failed.' });
+    }
+  });
+
+  app.post('/api/provider/test', async (req, res) => {
+    try {
+      const { provider = '', apiKey = '' } = req.body || {};
+      if (provider === 'openai') {
+        const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn });
+        if (!client) {
+          return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
+        }
+
+        await client.models.list();
+        return res.json({ ok: true, provider: 'openai' });
+      }
+
+      if (provider === 'claude') {
+        const anthropicKey = String(apiKey || anthropicApiKey || '').trim();
+        if (!anthropicKey) {
+          return res.status(400).json({ error: 'ANTHROPIC_API_KEY is not set.' });
+        }
+
+        const result = await summarizeWithSource({
+          source: 'claude',
+          mode: 'speaker',
+          recentTranscript: 'Provider test',
+          visibleLines: [],
+          anthropicApiKey: anthropicKey,
+          anthropicModel,
+          fetchImpl
+        });
+        return res.json({ ok: true, provider: 'claude', line: result.line || '' });
+      }
+
+      return res.status(400).json({ error: 'Unsupported provider.' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Provider test failed.' });
     }
   });
 
@@ -104,6 +143,15 @@ export function createApp({
   });
 
   return app;
+}
+
+function resolveOpenAIClient({ apiKey = '', openaiClient, createOpenAIClientFn }) {
+  const clean = String(apiKey || '').trim();
+  if (clean) {
+    return createOpenAIClientFn(clean);
+  }
+
+  return openaiClient;
 }
 
 function isLoopbackHost(host) {

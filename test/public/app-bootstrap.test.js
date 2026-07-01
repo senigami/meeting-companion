@@ -53,6 +53,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     summaryIntervalValue: createElement({ textContent: '' }),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    alertButton: createElement({ hidden: true }),
     settingsButton: createElement({}),
     closeSettings: createElement(),
     addManual: createElement(),
@@ -132,14 +134,19 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.equal(elements.apiWarning.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OPENAI_API_KEY is missing/i);
+    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
+    assert.match(elements.apiWarning.textContent, /Claude key is missing/i);
     assert.match(elements.status.textContent, /Browser transcription still works/i);
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5vw');
     assert.equal(elements.summaryIntervalValue.textContent, '5s');
+    assert.equal(elements.alertButton.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
+    assert.match(elements.status.textContent, /Browser transcription still works/i);
     assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
     assert.equal(elements.settingsPanel.hidden, true);
-    assert.equal(summarizationButtons[1].disabled, true);
+    assert.equal(summarizationButtons[1].disabled, false);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

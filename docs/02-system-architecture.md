@@ -4,7 +4,7 @@
 
 ## Overview
 
-The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
+The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, validates locally stored provider keys on demand, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
 
 The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry and creates transcription and summarization drivers based on the helper's chosen source.
 
@@ -42,7 +42,7 @@ graph TD
 | P4 - OpenAI transcription driver | Sends short audio chunks to the server and emits final text | `public/services/transcription/openai.js` | existing |
 | P5 - OpenAI summarizer | Sends recent transcript text to the server and returns one useful line | `public/services/summarization/openai.js` | existing |
 | P5b - Claude summarizer | Sends recent transcript text to the server and returns one useful line | `public/services/summarization/claude.js` | existing |
-| P6 - Server API | Serves static files, reports runtime config, proxies transcription and summarization to provider APIs | `server.js` | existing |
+| P6 - Server API | Serves static files, reports runtime config, validates provider keys, proxies transcription and summarization to provider APIs | `server.js` | existing |
 | P7 - Docs and tests | Keeps specs, ADRs, plan files, and mirrored tests aligned with code | `docs/`, `test/` | new/updated |
 
 ## Connections
@@ -57,6 +57,7 @@ graph TD
 | P4 | P6 | `/api/transcribe` | The server must accept base64 audio, mode, and mime type, and return `{ text }`. |
 | P5 | P6 | `/api/summarize` | The server must accept transcript text and visible lines, then return `{ line }`. |
 | P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI or Anthropic is configured and disable unavailable options. |
+| P1 | P6 | `/api/provider/test` | The client must be able to test a candidate OpenAI or Claude key without exposing the secret back to the UI. |
 
 ## Invariants & things to keep in mind
 
@@ -66,7 +67,7 @@ graph TD
 - **INV-4** - Browser transcription is optional and must fail gracefully when the browser lacks the API.
 - **INV-5** - OpenAI features must stay off when `OPENAI_API_KEY` is missing.
 - **INV-6** - Claude summaries must stay off when `ANTHROPIC_API_KEY` is missing.
-- **INV-7** - On startup, the runtime must switch summarization to any configured provider instead of leaving a missing source selected.
+- **INV-7** - On startup, the runtime must switch summarization to a configured provider when the selected source is unavailable or stale.
 - **INV-8** - The app does not persist audio or transcript history by default.
 
 ## Risks & open questions

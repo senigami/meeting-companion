@@ -4,6 +4,7 @@ import {
   clampSummaryIntervalSeconds,
   summaryIntervalSecondsFromSliderIndex
 } from '../services/view-settings.js';
+import { readProviderKeys } from '../services/provider-credentials.js';
 import {
   renderDisplay,
   bindTranscriptViewport,
@@ -41,17 +42,20 @@ export function startApp() {
       prefersReducedMotion: Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),
       settingsOpen: false,
       panelOpen: false,
+      pendingProviderSelection: null,
       transcriptionSource: localStorage.getItem(STORAGE.transcriptionSource) || 'browser',
       summarizationSource: localStorage.getItem(STORAGE.summarizationSource) || 'openai',
       openAiReady: false,
-      anthropicReady: false
+      anthropicReady: false,
+      serverOpenAiReady: false,
+      serverAnthropicReady: false,
+      providerKeys: readProviderKeys(localStorage)
     },
     dom: {
       display: $('display'),
       transcriptViewport: $('transcriptViewport'),
       transcriptStack: $('transcriptStack'),
       panel: $('panel'),
-      apiWarning: $('apiWarning'),
       manualInput: $('manualInput'),
       pasteTranscript: $('pasteTranscript'),
       status: $('status'),
@@ -64,8 +68,32 @@ export function startApp() {
       summaryIntervalValue: $('summaryIntervalValue'),
       settingsPanel: $('settingsPanel'),
       settingsBackdrop: $('settingsBackdrop'),
+      settingsBody: $('settingsBody'),
+      alertButton: $('alertButton'),
       settingsButton: $('settingsButton'),
       closeSettings: $('closeSettings'),
+      alertsSection: $('alertsSection'),
+      apiWarning: $('apiWarning'),
+      transcriptionBrowser: $('transcriptionBrowser'),
+      transcriptionOpenAi: $('transcriptionOpenAi'),
+      summaryOpenAi: $('summaryOpenAi'),
+      summaryClaude: $('summaryClaude'),
+      transcriptionHint: $('transcriptionHint'),
+      summaryHint: $('summaryHint'),
+      openaiKeyDescription: $('openaiKeyDescription'),
+      openaiKeyState: $('openaiKeyState'),
+      openaiKeyMasked: $('openaiKeyMasked'),
+      openaiKeyInput: $('openaiKeyInput'),
+      openaiKeySave: $('openaiKeySave'),
+      openaiKeyTest: $('openaiKeyTest'),
+      openaiKeyDelete: $('openaiKeyDelete'),
+      claudeKeyDescription: $('claudeKeyDescription'),
+      claudeKeyState: $('claudeKeyState'),
+      claudeKeyMasked: $('claudeKeyMasked'),
+      claudeKeyInput: $('claudeKeyInput'),
+      claudeKeySave: $('claudeKeySave'),
+      claudeKeyTest: $('claudeKeyTest'),
+      claudeKeyDelete: $('claudeKeyDelete'),
       pauseAi: $('pauseAi'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
@@ -84,6 +112,7 @@ export function startApp() {
     bindControlButtons(ctx, runtime);
     bindViewerControls(ctx, runtime);
     bindModeAndSourceButtons(ctx, runtime);
+    bindProviderKeyControls(ctx, runtime);
     bindKeyboardShortcuts(ctx, runtime);
   }
 
@@ -92,6 +121,7 @@ export function startApp() {
   updateSourceButtons(ctx);
   updatePauseButton(ctx);
   syncViewerControls(ctx);
+  runtime.refreshProviderAvailability();
   runtime.saveViewerSettings();
   setSettingsOpen(ctx, false);
   renderDisplay(ctx);
@@ -130,13 +160,11 @@ function bindControlButtons(ctx, runtime) {
   $('clear').addEventListener('click', runtime.clearLines);
   $('fullscreen').addEventListener('click', () => document.documentElement.requestFullscreen?.());
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
+  ctx.dom.alertButton?.addEventListener('click', () => runtime.setSettingsOpen(true));
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
-  ctx.dom.settingsBackdrop.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
-
-  document.addEventListener('click', (event) => {
-    if (!ctx.state.settingsOpen) return;
-    const target = event.target;
-    if (ctx.dom.settingsPanel?.contains(target) || ctx.dom.settingsButton?.contains(target)) return;
+  ctx.dom.settingsPanel?.addEventListener('close', () => runtime.setSettingsOpen(false, { focusReturn: true }));
+  ctx.dom.settingsPanel?.addEventListener('click', (event) => {
+    if (event.target !== ctx.dom.settingsPanel) return;
     runtime.setSettingsOpen(false, { focusReturn: true });
   });
 }
@@ -151,8 +179,54 @@ function bindViewerControls(ctx, runtime) {
 
 function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.modeButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setMode(btn.dataset.mode)));
-  ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setTranscriptionSource(btn.dataset.source)));
-  ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setSummarizationSource(btn.dataset.source)));
+  ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
+  ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
+}
+
+function bindProviderKeyControls(ctx, runtime) {
+  wireProviderActions(ctx, runtime, 'openai');
+  wireProviderActions(ctx, runtime, 'claude');
+}
+
+function wireProviderActions(ctx, runtime, provider) {
+  const prefix = provider === 'openai' ? 'openai' : 'claude';
+  const input = ctx.dom[`${prefix}KeyInput`];
+  const save = ctx.dom[`${prefix}KeySave`];
+  const test = ctx.dom[`${prefix}KeyTest`];
+  const remove = ctx.dom[`${prefix}KeyDelete`];
+
+  save?.addEventListener('click', () => {
+    runtime.saveProviderKey(provider, input?.value || '');
+    if (input) input.value = '';
+  });
+
+  test?.addEventListener('click', () => runtime.testProviderKey(provider, input?.value || ''));
+  remove?.addEventListener('click', () => {
+    runtime.deleteProviderKey(provider);
+    if (input) input.value = '';
+  });
+
+  input?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    runtime.saveProviderKey(provider, input.value || '');
+    input.value = '';
+  });
+}
+
+function handleSourceSelection(ctx, runtime, button) {
+  const { kind, source } = button.dataset;
+  if (!kind || !source) return;
+  if (!runtime.isSourceConfigured(kind, source)) {
+    runtime.promptProviderSetup(kind, source);
+    return;
+  }
+
+  if (kind === 'transcription') {
+    runtime.setTranscriptionSource(source);
+  } else {
+    runtime.setSummarizationSource(source);
+  }
 }
 
 function bindKeyboardShortcuts(ctx, runtime) {

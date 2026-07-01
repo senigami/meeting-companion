@@ -10,6 +10,8 @@ The server keeps no durable business data. It only receives JSON payloads for co
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
+Provider keys are treated as browser-local configuration when the helper saves them in Settings. The app stores only a masked local copy, never echoes the full secret in diagnostics, and uses the saved value when testing or sending provider requests from this browser.
+
 ## Runtime state
 
 | Field | Type | Purpose |
@@ -25,6 +27,7 @@ The important model rule is that the display state is append-only from the user'
 | `summarizationSource` | `openai` \| `claude` | Which summarization driver is active. The runtime falls back to an available provider when the selected one is not configured. |
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
 | `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
+| `providerKeys` | `{ openai?: string, claude?: string }` | Browser-local provider overrides saved in Settings. |
 
 ## Transcript item shape
 
@@ -61,6 +64,7 @@ The server accepts and returns these JSON shapes:
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
 | `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
+| `POST /api/provider/test` | `{ provider, apiKey }` | `{ ok: true }` or `{ error }` |
 
 ## Related specs
 

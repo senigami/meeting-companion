@@ -22,36 +22,66 @@
     </main>
 
     <aside id="panel" class="panel operatorRail controlPanel" aria-label="Helper controls">
-      <div class="railHeader controlHeader">
-        <div>
-          <div class="eyebrow">Meeting Companion</div>
-          <h1>Controls</h1>
+      <div class="railTop controlHeader">
+        <div class="railBrand">
+          <div class="eyebrow">Meeting</div>
+          <div class="railName">Companion</div>
         </div>
-        <button
-          id="settingsButton"
-          type="button"
-          class="iconButton"
-          aria-label="Open settings"
-          aria-controls="settingsPanel"
-          aria-haspopup="dialog"
-          aria-expanded="false"
-        >
-          <span aria-hidden="true">⚙</span>
-        </button>
+        <div class="railActions">
+          <button
+            id="alertButton"
+            type="button"
+            class="iconButton alertButton"
+            aria-label="View alerts"
+            aria-controls="settingsPanel"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            hidden
+          >
+            <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-alert"></use></svg>
+          </button>
+          <button
+            id="settingsButton"
+            type="button"
+            class="iconButton settingsButton"
+            aria-label="Open settings"
+            aria-controls="settingsPanel"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+          >
+            <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-gear"></use></svg>
+          </button>
+        </div>
       </div>
 
       <div class="railBody controlScrollArea">
-        <p id="apiWarning" class="warning" hidden></p>
-
         <section class="section railSection">
           <div class="section-label">Quick controls</div>
           <div class="button-grid quickControlsGrid" role="group" aria-label="Quick controls">
-            <button id="startListening" type="button" class="railButton" aria-label="Start listening">Start</button>
-            <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" disabled>Stop</button>
-            <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" aria-pressed="false">Pause</button>
-            <button id="undo" type="button" class="railButton" aria-label="Undo last line">Undo</button>
-            <button id="clear" type="button" class="railButton" aria-label="Clear all lines">Clear</button>
-            <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen">Full</button>
+            <button id="startListening" type="button" class="railButton" aria-label="Start listening">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
+              <span class="buttonLabel">Start</span>
+            </button>
+            <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" disabled>
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
+              <span class="buttonLabel">Stop</span>
+            </button>
+            <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" aria-pressed="false">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
+              <span class="buttonLabel">Pause</span>
+            </button>
+            <button id="undo" type="button" class="railButton" aria-label="Undo last line">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
+              <span class="buttonLabel">Undo</span>
+            </button>
+            <button id="clear" type="button" class="railButton" aria-label="Clear all lines">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
+              <span class="buttonLabel">Clear</span>
+            </button>
+            <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
+              <span class="buttonLabel">Full</span>
+            </button>
           </div>
         </section>
 
@@ -87,90 +117,193 @@
       </div>
     </section>
 
-    <div id="settingsBackdrop" class="settingsBackdrop" hidden></div>
-    <aside id="settingsPanel" class="settingsPanel" role="dialog" aria-modal="true" aria-label="Settings" hidden>
+    <dialog id="settingsPanel" class="settingsOverlay settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" closedby="any" hidden>
       <header class="settingsHeader">
-        <h2>Settings</h2>
+        <div>
+          <div class="eyebrow">Meeting Companion</div>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
         <button id="closeSettings" type="button" class="ghost">Close</button>
       </header>
 
-      <section class="settingsSection">
-        <div class="section-label">Transcription source</div>
-        <div class="source-row" role="group" aria-label="Transcription source">
-          <button type="button" data-kind="transcription" data-source="browser" class="source active" aria-pressed="true">Browser</button>
-          <button type="button" data-kind="transcription" data-source="openai" class="source" aria-pressed="false">OpenAI</button>
-        </div>
-        <div class="field-note">Browser speech stays local. OpenAI sends short audio chunks to the server.</div>
-      </section>
+      <div id="settingsBody" class="settingsBody">
+        <section id="alertsSection" class="settingsCard alertCard">
+          <div class="section-label">Alerts</div>
+          <p id="apiWarning" class="alertMessage" role="status"></p>
+        </section>
 
-      <section class="settingsSection">
-        <div class="section-label">Summary source</div>
-        <div class="source-row" role="group" aria-label="Summary source">
-          <button type="button" data-kind="summarization" data-source="openai" class="source active" aria-pressed="true">OpenAI</button>
-          <button type="button" data-kind="summarization" data-source="claude" class="source" aria-pressed="false">Claude</button>
-        </div>
-      </section>
-
-      <section class="settingsSection">
-        <div class="section-label">View options</div>
-        <div class="settingsStack">
-          <div class="range-field">
-            <div class="range-head">
-              <label for="fontSize">Text size</label>
-              <output id="fontSizeValue" for="fontSize"></output>
+        <div class="settingsGrid">
+          <section class="settingsCard providerCard">
+            <div class="section-label">Transcription source</div>
+            <div class="providerOptions" role="group" aria-label="Transcription source">
+              <button id="transcriptionBrowser" type="button" data-kind="transcription" data-source="browser" class="providerOption active" aria-pressed="true">
+                <span class="providerName">Browser</span>
+                <span class="providerStatus">Local</span>
+              </button>
+              <button id="transcriptionOpenAi" type="button" data-kind="transcription" data-source="openai" class="providerOption" aria-pressed="false">
+                <span class="providerName">OpenAI</span>
+                <span class="providerStatus">Needs key</span>
+              </button>
             </div>
-            <input id="fontSize" type="range" min="56" max="144" step="4" />
-          </div>
-          <div class="range-field">
-            <div class="range-head">
-              <label for="displayMargin">Margins</label>
-              <output id="displayMarginValue" for="displayMargin"></output>
-            </div>
-            <input id="displayMargin" type="range" min="0" max="10" step="0.5" />
-          </div>
-          <div class="range-field">
-            <div class="range-head">
-              <label for="summaryInterval">Update interval</label>
-              <output id="summaryIntervalValue" for="summaryInterval"></output>
-            </div>
-            <input id="summaryInterval" type="range" min="0" max="3" step="1" />
-            <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
-          </div>
-        </div>
-      </section>
-
-      <details class="settingsSection">
-        <summary class="section-label">Show shortcuts</summary>
-        <div class="settingsDetailsBody">
-          <p class="shortcuts">1-4 modes, U undo, C clear, P pause AI, Ctrl+Enter summarize pasted text.</p>
-        </div>
-      </details>
-
-      <details class="settingsSection">
-        <summary class="section-label">Show diagnostics</summary>
-        <div class="settingsDetailsBody">
-          <section class="section">
-            <div class="section-label">Status</div>
-            <div id="status" class="status" role="status">Manual mode is ready.</div>
+            <p id="transcriptionHint" class="field-note">Browser speech stays local. OpenAI uses the saved key from this browser or the server env.</p>
           </section>
 
-          <section class="section">
-            <div class="section-label">Transcript tools</div>
-            <textarea id="pasteTranscript" placeholder="Paste spoken text here, then press Ctrl+Enter or click Summarize once."></textarea>
-            <div class="field-note">Use this when speech recognition is unavailable or unreliable.</div>
-            <div class="button-grid button-grid-secondary">
-              <button id="summarizeOnce" type="button">Summarize once</button>
+          <section class="settingsCard providerCard">
+            <div class="section-label">Summary source</div>
+            <div class="providerOptions" role="group" aria-label="Summary source">
+              <button id="summaryOpenAi" type="button" data-kind="summarization" data-source="openai" class="providerOption active" aria-pressed="true">
+                <span class="providerName">OpenAI</span>
+                <span class="providerStatus">Needs key</span>
+              </button>
+              <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false">
+                <span class="providerName">Claude</span>
+                <span class="providerStatus">Needs key</span>
+              </button>
+            </div>
+            <p id="summaryHint" class="field-note">Choose the provider that makes the best one-line summary.</p>
+          </section>
+
+          <section id="openaiProviderCard" class="settingsCard providerCard">
+            <div class="apiKeyBox">
+              <div class="apiKeyHeader">
+                <div>
+                  <h3>OpenAI API key</h3>
+                  <p id="openaiKeyDescription">No key saved in this browser.</p>
+                </div>
+                <span id="openaiKeyState" class="statusPill warning">Needs key</span>
+              </div>
+              <div id="openaiKeyMasked" class="maskedKey" hidden></div>
+              <label for="openaiKeyInput">Paste API key</label>
+              <input id="openaiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
+              <div class="apiKeyActions">
+                <button id="openaiKeySave" type="button" class="primary">Save key</button>
+                <button id="openaiKeyTest" type="button">Test key</button>
+                <button id="openaiKeyDelete" type="button" class="ghost">Delete local key</button>
+              </div>
+              <p class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
             </div>
           </section>
 
-          <section class="section">
-            <div class="section-label">Recent transcript</div>
-            <div id="liveTranscript" class="transcript" aria-label="Recent transcript"></div>
+          <section id="claudeProviderCard" class="settingsCard providerCard">
+            <div class="apiKeyBox">
+              <div class="apiKeyHeader">
+                <div>
+                  <h3>Claude API key</h3>
+                  <p id="claudeKeyDescription">No key saved in this browser.</p>
+                </div>
+                <span id="claudeKeyState" class="statusPill warning">Needs key</span>
+              </div>
+              <div id="claudeKeyMasked" class="maskedKey" hidden></div>
+              <label for="claudeKeyInput">Paste API key</label>
+              <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
+              <div class="apiKeyActions">
+                <button id="claudeKeySave" type="button" class="primary">Save key</button>
+                <button id="claudeKeyTest" type="button">Test key</button>
+                <button id="claudeKeyDelete" type="button" class="ghost">Delete local key</button>
+              </div>
+              <p class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
+            </div>
           </section>
+
+          <section class="settingsCard">
+            <div class="section-label">View options</div>
+            <div class="settingsStack">
+              <div class="range-field">
+                <div class="range-head">
+                  <label for="fontSize">Text size</label>
+                  <output id="fontSizeValue" for="fontSize"></output>
+                </div>
+                <input id="fontSize" type="range" min="56" max="144" step="4" />
+              </div>
+              <div class="range-field">
+                <div class="range-head">
+                  <label for="displayMargin">Margins</label>
+                  <output id="displayMarginValue" for="displayMargin"></output>
+                </div>
+                <input id="displayMargin" type="range" min="0" max="10" step="0.5" />
+              </div>
+              <div class="range-field">
+                <div class="range-head">
+                  <label for="summaryInterval">Update interval</label>
+                  <output id="summaryIntervalValue" for="summaryInterval"></output>
+                </div>
+                <input id="summaryInterval" type="range" min="0" max="3" step="1" />
+                <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
+              </div>
+            </div>
+          </section>
+
+          <details class="settingsCard">
+            <summary class="section-label">Show shortcuts</summary>
+            <div class="settingsDetailsBody">
+              <p class="shortcuts">1-4 modes, U undo, C clear, P pause AI, Ctrl+Enter summarize pasted text.</p>
+            </div>
+          </details>
+
+          <details class="settingsCard">
+            <summary class="section-label">Show diagnostics</summary>
+            <div class="settingsDetailsBody">
+              <section class="section">
+                <div class="section-label">Status</div>
+                <div id="status" class="status" role="status">Manual mode is ready.</div>
+              </section>
+
+              <section class="section">
+                <div class="section-label">Transcript tools</div>
+                <textarea id="pasteTranscript" placeholder="Paste spoken text here, then press Ctrl+Enter or click Summarize once."></textarea>
+                <div class="field-note">Use this when speech recognition is unavailable or unreliable.</div>
+                <div class="button-grid button-grid-secondary">
+                  <button id="summarizeOnce" type="button">Summarize once</button>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-label">Recent transcript</div>
+                <div id="liveTranscript" class="transcript" aria-label="Recent transcript"></div>
+              </section>
+            </div>
+          </details>
         </div>
-      </details>
-    </aside>
+      </div>
+    </dialog>
+
+    <div id="settingsBackdrop" class="settingsBackdrop" hidden></div>
   </div>
+
+  <svg aria-hidden="true" class="iconSprite" width="0" height="0" focusable="false">
+    <symbol id="icon-mic" viewBox="0 0 24 24">
+      <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M7.5 12a4.5 4.5 0 0 0 9 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M12 16.5V20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-stop" viewBox="0 0 24 24">
+      <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>
+    </symbol>
+    <symbol id="icon-pause" viewBox="0 0 24 24">
+      <rect x="7" y="6.5" width="3.4" height="11" rx="1.2" fill="currentColor"/>
+      <rect x="13.6" y="6.5" width="3.4" height="11" rx="1.2" fill="currentColor"/>
+    </symbol>
+    <symbol id="icon-undo" viewBox="0 0 24 24">
+      <path d="M8 9H4v-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 9c2.1-2.4 4.7-3.7 7.7-3.7 4.5 0 8.3 3.6 8.3 8.1S16.2 21 11.7 21C8.8 21 6.4 19.9 4.7 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24">
+      <path d="M8 8.5h8l-.7 10.1a1.8 1.8 0 0 1-1.8 1.7H10.5a1.8 1.8 0 0 1-1.8-1.7L8 8.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M6.5 8.5h11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M9.2 6.2h5.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-fullscreen" viewBox="0 0 24 24">
+      <path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-gear" viewBox="0 0 24 24">
+      <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm8 3.7-.9.5c-.2.1-.3.4-.2.6l.3 1a1 1 0 0 1-.2 1l-1.2 1.2a1 1 0 0 1-1 .2l-1-.3c-.2-.1-.5 0-.6.2l-.5.9a1 1 0 0 1-.9.5h-1.7a1 1 0 0 1-.9-.5l-.5-.9c-.1-.2-.4-.3-.6-.2l-1 .3a1 1 0 0 1-1-.2L4.3 15.1a1 1 0 0 1-.2-1l.3-1c.1-.2 0-.5-.2-.6l-.9-.5a1 1 0 0 1-.5-.9v-1.7a1 1 0 0 1 .5-.9l.9-.5c.2-.1.3-.4.2-.6l-.3-1a1 1 0 0 1 .2-1l1.2-1.2a1 1 0 0 1 1-.2l1 .3c.2.1.5 0 .6-.2l.5-.9a1 1 0 0 1 .9-.5h1.7a1 1 0 0 1 .9.5l.5.9c.1.2.4.3.6.2l1-.3a1 1 0 0 1 1 .2l1.2 1.2a1 1 0 0 1 .2 1l-.3 1c-.1.2 0 .5.2.6l.9.5a1 1 0 0 1 .5.9v1.7a1 1 0 0 1-.5.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24">
+      <path d="M12 4 3.7 18a1 1 0 0 0 .9 1.5h14.8a1 1 0 0 0 .9-1.5L12 4Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M12 9v4.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <circle cx="12" cy="16.6" r="1" fill="currentColor"/>
+    </symbol>
+  </svg>
 
   <script type="module" src="app.js"></script>
 </body>

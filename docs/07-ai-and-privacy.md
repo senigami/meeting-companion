@@ -7,6 +7,7 @@
 The app uses AI in two places: speech transcription and summary generation. Those are separate responsibilities and are routed through separate source adapters so they can evolve independently.
 
 The browser source is preferred when it is available because it keeps transcription local to the laptop. OpenAI is available as a modular source for transcription, and OpenAI or Claude can provide summaries.
+When the helper saves a provider key in Settings, the key stays local to that browser profile unless the server is using an environment variable. The UI should show masked key status only and never reveal the full secret in diagnostics.
 
 ## Source rules
 
@@ -14,6 +15,7 @@ The browser source is preferred when it is available because it keeps transcript
 - OpenAI transcription is a first-class source option and is disabled when the key is missing.
 - OpenAI summarization and Claude summarization are both first-class summary source options.
 - Adding another source must happen by adding a module and registering it in the catalog and registry.
+- Provider selection should stay tied to configuration: if a provider has no key, the UI should prompt for setup instead of pretending it is ready.
 
 ## Prompt rules
 
@@ -29,6 +31,7 @@ The browser source is preferred when it is available because it keeps transcript
 - Do not save transcript history by default.
 - Keep the UI usable in manual-only mode when OpenAI is unavailable.
 - Limit provider calls to the current task context rather than sending a long history.
+- Do not display full API keys in plain text by default.
 
 ## Related specs
 
