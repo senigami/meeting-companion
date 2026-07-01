@@ -144,3 +144,26 @@ test('range sliders use discrete Apple-style tick marks', async () => {
   assert.match(css, /radial-gradient\(circle at left center, var\(--slider-dot\)/);
   assert.match(css, /radial-gradient\(circle at right center, var\(--slider-dot\)/);
 });
+
+test('chrome token tier is declared for operator surfaces', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /--chrome-bg:/);
+  assert.match(css, /--chrome-bg-elevated:/);
+  assert.match(css, /--chrome-bg-control:/);
+  assert.match(css, /--chrome-bg-control-hover:/);
+  assert.match(css, /--chrome-separator:/);
+  assert.match(css, /--chrome-text:/);
+  assert.match(css, /--chrome-text-secondary:/);
+  assert.match(css, /--chrome-accent:/);
+  assert.match(css, /--chrome-radius-sm:/);
+  assert.match(css, /--chrome-radius-md:/);
+  assert.match(css, /--chrome-radius-lg:/);
+  assert.match(css, /--chrome-space-1:/);
+  assert.match(css, /--chrome-space-2:/);
+  assert.match(css, /--chrome-space-3:/);
+  assert.match(css, /--chrome-space-4:/);
+  assert.match(css, /--chrome-space-5:/);
+  assert.match(css, /--chrome-focus-ring-width:/);
+  assert.match(css, /--chrome-focus-ring-offset:/);
+});
