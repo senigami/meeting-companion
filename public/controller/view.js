@@ -128,7 +128,9 @@ export function updateSourceButtons(ctx) {
 
 export function updatePauseButton(ctx) {
   const button = ctx.dom.pauseAi;
-  button.textContent = ctx.state.paused ? 'Resume AI' : 'Pause AI';
+  if (ctx.dom.pauseAiLabel) {
+    ctx.dom.pauseAiLabel.textContent = ctx.state.paused ? 'Resume' : 'Pause';
+  }
   button.setAttribute('aria-pressed', String(ctx.state.paused));
 }
 
@@ -145,13 +147,20 @@ export function syncViewerControls(ctx) {
   ctx.dom.fontSizeInput.value = String(ctx.state.fontSize);
   ctx.dom.fontSizeValue.textContent = `${ctx.state.fontSize}px`;
   ctx.dom.displayMarginInput.value = String(ctx.state.displayMargin);
-  ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}vw`;
+  ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}%`;
   updateSummaryIntervalControl(ctx);
+  updateDisplayMarginGuides(ctx);
 }
 
 export function applyViewerSettings(ctx) {
   document.documentElement.style.setProperty('--font-size', `${ctx.state.fontSize}px`);
-  document.documentElement.style.setProperty('--display-margin', String(ctx.state.displayMargin));
+  document.documentElement.style.setProperty('--display-margin', `${ctx.state.displayMargin}%`);
+  updateDisplayMarginGuides(ctx);
+}
+
+export function setDisplayMarginGuidesVisible(ctx, visible) {
+  ctx.state.displayMarginGuidesVisible = Boolean(visible);
+  updateDisplayMarginGuides(ctx);
 }
 
 export function syncSettingsPanel(ctx) {
@@ -429,4 +438,9 @@ function setDataAttribute(node, name, value) {
   if (typeof node.setAttribute === 'function') {
     node.setAttribute(`data-${name}`, value);
   }
+}
+
+function updateDisplayMarginGuides(ctx) {
+  if (!ctx.dom.display) return;
+  setDataAttribute(ctx.dom.display, 'marginGuides', ctx.state.displayMarginGuidesVisible ? 'true' : 'false');
 }

@@ -1,0 +1,22 @@
+{
+  "project": "meeting-companion-display",
+  "updatedAt": "2026-06-30",
+  "currentFocus": "Apple-inspired responsive assistive display with live transcript preview and settings modal",
+  "verified": {
+    "tests": "npm test --silent",
+    "status": "passing",
+    "runtimeLineLimit": "under 500 lines"
+  },
+  "knownBehavior": {
+    "demoMode": true,
+    "liveTranscriptPreview": true,
+    "marginGuides": "flash only while the margin slider is being dragged",
+    "providerSetup": "handled in the settings modal"
+  },
+  "nextSteps": [
+    "Keep .agent/rules.md and Memory files updated after verified changes.",
+    "Keep docs and wiki aligned with UI behavior changes.",
+    "Refresh screenshots after notable visual updates.",
+    "Keep the operator rail compact and the display centered."
+  ]
+}

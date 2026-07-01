@@ -4,7 +4,7 @@ Meeting Companion Display is a small local helper app for church meetings.
 
 It runs on a laptop connected to a TV and shows a large-print stack of digestible transcript cards for one deaf and low-vision viewer. The helper uses a slim operator rail for the live controls, a bottom bar for manual lines, and a centered Settings modal for transcription source, summarization source, provider keys, alerts, and diagnostics. The TV display stays the visual hero.
 
-![Meeting Companion helper panel showing the warning banner, mode buttons, and viewer controls](public/wiki/screenshots/meeting-companion-render.png)
+![Meeting Companion helper panel with the live operator rail, manual entry bar, and settings modal](public/wiki/screenshots/meeting-companion-render.png)
 
 ## What it does
 
@@ -18,6 +18,7 @@ It runs on a laptop connected to a TV and shows a large-print stack of digestibl
 - Helper can adjust text size, margins, and update interval.
 - Helper can undo, clear, pause AI, and collapse the extras with `H`.
 - Quick controls stay visible.
+- The operator rail can show a small live transcript preview so the helper can see the raw stream coming in.
 - Settings keeps source controls, provider keys, alerts, and diagnostics out of the main operating surface.
 - The operator rail stays icon-first and compact so the display remains the focus.
 - No database.
@@ -36,11 +37,12 @@ npm start
 ```
 
 4. Open [http://localhost:3000](http://localhost:3000).
-5. Connect the laptop to the TV and make the browser fullscreen.
-6. Press `H` to hide or show the extras.
-7. Allow microphone access only if you want live browser transcription.
-8. If `OPENAI_API_KEY` is missing, the app shows a warning and stays usable in manual mode and browser transcription mode.
-9. If `ANTHROPIC_API_KEY` is missing, Claude summaries stay disabled.
+5. For a live-looking preview with sample transcript cards, open [http://localhost:3000/?demo=1](http://localhost:3000/?demo=1).
+6. Connect the laptop to the TV and make the browser fullscreen.
+7. Press `H` to hide or show the extras.
+8. Allow microphone access only if you want live browser transcription.
+9. If `OPENAI_API_KEY` is missing, the app shows a warning and stays usable in manual mode and browser transcription mode.
+10. If `ANTHROPIC_API_KEY` is missing, Claude summaries stay disabled.
 
 ## Setup
 

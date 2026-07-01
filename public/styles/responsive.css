@@ -1,0 +1,102 @@
+@media (max-width: 1180px) {
+  .meetingShell {
+    grid-template-columns: minmax(0, 1fr) clamp(132px, 11vw, 160px);
+  }
+
+  .operatorRail {
+    font-size: 0.92rem;
+  }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    overflow: auto;
+  }
+
+  .meetingShell {
+    height: auto;
+    max-height: none;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "display"
+      "rail"
+      "manual";
+    overflow: visible;
+  }
+
+  .operatorRail {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-items: stretch;
+  }
+
+  .railTop {
+    min-width: max-content;
+  }
+
+  .railBody {
+    flex: 1 1 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .railSection {
+    min-width: 15rem;
+    flex: 0 0 auto;
+  }
+
+  .railTranscriptDisclosure {
+    min-width: 15rem;
+  }
+
+  .manualBarInner {
+    grid-template-columns: 1fr auto;
+  }
+
+  .manualLabel {
+    display: none;
+  }
+
+  .settingsOverlay.settingsModal {
+    width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .settingsBody {
+    padding: 1rem;
+  }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .meetingShell {
+    padding: 0.5rem;
+    gap: 0.6rem;
+  }
+
+  .railSection {
+    min-width: 13.5rem;
+  }
+
+  .railTranscriptDisclosure {
+    min-width: 13.5rem;
+  }
+
+  .apiKeyActions {
+    grid-template-columns: 1fr;
+  }
+}
