@@ -56,10 +56,13 @@ test('bootstrap starts the demo feed when requested in the query string', async 
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
+    viewPanel: createElement({ hidden: true }),
+    viewButton: createElement(),
+    closeViewPanel: createElement(),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
     alertsSection: createElement({ hidden: true }),
-    alertButton: createElement({ hidden: true }),
+    settingsAlertBadge: createElement({ hidden: true }),
     settingsButton: createElement({}),
     closeSettings: createElement(),
     addManual: createElement(),
@@ -149,10 +152,12 @@ test('bootstrap starts the demo feed when requested in the query string', async 
     await Promise.resolve();
 
     assert.equal(scheduled.length >= 4, true);
-    scheduled[0].fn();
+    while (scheduled.length) {
+      scheduled.shift().fn();
+    }
     assert.equal(elements.transcriptStack.children.length > 0, true);
-    assert.match(elements.transcriptStack.children[0].children[1].textContent, /hospital visit/i);
-    assert.match(elements.railTranscript.textContent, /hospital visit/i);
+    assert.match(elements.transcriptStack.children[0].children[1].textContent, /family pace|Tuesday|Fellowship Hall|Hymn 198/i);
+    assert.match(elements.railTranscript.textContent, /family pace|Tuesday|Fellowship Hall|Hymn 198/i);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

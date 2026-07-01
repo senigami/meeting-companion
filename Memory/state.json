@@ -1,7 +1,7 @@
 {
   "project": "meeting-companion-display",
-  "updatedAt": "2026-06-30",
-  "currentFocus": "Apple-inspired responsive assistive display with live transcript preview and settings modal",
+  "updatedAt": "2026-07-01",
+  "currentFocus": "Apple-inspired responsive assistive display with live transcript preview, settings modal, and service registration flow",
   "verified": {
     "tests": "npm test --silent",
     "status": "passing",
@@ -10,8 +10,11 @@
   "knownBehavior": {
     "demoMode": true,
     "liveTranscriptPreview": true,
-    "marginGuides": "flash only while the margin slider is being dragged",
-    "providerSetup": "handled in the settings modal"
+    "sampleTextPreview": "automatic empty-state sample text appears only while the Display controls are open",
+    "marginGuides": "flash only while the margin slider is being dragged; margin slider uses custom track-width pointer mapping, supports 0-40%, controls transcript text-flow width, and disables drawer hit-testing during active drag",
+    "providerSetup": "handled in the settings modal via source lists plus a separate registration card",
+    "manualTranscriptCards": "use a neutral human silhouette icon and do not inherit the active mode icon",
+    "operatorRailWidth": "is draggable from the divider, stored in browser storage, and clamped to the current viewport"
   },
   "nextSteps": [
     "Keep .agent/rules.md and Memory files updated after verified changes.",

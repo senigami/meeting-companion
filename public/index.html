@@ -22,6 +22,18 @@
     </main>
 
     <aside id="panel" class="panel operatorRail controlPanel" aria-label="Helper controls">
+      <div
+        id="railResizeHandle"
+        class="railResizeHandle"
+        role="slider"
+        tabindex="0"
+        aria-label="Resize helper rail"
+        aria-orientation="vertical"
+        aria-valuemin="180"
+        aria-valuemax="640"
+        aria-valuenow="220"
+        aria-valuetext="220 pixels wide"
+      ></div>
       <div class="railTop controlHeader">
         <div class="railBrand">
           <div class="eyebrow">Meeting</div>
@@ -29,16 +41,15 @@
         </div>
         <div class="railActions">
           <button
-            id="alertButton"
+            id="viewButton"
             type="button"
-            class="iconButton alertButton"
-            aria-label="View alerts"
-            aria-controls="settingsPanel"
+            class="iconButton viewButton"
+            aria-label="Open display controls"
+            aria-controls="viewPanel"
             aria-haspopup="dialog"
             aria-expanded="false"
-            hidden
           >
-            <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-alert"></use></svg>
+            <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg>
           </button>
           <button
             id="settingsButton"
@@ -50,6 +61,9 @@
             aria-expanded="false"
           >
             <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-gear"></use></svg>
+            <span id="settingsAlertBadge" class="settingsAlertBadge" aria-hidden="true" hidden>
+              <svg class="badgeIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-alert"></use></svg>
+            </span>
           </button>
         </div>
       </div>
@@ -61,26 +75,32 @@
             <button id="startListening" type="button" class="railButton" aria-label="Start listening">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
               <span class="buttonLabel">Start</span>
+              <span class="shortcutBadge" aria-hidden="true">S</span>
             </button>
             <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" disabled>
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
               <span class="buttonLabel">Stop</span>
+              <span class="shortcutBadge" aria-hidden="true">T</span>
             </button>
             <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" aria-pressed="false">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
               <span id="pauseAiLabel" class="buttonLabel">Pause</span>
+              <span class="shortcutBadge" aria-hidden="true">P</span>
             </button>
             <button id="undo" type="button" class="railButton" aria-label="Undo last line">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
               <span class="buttonLabel">Undo</span>
+              <span class="shortcutBadge" aria-hidden="true">U</span>
             </button>
             <button id="clear" type="button" class="railButton" aria-label="Clear all lines">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
               <span class="buttonLabel">Clear</span>
+              <span class="shortcutBadge" aria-hidden="true">C</span>
             </button>
             <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
               <span class="buttonLabel">Full</span>
+              <span class="shortcutBadge" aria-hidden="true">F</span>
             </button>
           </div>
         </section>
@@ -139,116 +159,84 @@
           <p id="apiWarning" class="alertMessage" role="status"></p>
         </section>
 
+        <section class="settingsCard settingsViewCard">
+          <div class="section-label">Update interval</div>
+          <div class="settingsStack">
+            <div class="range-field">
+              <div class="range-head">
+                <label for="summaryInterval">Update interval</label>
+                <output id="summaryIntervalValue" for="summaryInterval"></output>
+              </div>
+              <input id="summaryInterval" type="range" min="0" max="3" step="1" />
+              <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
+            </div>
+          </div>
+        </section>
+
         <div class="settingsGrid">
-          <section class="settingsCard providerCard">
-            <div class="section-label">Transcription source</div>
-            <div class="providerOptions" role="group" aria-label="Transcription source">
-              <button id="transcriptionBrowser" type="button" data-kind="transcription" data-source="browser" class="providerOption active" aria-pressed="true">
-                <span class="providerName">Browser</span>
-                <span class="providerStatus">Local</span>
-              </button>
-              <button id="transcriptionOpenAi" type="button" data-kind="transcription" data-source="openai" class="providerOption" aria-pressed="false">
-                <span class="providerName">OpenAI</span>
-                <span class="providerStatus">Needs key</span>
-              </button>
-            </div>
-            <p id="transcriptionHint" class="field-note">Browser speech stays local. OpenAI uses the saved key from this browser or the server env.</p>
-          </section>
+        <section class="settingsCard providerCard">
+          <div class="section-label">Transcription source</div>
+          <div class="providerOptions" role="group" aria-label="Transcription source">
+            <button id="transcriptionBrowser" type="button" data-kind="transcription" data-source="browser" class="providerOption active" aria-pressed="true">
+              <span class="providerName">Browser</span>
+              <span class="providerStatus">Local</span>
+            </button>
+            <button id="transcriptionOpenAi" type="button" data-kind="transcription" data-source="openai" class="providerOption" aria-pressed="false" hidden>
+              <span class="providerName">OpenAI</span>
+              <span class="providerStatus">Available</span>
+            </button>
+          </div>
+          <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available.</p>
+        </section>
 
-          <section class="settingsCard providerCard">
-            <div class="section-label">Summary source</div>
-            <div class="providerOptions" role="group" aria-label="Summary source">
-              <button id="summaryOpenAi" type="button" data-kind="summarization" data-source="openai" class="providerOption active" aria-pressed="true">
-                <span class="providerName">OpenAI</span>
-                <span class="providerStatus">Needs key</span>
-              </button>
-              <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false">
-                <span class="providerName">Claude</span>
-                <span class="providerStatus">Needs key</span>
-              </button>
-            </div>
-            <p id="summaryHint" class="field-note">Choose the provider that makes the best one-line summary.</p>
-          </section>
+        <section class="settingsCard providerCard">
+          <div class="section-label">Summary source</div>
+          <div class="providerOptions" role="group" aria-label="Summary source">
+            <button id="summaryOpenAi" type="button" data-kind="summarization" data-source="openai" class="providerOption active" aria-pressed="true" hidden>
+              <span class="providerName">OpenAI</span>
+              <span class="providerStatus">Available</span>
+            </button>
+            <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false" hidden>
+              <span class="providerName">Claude</span>
+              <span class="providerStatus">Available</span>
+            </button>
+          </div>
+          <p id="summaryHint" class="field-note">Only configured services appear here. Add a service below to make one available.</p>
+        </section>
 
-          <section id="openaiProviderCard" class="settingsCard providerCard">
-            <div class="apiKeyBox">
-              <div class="apiKeyHeader">
-                <div>
-                  <h3>OpenAI API key</h3>
-                  <p id="openaiKeyDescription">No key saved in this browser.</p>
-                </div>
-                <span id="openaiKeyState" class="statusPill warning">Needs key</span>
+        <section class="settingsCard serviceRegistrationCard">
+          <div class="section-label">Register service</div>
+          <div class="providerOptions" role="group" aria-label="Service to add">
+            <button id="serviceRegistrationOpenAi" type="button" data-register-provider="openai" class="providerOption active" aria-pressed="true">
+              <span class="providerName">OpenAI</span>
+              <span id="serviceRegistrationOpenAiStatus" class="providerStatus">Needs key</span>
+            </button>
+            <button id="serviceRegistrationClaude" type="button" data-register-provider="claude" class="providerOption" aria-pressed="false">
+              <span class="providerName">Claude</span>
+              <span id="serviceRegistrationClaudeStatus" class="providerStatus">Needs key</span>
+            </button>
+          </div>
+          <div class="apiKeyBox">
+            <div class="apiKeyHeader">
+              <div>
+                <h3 id="serviceRegistrationTitle">OpenAI API key</h3>
+                <p id="serviceRegistrationDescription">No key saved in this browser.</p>
               </div>
-              <div id="openaiKeyMasked" class="maskedKey" hidden></div>
-              <label for="openaiKeyInput">Paste API key</label>
-              <input id="openaiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
-              <div class="apiKeyActions">
-                <button id="openaiKeySave" type="button" class="primary">Save key</button>
-                <button id="openaiKeyTest" type="button">Test key</button>
-                <button id="openaiKeyDelete" type="button" class="ghost">Delete local key</button>
-              </div>
-              <p class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
+              <span id="serviceRegistrationState" class="statusPill warning">Needs key</span>
             </div>
-          </section>
-
-          <section id="claudeProviderCard" class="settingsCard providerCard">
-            <div class="apiKeyBox">
-              <div class="apiKeyHeader">
-                <div>
-                  <h3>Claude API key</h3>
-                  <p id="claudeKeyDescription">No key saved in this browser.</p>
-                </div>
-                <span id="claudeKeyState" class="statusPill warning">Needs key</span>
-              </div>
-              <div id="claudeKeyMasked" class="maskedKey" hidden></div>
-              <label for="claudeKeyInput">Paste API key</label>
-              <input id="claudeKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
-              <div class="apiKeyActions">
-                <button id="claudeKeySave" type="button" class="primary">Save key</button>
-                <button id="claudeKeyTest" type="button">Test key</button>
-                <button id="claudeKeyDelete" type="button" class="ghost">Delete local key</button>
-              </div>
-              <p class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
+            <div id="serviceRegistrationMasked" class="maskedKey" hidden></div>
+            <label for="serviceRegistrationKeyInput">Paste API key</label>
+            <input id="serviceRegistrationKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
+            <div class="apiKeyActions">
+              <button id="serviceRegistrationSave" type="button" class="primary">Add and validate</button>
+              <button id="serviceRegistrationTest" type="button">Test key</button>
+              <button id="serviceRegistrationDelete" type="button" class="ghost">Delete local key</button>
             </div>
-          </section>
-
-          <section class="settingsCard">
-            <div class="section-label">View options</div>
-            <div class="settingsStack">
-              <div class="range-field">
-                <div class="range-head">
-                  <label for="fontSize">Text size</label>
-                  <output id="fontSizeValue" for="fontSize"></output>
-                </div>
-                <input id="fontSize" type="range" min="56" max="144" step="4" />
-              </div>
-              <div class="range-field">
-                <div class="range-head">
-                  <label for="displayMargin">Margins</label>
-                  <output id="displayMarginValue" for="displayMargin"></output>
-                </div>
-                <input id="displayMargin" type="range" min="0" max="10" step="0.5" />
-              </div>
-              <div class="range-field">
-                <div class="range-head">
-                  <label for="summaryInterval">Update interval</label>
-                  <output id="summaryIntervalValue" for="summaryInterval"></output>
-                </div>
-                <input id="summaryInterval" type="range" min="0" max="3" step="1" />
-                <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
-              </div>
-            </div>
-          </section>
-
-          <details class="settingsCard">
-            <summary class="section-label">Show shortcuts</summary>
-            <div class="settingsDetailsBody">
-              <p class="shortcuts">1-4 modes, U undo, C clear, P pause AI, Ctrl+Enter summarize pasted text.</p>
-            </div>
-          </details>
-
-          <details class="settingsCard">
-            <summary class="section-label">Show diagnostics</summary>
+            <p id="serviceRegistrationHint" class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
+          </div>
+        </section>
+          <section class="settingsCard settingsDiagnosticsCard">
+            <div class="section-label">Diagnostics</div>
             <div class="settingsDetailsBody">
               <section class="section">
                 <div class="section-label">Status</div>
@@ -269,46 +257,117 @@
                 <div id="liveTranscript" class="transcript" aria-label="Recent transcript"></div>
               </section>
             </div>
-          </details>
+          </section>
         </div>
       </div>
     </dialog>
+
+    <aside id="viewPanel" class="viewDrawer" aria-label="Display controls" aria-hidden="true" hidden>
+      <div class="viewDrawerShell">
+        <header class="viewDrawerHeader">
+          <div>
+            <div class="eyebrow">Meeting Companion</div>
+            <h2>Display</h2>
+          </div>
+          <button id="closeViewPanel" type="button" class="ghost">Close</button>
+        </header>
+        <div class="viewDrawerBody">
+          <div class="section-label">View options</div>
+          <div class="settingsStack">
+            <div class="range-field">
+              <div class="range-head">
+                <label for="fontSize">Text size</label>
+                <output id="fontSizeValue" for="fontSize"></output>
+              </div>
+              <div class="sliderVisual" aria-hidden="true">
+                <div class="sliderTrack"></div>
+                <input id="fontSize" class="sliderInput" type="range" min="24" max="144" step="4" />
+                <div id="fontSizeVisualThumb" class="sliderThumb"></div>
+              </div>
+            </div>
+            <div class="range-field">
+              <div class="range-head">
+                <label for="displayMargin">Margins</label>
+                <output id="displayMarginValue" for="displayMargin"></output>
+              </div>
+              <div class="sliderVisual" aria-hidden="true">
+                <div class="sliderTrack"></div>
+                <input id="displayMargin" class="sliderInput" type="range" min="0" max="40" step="0.5" />
+                <div id="displayMarginVisualThumb" class="sliderThumb"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
 
     <div id="settingsBackdrop" class="settingsBackdrop" hidden></div>
   </div>
 
   <svg aria-hidden="true" class="iconSprite" width="0" height="0" focusable="false">
     <symbol id="icon-mic" viewBox="0 0 24 24">
-      <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M7.5 12a4.5 4.5 0 0 0 9 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-      <path d="M12 16.5V20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M12 19v3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="9" y="2" width="6" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-stop" viewBox="0 0 24 24">
-      <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>
+      <rect width="18" height="18" x="3" y="3" rx="2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-pause" viewBox="0 0 24 24">
-      <rect x="7" y="6.5" width="3.4" height="11" rx="1.2" fill="currentColor"/>
-      <rect x="13.6" y="6.5" width="3.4" height="11" rx="1.2" fill="currentColor"/>
+      <rect x="14" y="3" width="5" height="18" rx="1" fill="currentColor"/>
+      <rect x="5" y="3" width="5" height="18" rx="1" fill="currentColor"/>
     </symbol>
     <symbol id="icon-undo" viewBox="0 0 24 24">
-      <path d="M8 9H4v-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M4 9c2.1-2.4 4.7-3.7 7.7-3.7 4.5 0 8.3 3.6 8.3 8.1S16.2 21 11.7 21C8.8 21 6.4 19.9 4.7 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-trash" viewBox="0 0 24 24">
-      <path d="M8 8.5h8l-.7 10.1a1.8 1.8 0 0 1-1.8 1.7H10.5a1.8 1.8 0 0 1-1.8-1.7L8 8.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
-      <path d="M6.5 8.5h11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-      <path d="M9.2 6.2h5.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M10 11v6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M14 11v6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M3 6h18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-fullscreen" viewBox="0 0 24 24">
-      <path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M15 3h6v6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m21 3-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m3 21 7-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9 21H3v-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-gear" viewBox="0 0 24 24">
-      <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm8 3.7-.9.5c-.2.1-.3.4-.2.6l.3 1a1 1 0 0 1-.2 1l-1.2 1.2a1 1 0 0 1-1 .2l-1-.3c-.2-.1-.5 0-.6.2l-.5.9a1 1 0 0 1-.9.5h-1.7a1 1 0 0 1-.9-.5l-.5-.9c-.1-.2-.4-.3-.6-.2l-1 .3a1 1 0 0 1-1-.2L4.3 15.1a1 1 0 0 1-.2-1l.3-1c.1-.2 0-.5-.2-.6l-.9-.5a1 1 0 0 1-.5-.9v-1.7a1 1 0 0 1 .5-.9l.9-.5c.2-.1.3-.4.2-.6l-.3-1a1 1 0 0 1 .2-1l1.2-1.2a1 1 0 0 1 1-.2l1 .3c.2.1.5 0 .6-.2l.5-.9a1 1 0 0 1 .9-.5h1.7a1 1 0 0 1 .9.5l.5.9c.1.2.4.3.6.2l1-.3a1 1 0 0 1 1 .2l1.2 1.2a1 1 0 0 1 .2 1l-.3 1c-.1.2 0 .5.2.6l.9.5a1 1 0 0 1 .5.9v1.7a1 1 0 0 1-.5.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-alert" viewBox="0 0 24 24">
-      <path d="M12 4 3.7 18a1 1 0 0 0 .9 1.5h14.8a1 1 0 0 0 .9-1.5L12 4Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
-      <path d="M12 9v4.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-      <circle cx="12" cy="16.6" r="1" fill="currentColor"/>
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M12 9v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M12 17h.01" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-sliders-horizontal" viewBox="0 0 24 24">
+      <path d="M4 21v-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 10V3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 21v-9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 8V3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20 21v-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20 12V3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M2 14h4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 8h4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M18 16h4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="4" cy="14" r="2" fill="none" stroke="currentColor" stroke-width="1.9"/>
+      <circle cx="12" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.9"/>
+      <circle cx="20" cy="16" r="2" fill="none" stroke="currentColor" stroke-width="1.9"/>
+    </symbol>
+    <symbol id="icon-speaker" viewBox="0 0 24 24">
+      <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+      <path d="M8 6v8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-prayer" viewBox="0 0 24 24">
+      <path d="m11 14 2 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M11 14h2a2 2 0 0 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m14.45 13.39 5.05-4.694C20.196 8 21 6.85 21 5.75a2.75 2.75 0 0 0-4.797-1.837.276.276 0 0 1-.406 0A2.75 2.75 0 0 0 11 5.75c0 1.2.802 2.248 1.5 2.946L16 11.95" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m2 15 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a1 1 0 0 0-2.75-2.91" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
   </svg>
 

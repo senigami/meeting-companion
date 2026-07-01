@@ -52,12 +52,22 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
+    viewPanel: createElement({ hidden: true }),
+    viewButton: createElement(),
+    closeViewPanel: createElement(),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
     alertsSection: createElement({ hidden: true }),
-    alertButton: createElement({ hidden: true }),
+    settingsAlertBadge: createElement({ hidden: true }),
     settingsButton: createElement({}),
     closeSettings: createElement(),
+    serviceRegistrationCard: createElement(),
+    serviceRegistrationKeyInput: createElement({ value: '' }),
+    serviceRegistrationSave: createElement(),
+    serviceRegistrationTest: createElement(),
+    serviceRegistrationDelete: createElement(),
+    serviceRegistrationOpenAi: createElement({ dataset: { registerProvider: 'openai' } }),
+    serviceRegistrationClaude: createElement({ dataset: { registerProvider: 'claude' } }),
     addManual: createElement(),
     summarizeOnce: createElement(),
     startListening: createElement(),
@@ -65,7 +75,16 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     pauseAi: createElement(),
     undo: createElement(),
     clear: createElement(),
-    fullscreen: createElement(),
+    fullscreen: {
+      ...createElement(),
+      handlers: {},
+      addEventListener(type, handler) {
+        this.handlers[type] = handler;
+      },
+      click() {
+        this.handlers.click?.({ preventDefault() {} });
+      }
+    },
   };
 
   const modeButtons = [
@@ -115,7 +134,19 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     writable: true
   });
   global.document = {
-    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    fullscreenElement: null,
+    documentElement: {
+      style: { setProperty() {} },
+      requestFullscreen() {
+        global.document.fullscreenElement = global.document.documentElement;
+        global.document.handlers?.fullscreenchange?.();
+      }
+    },
+    exitFullscreen() {
+      global.document.fullscreenElement = null;
+      global.document.handlers?.fullscreenchange?.();
+    },
+    handlers: {},
     getElementById(id) {
       return elements[id] || null;
     },
@@ -123,9 +154,17 @@ test('app bootstrap loads without module errors and shows runtime warning when O
       if (selector === '.mode') return modeButtons;
       if (selector === '[data-kind="transcription"]') return transcriptionButtons;
       if (selector === '[data-kind="summarization"]') return summarizationButtons;
+      if (selector === '[data-register-provider]') {
+        return [
+          elements.serviceRegistrationOpenAi,
+          elements.serviceRegistrationClaude
+        ];
+      }
       return [];
     },
-    addEventListener() {}
+    addEventListener(type, handler) {
+      this.handlers[type] = handler;
+    }
   };
 
   delete global.window;
@@ -141,13 +180,19 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5%');
     assert.equal(elements.summaryIntervalValue.textContent, '5s');
-    assert.equal(elements.alertButton.hidden, false);
+    assert.equal(elements.settingsAlertBadge.hidden, false);
     assert.equal(elements.alertsSection.hidden, false);
     assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
     assert.match(elements.status.textContent, /Browser transcription still works/i);
     assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
     assert.equal(elements.settingsPanel.hidden, true);
     assert.equal(summarizationButtons[1].disabled, false);
+    elements.fullscreen.click();
+    assert.equal(global.document.fullscreenElement, global.document.documentElement);
+    assert.equal(elements.fullscreen.getAttribute('aria-label'), 'Exit fullscreen');
+    elements.fullscreen.click();
+    assert.equal(global.document.fullscreenElement, null);
+    assert.equal(elements.fullscreen.getAttribute('aria-label'), 'Enter fullscreen');
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

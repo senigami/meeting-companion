@@ -21,8 +21,9 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | `transcriptItems` | `TranscriptItem[]` | The ordered output cards shown on the TV, capped in memory and rendered as a scrollable stack. |
 | `mode` | `speaker` \| `information` \| `song` \| `prayer` | The summarization mode chosen by the helper. |
 | `paused` | `boolean` | Whether AI summarization and transcription should stop producing new lines. |
-| `fontSize` | `number` | The large-print size used by the TV display. |
-| `displayMargin` | `number` | Percentage-based inset used to place the red display guides and tune line wrapping on any screen size. |
+| `fontSize` | `number` | The large-print size used by the TV display, clamped from 24px to 144px. |
+| `displayMargin` | `number` | Percentage-based inset, clamped from 0 to 40, used to set the transcript text-flow width and place matching red display guides. |
+| `operatorRailWidth` | `number` | Preferred width of the helper rail in pixels, persisted in browser storage and clamped to the current viewport. |
 | `transcriptChunks` | `{ text: string, at: number }[]` | Recent final transcript chunks used to build summary context. |
 | `transcriptPreview` | `string` | The latest partial transcription text shown in the helper panel. |
 | `listening` | `boolean` | Whether transcription is active. |

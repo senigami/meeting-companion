@@ -1,4 +1,6 @@
 import {
+  FONT_SIZE_MIN,
+  FONT_SIZE_MAX,
   summaryIntervalSliderIndexFromSeconds
 } from '../services/view-settings.js';
 
@@ -9,6 +11,13 @@ const MODE_META = {
   prayer: { label: 'Prayer', icon: 'icon-prayer' }
 };
 
+const MANUAL_META = {
+  label: 'Manual',
+  icon: 'icon-human'
+};
+
+const TRANSCRIPT_SCROLL_DURATION_MS = 720;
+
 export function updateStatus(ctx, text) {
   ctx.dom.status.textContent = text;
 }
@@ -17,11 +26,23 @@ export function renderDisplay(ctx) {
   if (!ctx.dom.transcriptStack || !ctx.dom.transcriptViewport) return;
 
   const items = Array.isArray(ctx.state.transcriptItems) ? ctx.state.transcriptItems : [];
+  const renderItems = items.length
+    ? items
+    : ctx.state.viewPanelOpen
+      ? [{
+        id: 'sample-text',
+        mode: 'information',
+        text: 'Sample text appears here so you can tune the display before the meeting starts.',
+        createdAt: Date.now(),
+        source: 'manual',
+        sample: true
+      }]
+      : [];
   const shouldStick = ctx.state.stickToBottom !== false;
   const previousScrollTop = ctx.dom.transcriptViewport.scrollTop || 0;
   const reducedMotion = Boolean(ctx.state.prefersReducedMotion);
 
-  const nodes = items.map((item, index) => createTranscriptCard(item, index === items.length - 1));
+  const nodes = renderItems.map((item, index) => createTranscriptCard(item, index === renderItems.length - 1));
   if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
     ctx.dom.transcriptStack.replaceChildren(...nodes);
   } else {
@@ -29,17 +50,55 @@ export function renderDisplay(ctx) {
   }
 
   if (shouldStick) {
-    const target = nodes.at(-1);
-    if (target?.scrollIntoView) {
-      const schedule = globalThis.requestAnimationFrame || ((callback) => setTimeout(callback, 0));
-      schedule(() => {
-        target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'end' });
-      });
-    }
+    scrollTranscriptToBottom(ctx, { reducedMotion });
     return;
   }
 
   ctx.dom.transcriptViewport.scrollTop = previousScrollTop;
+}
+
+function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
+  const viewport = ctx.dom.transcriptViewport;
+  const targetTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+
+  if (reducedMotion) {
+    viewport.scrollTop = targetTop;
+    return;
+  }
+
+  const startTop = Number(viewport.scrollTop) || 0;
+  const distance = targetTop - startTop;
+  if (Math.abs(distance) < 1) {
+    viewport.scrollTop = targetTop;
+    return;
+  }
+
+  const requestFrame = globalThis.requestAnimationFrame || ((callback) => setTimeout(() => callback(Date.now()), 16));
+  const cancelFrame = globalThis.cancelAnimationFrame || clearTimeout;
+
+  if (ctx.state.transcriptScrollFrame) {
+    cancelFrame(ctx.state.transcriptScrollFrame);
+    ctx.state.transcriptScrollFrame = null;
+  }
+
+  let startedAt = null;
+  const animate = (timestamp) => {
+    const now = Number.isFinite(timestamp) ? timestamp : Date.now();
+    startedAt ??= now;
+    const elapsed = Math.min(1, (now - startedAt) / TRANSCRIPT_SCROLL_DURATION_MS);
+    const eased = 1 - Math.pow(1 - elapsed, 3);
+    viewport.scrollTop = startTop + distance * eased;
+
+    if (elapsed < 1) {
+      ctx.state.transcriptScrollFrame = requestFrame(animate);
+      return;
+    }
+
+    viewport.scrollTop = targetTop;
+    ctx.state.transcriptScrollFrame = null;
+  };
+
+  ctx.state.transcriptScrollFrame = requestFrame(animate);
 }
 
 export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
@@ -69,13 +128,11 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
     ctx.dom.settingsButton.setAttribute('aria-expanded', String(next));
     ctx.dom.settingsButton.setAttribute('aria-pressed', String(next));
   }
-  if (ctx.dom.alertButton) {
-    ctx.dom.alertButton.setAttribute('aria-expanded', String(next));
-    ctx.dom.alertButton.setAttribute('aria-pressed', String(next));
-  }
 
   if (next) {
-    const focusTarget = ctx.dom.closeSettings || ctx.dom.settingsPanel || ctx.dom.settingsButton;
+    const focusTarget = ctx.state.pendingProviderSelection
+      ? ctx.dom.serviceRegistrationKeyInput || ctx.dom.closeSettings || ctx.dom.settingsPanel || ctx.dom.settingsButton
+      : ctx.dom.closeSettings || ctx.dom.settingsPanel || ctx.dom.settingsButton;
     globalThis.requestAnimationFrame?.(() => focusTarget?.focus?.());
     return;
   }
@@ -90,6 +147,48 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
 }
 
 export const setPanelOpen = setSettingsOpen;
+
+export function setViewPanelOpen(ctx, open, { focusReturn = false } = {}) {
+  const next = Boolean(open);
+  ctx.state.viewPanelOpen = next;
+
+  if (ctx.state.viewPanelCloseHandle) {
+    clearTimeout(ctx.state.viewPanelCloseHandle);
+    ctx.state.viewPanelCloseHandle = null;
+  }
+
+  if (ctx.dom.viewPanel) {
+    ctx.dom.viewPanel.hidden = !next;
+    ctx.dom.viewPanel.setAttribute('aria-hidden', String(!next));
+    if (next) {
+      ctx.dom.viewPanel.classList?.add?.('is-open');
+    } else {
+      ctx.dom.viewPanel.classList?.remove?.('is-open');
+      ctx.state.viewPanelCloseHandle = setTimeout(() => {
+        if (ctx.dom.viewPanel && !ctx.state.viewPanelOpen) {
+          ctx.dom.viewPanel.hidden = true;
+        }
+        ctx.state.viewPanelCloseHandle = null;
+      }, 240);
+    }
+  }
+
+  if (ctx.dom.viewButton) {
+    ctx.dom.viewButton.setAttribute('aria-expanded', String(next));
+    ctx.dom.viewButton.setAttribute('aria-pressed', String(next));
+    const label = next ? 'Close display controls' : 'Open display controls';
+    ctx.dom.viewButton.setAttribute('aria-label', label);
+    ctx.dom.viewButton.title = label;
+  }
+
+  renderDisplay(ctx);
+
+  if (next) {
+    globalThis.requestAnimationFrame?.(() => ctx.dom.closeViewPanel?.focus?.());
+  } else if (focusReturn) {
+    globalThis.requestAnimationFrame?.(() => ctx.dom.viewButton?.focus?.());
+  }
+}
 
 export function bindTranscriptViewport(ctx) {
   if (!ctx.dom.transcriptViewport) return;
@@ -112,8 +211,9 @@ export function updateSourceButtons(ctx) {
     const unavailable = isSourceUnavailable(ctx, btn.dataset.kind, btn.dataset.source);
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
-    btn.disabled = unavailable;
-    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source);
+    btn.hidden = unavailable && btn.dataset.source !== ctx.state.transcriptionSource;
+    btn.disabled = unavailable && btn.dataset.source === 'browser';
+    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source, { unavailable });
   });
 
   ctx.dom.summarizationButtons.forEach((btn) => {
@@ -121,9 +221,75 @@ export function updateSourceButtons(ctx) {
     const unavailable = isSourceUnavailable(ctx, btn.dataset.kind, btn.dataset.source);
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
-    btn.disabled = unavailable;
-    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source);
+    btn.hidden = unavailable && btn.dataset.source !== ctx.state.summarizationSource;
+    btn.disabled = false;
+    updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source, { unavailable });
   });
+}
+
+export function syncServiceRegistration(ctx) {
+  const provider = getRegistrationProvider(ctx);
+  ctx.state.registrationProvider = provider;
+  const state = getProviderState(ctx, 'summarization', provider);
+  const label = provider === 'claude' ? 'Claude' : 'OpenAI';
+  const configuredText = state.origin === 'server'
+    ? 'Configured on server'
+    : state.origin === 'local'
+      ? 'Configured locally'
+      : 'Needs key';
+
+  updateRegistrationButton(ctx.dom.serviceRegistrationOpenAi, ctx, 'openai', provider);
+  updateRegistrationButton(ctx.dom.serviceRegistrationClaude, ctx, 'claude', provider);
+
+  if (ctx.dom.serviceRegistrationTitle) {
+    ctx.dom.serviceRegistrationTitle.textContent = `${label} API key`;
+  }
+
+  if (ctx.dom.serviceRegistrationDescription) {
+    ctx.dom.serviceRegistrationDescription.textContent = state.origin === 'local'
+      ? 'Saved locally in this browser.'
+      : state.origin === 'server'
+        ? 'Using the server key. Paste a local override if needed.'
+        : 'No key saved in this browser.';
+  }
+
+  if (ctx.dom.serviceRegistrationState) {
+    ctx.dom.serviceRegistrationState.className = `statusPill ${state.configured ? 'ok' : 'warning'}`;
+    ctx.dom.serviceRegistrationState.textContent = configuredText;
+  }
+
+  if (ctx.dom.serviceRegistrationMasked) {
+    ctx.dom.serviceRegistrationMasked.hidden = !state.masked;
+    ctx.dom.serviceRegistrationMasked.textContent = state.masked || '';
+  }
+
+  if (ctx.dom.serviceRegistrationKeyInput) {
+    ctx.dom.serviceRegistrationKeyInput.placeholder = state.origin === 'local'
+      ? `Paste a new ${label} key to replace the saved local key`
+      : state.origin === 'server'
+        ? `Paste a local ${label} override if you want one in this browser`
+        : `Paste ${label} API key or local override`;
+  }
+
+  if (ctx.dom.serviceRegistrationSave) {
+    ctx.dom.serviceRegistrationSave.textContent = state.configured ? 'Replace key' : 'Add and validate';
+  }
+
+  if (ctx.dom.serviceRegistrationTest) {
+    ctx.dom.serviceRegistrationTest.textContent = 'Test key';
+  }
+
+  if (ctx.dom.serviceRegistrationDelete) {
+    ctx.dom.serviceRegistrationDelete.disabled = state.origin !== 'local';
+  }
+
+  if (ctx.dom.serviceRegistrationHint) {
+    ctx.dom.serviceRegistrationHint.textContent = state.origin === 'local'
+      ? 'Saved locally in this browser. Do not use this on a shared computer.'
+      : state.origin === 'server'
+        ? 'This browser can override the server key locally if needed.'
+        : 'Saved locally in this browser. Do not use this on a shared computer.';
+  }
 }
 
 export function updatePauseButton(ctx) {
@@ -146,8 +312,10 @@ export function updateSummaryIntervalControl(ctx) {
 export function syncViewerControls(ctx) {
   ctx.dom.fontSizeInput.value = String(ctx.state.fontSize);
   ctx.dom.fontSizeValue.textContent = `${ctx.state.fontSize}px`;
+  syncSliderVisual(ctx.dom.fontSizeInput, ctx.state.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
   ctx.dom.displayMarginInput.value = String(ctx.state.displayMargin);
   ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}%`;
+  syncSliderVisual(ctx.dom.displayMarginInput, ctx.state.displayMargin, 0, 40);
   updateSummaryIntervalControl(ctx);
   updateDisplayMarginGuides(ctx);
 }
@@ -163,13 +331,25 @@ export function setDisplayMarginGuidesVisible(ctx, visible) {
   updateDisplayMarginGuides(ctx);
 }
 
+function syncSliderVisual(input, value, min, max) {
+  if (!input?.parentElement) return;
+  const range = Math.max(1, max - min);
+  const percent = ((Number(value) - min) / range) * 100;
+  input.parentElement.style.setProperty('--slider-value', String(Math.min(100, Math.max(0, percent))));
+}
+
 export function syncSettingsPanel(ctx) {
   const alerts = buildAlerts(ctx);
   const hasAlerts = alerts.length > 0;
 
-  if (ctx.dom.alertButton) {
-    ctx.dom.alertButton.hidden = !hasAlerts;
-    ctx.dom.alertButton.setAttribute('aria-expanded', String(Boolean(ctx.state.settingsOpen)));
+  if (ctx.dom.settingsAlertBadge) {
+    ctx.dom.settingsAlertBadge.hidden = !hasAlerts;
+  }
+
+  if (ctx.dom.settingsButton) {
+    const label = hasAlerts ? 'Open settings, alerts waiting' : 'Open settings';
+    ctx.dom.settingsButton.setAttribute('aria-label', label);
+    ctx.dom.settingsButton.title = label;
   }
 
   if (ctx.dom.alertsSection) {
@@ -181,55 +361,34 @@ export function syncSettingsPanel(ctx) {
     ctx.dom.apiWarning.textContent = hasAlerts ? alerts.map((alert) => alert.message).join(' ') : '';
   }
 
-  syncProviderCard(ctx, 'openai', {
-    description: ctx.dom.openaiKeyDescription,
-    masked: ctx.dom.openaiKeyMasked,
-    state: ctx.dom.openaiKeyState,
-    input: ctx.dom.openaiKeyInput,
-    save: ctx.dom.openaiKeySave,
-    test: ctx.dom.openaiKeyTest,
-    remove: ctx.dom.openaiKeyDelete
-  });
-
-  syncProviderCard(ctx, 'claude', {
-    description: ctx.dom.claudeKeyDescription,
-    masked: ctx.dom.claudeKeyMasked,
-    state: ctx.dom.claudeKeyState,
-    input: ctx.dom.claudeKeyInput,
-    save: ctx.dom.claudeKeySave,
-    test: ctx.dom.claudeKeyTest,
-    remove: ctx.dom.claudeKeyDelete
-  });
-
-  if (ctx.dom.transcriptionBrowser) {
-    updateProviderOptionLabel(ctx.dom.transcriptionBrowser, ctx, 'transcription', 'browser');
-  }
-  if (ctx.dom.transcriptionOpenAi) {
-    updateProviderOptionLabel(ctx.dom.transcriptionOpenAi, ctx, 'transcription', 'openai');
-  }
-  if (ctx.dom.summaryOpenAi) {
-    updateProviderOptionLabel(ctx.dom.summaryOpenAi, ctx, 'summarization', 'openai');
-  }
-  if (ctx.dom.summaryClaude) {
-    updateProviderOptionLabel(ctx.dom.summaryClaude, ctx, 'summarization', 'claude');
-  }
+  updateSourceButtons(ctx);
+  syncServiceRegistration(ctx);
 }
 
 function createTranscriptCard(item, active = false) {
+  const isManual = item.source === 'manual';
+  const isSample = Boolean(item.sample);
+  const visualMode = isManual ? 'manual' : item.mode || 'speaker';
+  const modeMeta = isManual ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
-  article.className = `transcript-item transcript-item--${item.mode || 'speaker'}${item.source === 'manual' ? ' transcript-item--manual' : ''}`;
-  setDataAttribute(article, 'mode', item.mode || 'speaker');
+  article.className = `transcript-item transcript-item--${visualMode}${isManual ? ' transcript-item--manual' : ''}${isSample ? ' transcript-item--sample' : ''}`;
+  setDataAttribute(article, 'mode', visualMode);
   setDataAttribute(article, 'source', item.source || 'ai');
   setDataAttribute(article, 'active', String(active));
-  article.dataset.mode = item.mode || 'speaker';
+  article.dataset.mode = visualMode;
   article.dataset.source = item.source || 'ai';
   article.dataset.active = String(active);
+  if (isSample) {
+    setDataAttribute(article, 'sample', 'true');
+  }
+  if (article.classList?.add && isSample) {
+    article.classList.add('transcript-item--sample');
+  }
 
   const meta = createNode('div');
   meta.className = 'transcript-meta';
 
   const icon = createNode('span');
-  const modeMeta = MODE_META[item.mode] || MODE_META.speaker;
   icon.className = `transcript-icon ${modeMeta.icon}`;
   if (typeof icon.setAttribute === 'function') {
     icon.setAttribute('aria-hidden', 'true');
@@ -260,22 +419,50 @@ function createTranscriptCard(item, active = false) {
   return article;
 }
 
-function isSourceUnavailable(ctx, kind, source) {
-  if (kind === 'transcription') {
-    if (source === 'browser') return !browserSpeechAvailable();
-    return false;
+function syncBrowserPanel(ctx, refs) {
+  const pending = ctx.state.pendingProviderSelection;
+  const browserPending = pending?.kind === 'transcription' && pending?.source === 'openai';
+  if (refs.panel) {
+    refs.panel.hidden = !(ctx.state.transcriptionSource === 'browser' && !browserPending);
   }
+  if (refs.description) {
+    refs.description.textContent = browserSpeechAvailable()
+      ? 'Browser speech stays local and uses the built-in microphone.'
+      : 'Browser speech recognition is not available in this browser.';
+  }
+}
 
+function isProviderPanelVisible(ctx, kind, source) {
+  const pending = ctx.state.pendingProviderSelection;
+  if (kind === 'transcription') {
+    return ctx.state.transcriptionSource === source || (pending?.kind === kind && pending?.source === source);
+  }
+  if (kind === 'summarization') {
+    return ctx.state.summarizationSource === source || (pending?.kind === kind && pending?.source === source);
+  }
   return false;
 }
 
-function syncProviderCard(ctx, provider, refs) {
+function isSourceUnavailable(ctx, kind, source) {
+  if (kind === 'transcription') {
+    if (source === 'browser') return !browserSpeechAvailable();
+    return !getProviderState(ctx, kind, source).configured;
+  }
+
+  return !getProviderState(ctx, kind, source).configured;
+}
+
+function syncProviderCard(ctx, provider, refs, visible = true) {
   const state = ctx.state.providerKeys?.[provider] || {
     configured: false,
     origin: 'missing',
     label: 'Needs key',
     masked: ''
   };
+
+  if (refs.panel) {
+    refs.panel.hidden = !visible;
+  }
 
   if (refs.description) {
     refs.description.textContent = state.origin === 'local'
@@ -316,7 +503,7 @@ function syncProviderCard(ctx, provider, refs) {
   }
 }
 
-function updateProviderOptionLabel(button, ctx, kind, source) {
+function updateProviderOptionLabel(button, ctx, kind, source, options = {}) {
   if (!button) return;
   const state = getProviderState(ctx, kind, source);
   const statusNode = typeof button.querySelector === 'function'
@@ -332,6 +519,38 @@ function updateProviderOptionLabel(button, ctx, kind, source) {
   if (kind === 'transcription' && source === 'browser') {
     button.disabled = !browserSpeechAvailable();
   }
+}
+
+function updateRegistrationButton(button, ctx, provider, activeProvider) {
+  if (!button) return;
+  const state = getProviderState(ctx, 'summarization', provider);
+  const statusNode = typeof button.querySelector === 'function'
+    ? button.querySelector('.providerStatus')
+    : null;
+  if (statusNode) {
+    statusNode.textContent = state.label;
+  }
+  button.classList.toggle('active', provider === activeProvider);
+  button.setAttribute('aria-pressed', String(provider === activeProvider));
+  button.dataset.configured = String(state.configured);
+  button.dataset.origin = state.origin;
+}
+
+function getRegistrationProvider(ctx) {
+  const pending = ctx.state.pendingProviderSelection;
+  if (pending?.provider === 'openai' || pending?.provider === 'claude') {
+    return pending.provider;
+  }
+
+  if (ctx.state.registrationProvider === 'openai' || ctx.state.registrationProvider === 'claude') {
+    return ctx.state.registrationProvider;
+  }
+
+  const openAiState = getProviderState(ctx, 'summarization', 'openai');
+  const claudeState = getProviderState(ctx, 'summarization', 'claude');
+  if (!openAiState.configured) return 'openai';
+  if (!claudeState.configured) return 'claude';
+  return 'openai';
 }
 
 function getProviderState(ctx, kind, source) {

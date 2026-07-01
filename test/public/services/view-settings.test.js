@@ -11,10 +11,10 @@ import {
 } from '../../../public/services/view-settings.js';
 
 test('view settings clamp to safe display ranges', () => {
-  assert.equal(clampFontSize(12), 56);
+  assert.equal(clampFontSize(12), 24);
   assert.equal(clampFontSize(200), 144);
   assert.equal(clampDisplayMargin(-3), 0);
-  assert.equal(clampDisplayMargin(99), 10);
+  assert.equal(clampDisplayMargin(99), 40);
   assert.equal(clampSummaryIntervalSeconds(1), 2);
   assert.equal(clampSummaryIntervalSeconds(99), 15);
 });

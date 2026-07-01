@@ -5,7 +5,7 @@ export function modeInstruction(mode = 'speaker') {
     case 'song':
       return 'Only show hymn or song status. Do not show lyrics or commentary.';
     case 'prayer':
-      return 'Do not summarize the prayer line by line. Only show a short status if the prayer has started, ended, or a request was announced.';
+      return 'Write a short prayer-shaped line that keeps the main requests and tone. Start with a simple opening like "Heavenly Father" and end with "Amen". Do not summarize line by line.';
     case 'speaker':
     default:
       return 'Focus on the specific story, event, teaching, feeling, invitation, or example.';
@@ -75,6 +75,8 @@ If nothing new or useful was communicated, return an empty string.
 
 Mode: ${mode}
 ${modeInstruction(mode)}
+
+Prayer mode should read like a short, simple prayer rather than a status note.
 
 Do not produce generic statements such as:
 - He is talking about faith.

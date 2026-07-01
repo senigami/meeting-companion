@@ -1,7 +1,7 @@
 .app-shell,
 .meetingShell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(140px, 12vw, 180px);
+  grid-template-columns: minmax(0, 1fr) clamp(180px, var(--operator-rail-width, 220px), calc(100dvw - 320px));
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     "display rail"
@@ -37,6 +37,12 @@
   overflow: hidden;
 }
 
+html.is-adjusting-display-margin .display-panel,
+html.is-adjusting-display-margin .displayPanel {
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+
 .display-panel::before,
 .display-panel::after,
 .displayPanel::before,
@@ -49,7 +55,7 @@
   pointer-events: none;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(255, 93, 93, 0.92), rgba(255, 93, 93, 0.42));
-  box-shadow: 0 0 0 1px rgba(255, 93, 93, 0.14);
+  box-shadow: 0 0 0 1px rgba(255, 93, 93, 0.18);
   opacity: 0;
   transition: opacity 160ms ease;
 }
@@ -68,7 +74,26 @@
 .display-panel[data-margin-guides='true']::after,
 .displayPanel[data-margin-guides='true']::before,
 .displayPanel[data-margin-guides='true']::after {
-  opacity: 0.68;
+  opacity: 0.9;
+}
+
+html.is-adjusting-display-margin .display-panel::before,
+html.is-adjusting-display-margin .display-panel::after,
+html.is-adjusting-display-margin .displayPanel::before,
+html.is-adjusting-display-margin .displayPanel::after {
+  width: 3px;
+  background: linear-gradient(180deg, rgba(255, 77, 77, 0.98), rgba(255, 77, 77, 0.54));
+  box-shadow: 0 0 0 1px rgba(255, 77, 77, 0.18), 0 0 18px rgba(255, 77, 77, 0.14);
+}
+
+html.is-adjusting-display-margin .display-panel[data-margin-guides='true']::before,
+html.is-adjusting-display-margin .display-panel[data-margin-guides='true']::after,
+html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::before,
+html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after {
+  width: 4px;
+  opacity: 1;
+  background: linear-gradient(180deg, rgba(255, 61, 61, 1), rgba(255, 61, 61, 0.62));
+  box-shadow: 0 0 0 1px rgba(255, 61, 61, 0.24), 0 0 22px rgba(255, 61, 61, 0.2);
 }
 
 .transcript-viewport {
@@ -77,12 +102,14 @@
   min-height: 0;
   overflow-y: auto;
   scroll-behavior: smooth;
-  padding: clamp(1.25rem, 4vw, 4rem);
+  padding-block: clamp(1.25rem, 4vw, 4rem);
+  padding-inline: var(--display-margin);
   scrollbar-gutter: stable both-edges;
 }
 
 .transcript-stack {
-  max-width: min(1000px, 88%);
+  width: 100%;
+  max-width: 100%;
   min-height: 100%;
   margin-inline: auto;
   display: flex;
@@ -114,7 +141,7 @@
     0 12px 32px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px) saturate(1.05);
   transform-origin: center bottom;
-  animation: transcriptIn 280ms ease-out both;
+  animation: transcriptIn 420ms ease-out both;
 }
 
 .transcript-item::before {
@@ -153,6 +180,22 @@
   --card-accent: rgba(243, 201, 105, 0.78);
 }
 
+.transcript-item--manual {
+  --card-accent: rgba(220, 227, 242, 0.7);
+}
+
+.transcript-item--sample {
+  opacity: 0.9;
+}
+
+.transcript-item--sample .transcript-meta {
+  opacity: 0.84;
+}
+
+.transcript-item--sample .transcript-text {
+  font-style: italic;
+}
+
 .transcript-meta {
   display: flex;
   align-items: center;
@@ -174,8 +217,8 @@
 
 .transcript-icon {
   flex: none;
-  width: 1rem;
-  height: 1rem;
+  width: 1.5rem;
+  height: 1.5rem;
   background-color: currentColor;
   -webkit-mask-position: center;
   -webkit-mask-repeat: no-repeat;
@@ -205,9 +248,14 @@
   mask-image: url("../assets/icons/prayer.svg");
 }
 
+.transcript-item .icon-human {
+  -webkit-mask-image: url("../assets/icons/human.svg");
+  mask-image: url("../assets/icons/human.svg");
+}
+
 .transcript-text {
   margin: 0;
-  font-size: clamp(2rem, min(4.8vw, 7vh), 5.15rem);
+  font-size: var(--font-size);
   line-height: 1.08;
   font-weight: 750;
   letter-spacing: -0.045em;

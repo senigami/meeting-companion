@@ -6,9 +6,11 @@
 
 The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, validates locally stored provider keys on demand, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
 
-The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry and creates transcription and summarization drivers based on the helper's chosen source.
+The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry, shows only configured services in the source selectors, and uses a separate registration flow to add provider keys before a source appears in the available list.
 
 Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI and Claude are summarization drivers. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
+
+The UI uses Lucide-backed SVG symbols for generic controls like settings, alerts, undo, fullscreen, trash, pause, stop, and microphone. Church-specific icons such as speaker, information, song, prayer, and manual stay as custom SVGs when the hand-tuned symbol is a better semantic fit.
 
 ## Big picture flow
 
@@ -56,14 +58,14 @@ graph TD
 | P1 | P5b | Summary request | Claude summarization must keep returning at most one line or an empty result. |
 | P4 | P6 | `/api/transcribe` | The server must accept base64 audio, mode, and mime type, and return `{ text }`. |
 | P5 | P6 | `/api/summarize` | The server must accept transcript text and visible lines, then return `{ line }`. |
-| P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI or Anthropic is configured and disable unavailable options. |
+| P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI or Anthropic is configured and hide unavailable source options until they are registered. |
 | P1 | P6 | `/api/provider/test` | The client must be able to test a candidate OpenAI or Claude key without exposing the secret back to the UI. |
 
 ## Invariants & things to keep in mind
 
 - **INV-1** - The TV display always shows a bounded stack of transcript cards and only the newest items remain in view.
 - **INV-2** - Manual lines must appear immediately and must not wait on AI.
-- **INV-3** - Source ids are public contract values; adding a source means adding it to the catalog and registry together.
+- **INV-3** - Source ids are public contract values; adding a source means adding it to the catalog and registry together, and adding a service key should promote that source into the available selector.
 - **INV-4** - Browser transcription is optional and must fail gracefully when the browser lacks the API.
 - **INV-5** - OpenAI features must stay off when `OPENAI_API_KEY` is missing.
 - **INV-6** - Claude summaries must stay off when `ANTHROPIC_API_KEY` is missing.
