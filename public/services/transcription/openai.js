@@ -1,6 +1,7 @@
 import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
+import { fetchWithTimeout } from '../fetch-timeout.js';
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -21,7 +22,8 @@ export function createOpenAITranscriptionDriver({
   onStatus = () => {},
   fetchImpl = fetch,
   chunkMs = 3500,
-  getApiKey = () => ''
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout
 } = {}) {
   let stream = null;
   let recorder = null;
@@ -44,7 +46,7 @@ export function createOpenAITranscriptionDriver({
     const requestController = new AbortController();
     activeRequestController = requestController;
     try {
-      const response = await fetchImpl('/api/transcribe', {
+      const response = await fetchWithTimeout(fetchImpl, '/api/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: requestController.signal,
@@ -54,7 +56,7 @@ export function createOpenAITranscriptionDriver({
           filename: `meeting-companion-${currentSession}.webm`,
           mode
         })
-      });
+      }, { setTimeoutFn, clearTimeoutFn });
 
       const data = await readResponseJson(response);
       if (!response.ok) throw new Error(responseErrorMessage(data, `Transcription failed with ${response.status}`));
