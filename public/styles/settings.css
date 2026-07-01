@@ -11,9 +11,9 @@ dialog.settingsOverlay[hidden] {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(5, 8, 12, 0.45);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(5, 8, 12, 0.45); /* chrome-restyle: flatten in 007 */
+  backdrop-filter: blur(4px); /* chrome-restyle: flatten in 007 */
+  -webkit-backdrop-filter: blur(4px); /* chrome-restyle: flatten in 007 */
 }
 
 .settingsOverlay.settingsModal {
@@ -23,18 +23,18 @@ dialog.settingsOverlay[hidden] {
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 32px;
-  background: rgba(22, 26, 36, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 32px 110px rgba(0, 0, 0, 0.58);
+  border-radius: var(--chrome-radius-lg);
+  background: var(--chrome-bg-elevated);
+  border: 1px solid var(--chrome-separator);
+  box-shadow: 0 32px 110px rgba(0, 0, 0, 0.58); /* chrome-restyle: flatten in 007 */
   padding: 0;
   color: var(--text);
 }
 
 .settingsOverlay.settingsModal::backdrop {
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(0, 0, 0, 0.42); /* chrome-restyle: flatten in 007 */
+  backdrop-filter: blur(18px); /* chrome-restyle: flatten in 007 */
+  -webkit-backdrop-filter: blur(18px); /* chrome-restyle: flatten in 007 */
 }
 
 .viewDrawer {
@@ -53,12 +53,12 @@ dialog.settingsOverlay[hidden] {
   max-height: calc(100dvh - 6rem);
   display: flex;
   flex-direction: column;
-  border-radius: 28px;
-  background: rgba(22, 26, 36, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 28px 84px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  border-radius: var(--chrome-radius-lg);
+  background: var(--chrome-bg-elevated);
+  border: 1px solid var(--chrome-separator);
+  box-shadow: 0 28px 84px rgba(0, 0, 0, 0.45); /* chrome-restyle: flatten in 007 */
+  backdrop-filter: blur(22px); /* chrome-restyle: flatten in 007 */
+  -webkit-backdrop-filter: blur(22px); /* chrome-restyle: flatten in 007 */
   transform: translateX(calc(100% + 1rem));
   transition: transform 220ms ease, opacity 220ms ease;
   opacity: 0;
@@ -81,7 +81,7 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   justify-content: space-between;
   gap: 1rem;
   padding: 1.05rem 1.15rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--chrome-separator);
 }
 
 .viewDrawerHeader h2 {
@@ -105,7 +105,7 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   justify-content: space-between;
   gap: 1rem;
   padding: 1.25rem 1.35rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--chrome-separator);
 }
 
 .settingsHeader h2 {
@@ -131,10 +131,10 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   display: grid;
   gap: 0.75rem;
   padding: 0.85rem;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032));
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border-radius: var(--chrome-radius-md);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032)); /* chrome-restyle: flatten in 007 */
+  border: 1px solid var(--chrome-separator);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03); /* chrome-restyle: flatten in 007 */
 }
 
 .settingsViewCard {
@@ -182,7 +182,7 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   gap: 0.55rem;
   text-align: left;
   padding: 0.75rem 0.85rem;
-  border-radius: 16px;
+  border-radius: var(--chrome-radius-md);
 }
 
 .providerName {
@@ -192,7 +192,7 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
 .providerStatus {
   font-size: 0.78rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--chrome-text-secondary);
 }
 
 button.providerOption.active .providerStatus {
@@ -218,7 +218,7 @@ button.providerOption.active .providerStatus {
 
 .apiKeyHeader p {
   margin: 0.15rem 0 0;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--chrome-text-secondary);
   font-size: 0.9rem;
 }
 
@@ -232,7 +232,7 @@ button.providerOption.active .providerStatus {
   font-size: 0.78rem;
   font-weight: 750;
   letter-spacing: 0.03em;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--chrome-separator);
 }
 
 .statusPill.ok {
@@ -247,10 +247,10 @@ button.providerOption.active .providerStatus {
 
 .maskedKey {
   padding: 0.75rem 0.9rem;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  color: rgba(255, 255, 255, 0.92);
+  border-radius: var(--chrome-radius-sm);
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  color: var(--chrome-text);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
@@ -303,16 +303,16 @@ button.providerOption.active .providerStatus {
 
 .range-field {
   --slider-points: 2;
-  --slider-track: rgba(255, 255, 255, 0.13);
-  --slider-dot: rgba(245, 247, 251, 0.66);
-  --slider-thumb: linear-gradient(180deg, #ffffff, #d9e1ec);
+  --slider-track: rgba(255, 255, 255, 0.13); /* chrome-restyle: flatten in 007 */
+  --slider-dot: rgba(245, 247, 251, 0.66); /* chrome-restyle: flatten in 007 */
+  --slider-thumb: linear-gradient(180deg, #ffffff, #d9e1ec); /* chrome-restyle: flatten in 007 */
   display: grid;
   gap: 0.55rem;
   padding: 0.85rem 0.85rem 0.95rem;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032));
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border-radius: var(--chrome-radius-md);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032)); /* chrome-restyle: flatten in 007 */
+  border: 1px solid var(--chrome-separator);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03); /* chrome-restyle: flatten in 007 */
 }
 
 .viewDrawer .settingsViewCard {
@@ -359,11 +359,11 @@ button.providerOption.active .providerStatus {
       right center / 100% 100% no-repeat,
     radial-gradient(circle at left center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
       left center / calc(100% / (var(--slider-points) - 1)) 100% repeat-x,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22)); /* chrome-restyle: flatten in 007 */
   box-shadow:
     inset 0 1px 1px rgba(0, 0, 0, 0.34),
     0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 1px 0 rgba(255, 255, 255, 0.04);
+    0 1px 0 rgba(255, 255, 255, 0.04); /* chrome-restyle: flatten in 007 */
 }
 
 .sliderThumb {
@@ -377,10 +377,10 @@ button.providerOption.active .providerStatus {
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 50%, rgba(7, 19, 31, 0.18) 0 0.28rem, transparent 0.3rem),
-    linear-gradient(180deg, #ffffff, #d9e1ec);
+    linear-gradient(180deg, #ffffff, #d9e1ec); /* chrome-restyle: flatten in 007 */
   box-shadow:
     0 5px 14px rgba(0, 0, 0, 0.36),
-    0 0 0 1px rgba(255, 255, 255, 0.14);
+    0 0 0 1px rgba(255, 255, 255, 0.14); /* chrome-restyle: flatten in 007 */
 }
 
 #fontSize {
@@ -414,5 +414,5 @@ button.providerOption.active .providerStatus {
   box-shadow:
     0 0 0 4px rgba(164, 199, 255, 0.28),
     0 5px 14px rgba(0, 0, 0, 0.36),
-    0 0 0 1px rgba(255, 255, 255, 0.14);
+    0 0 0 1px rgba(255, 255, 255, 0.14); /* chrome-restyle: flatten in 007 */
 }

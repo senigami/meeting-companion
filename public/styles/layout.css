@@ -124,7 +124,7 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   max-height: 7rem;
   overflow: hidden;
   white-space: normal;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--chrome-text-secondary);
   font-size: 0.92rem;
   line-height: 1.45;
   letter-spacing: 0.01em;

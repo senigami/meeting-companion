@@ -7,10 +7,11 @@
   height: 100%;
   max-height: 100%;
   padding: 0.7rem;
-  border-radius: 24px;
-  background: rgba(22, 25, 33, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: var(--chrome-radius-lg);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-separator);
   color: var(--text);
+  /* chrome-restyle: flatten in 007 */
   box-shadow:
     inset 1px 0 0 rgba(255, 255, 255, 0.03),
     0 18px 54px rgba(0, 0, 0, 0.42);
@@ -41,6 +42,7 @@
   width: 4px;
   height: 68px;
   border-radius: 999px;
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
@@ -51,6 +53,7 @@
 .railResizeHandle:focus-visible::before,
 html.is-resizing-rail .railResizeHandle::before {
   opacity: 1;
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(188, 217, 255, 0.95), rgba(120, 183, 255, 0.75));
   box-shadow: 0 0 0 1px rgba(188, 217, 255, 0.16), 0 0 18px rgba(120, 183, 255, 0.18);
 }
@@ -119,7 +122,7 @@ html.is-resizing-rail .railResizeHandle::before {
   width: 52px;
   height: 52px;
   min-width: 52px;
-  border-radius: 18px;
+  border-radius: var(--chrome-radius-md);
   display: grid;
   place-items: center;
   padding: 0;
@@ -130,8 +133,9 @@ html.is-resizing-rail .railResizeHandle::before {
   width: 52px;
   height: 52px;
   min-width: 52px;
-  border-radius: 18px;
+  border-radius: var(--chrome-radius-md);
   position: relative;
+  /* chrome-restyle: flatten in 007 */
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
@@ -144,9 +148,11 @@ html.is-resizing-rail .railResizeHandle::before {
   border-radius: 999px;
   display: grid;
   place-items: center;
+  /* chrome literal: amber alert color has no chrome-* token */
   background: rgba(255, 194, 92, 0.96);
   color: #171314;
-  border: 2px solid rgba(22, 25, 33, 0.95);
+  border: 2px solid var(--chrome-bg);
+  /* chrome-restyle: flatten in 007 */
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
 }
 
@@ -173,9 +179,11 @@ html.is-resizing-rail .railResizeHandle::before {
 .controlSection {
   margin-bottom: 0;
   padding: 0.7rem;
-  border-radius: 18px;
+  border-radius: var(--chrome-radius-md);
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.024));
-  border: 1px solid rgba(255, 255, 255, 0.075);
+  border: 1px solid var(--chrome-separator);
+  /* chrome-restyle: flatten in 007 */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -205,13 +213,13 @@ html.is-resizing-rail .railResizeHandle::before {
 .railButton {
   position: relative;
   min-height: 48px;
-  border-radius: 16px;
+  border-radius: var(--chrome-radius-md);
   padding: 0.55rem 0.65rem;
   display: grid;
   place-items: center;
   gap: 0.25rem;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
 }
 
 .railButton svg,
@@ -240,9 +248,10 @@ html.is-resizing-rail .railResizeHandle::before {
   font-size: 0.52rem;
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.68);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--chrome-text-secondary);
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  /* chrome-restyle: flatten in 007 */
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -304,11 +313,12 @@ html.is-resizing-rail .railResizeHandle::before {
 
 .manualBar {
   grid-area: manual;
-  border-radius: 24px;
-  background: rgba(18, 22, 32, 0.76);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--chrome-radius-lg);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-separator);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
+  /* chrome-restyle: flatten in 007 */
   box-shadow: 0 16px 54px rgba(0, 0, 0, 0.3);
   padding: clamp(0.65rem, 1vw, 0.9rem);
 }
@@ -321,7 +331,7 @@ html.is-resizing-rail .railResizeHandle::before {
 }
 
 .manualLabel {
-  color: rgba(255, 255, 255, 0.68);
+  color: var(--chrome-text-secondary);
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -332,13 +342,13 @@ html.is-resizing-rail .railResizeHandle::before {
 .manualBar input {
   min-width: 0;
   height: 48px;
-  border-radius: 16px;
+  border-radius: var(--chrome-radius-md);
   padding: 0 1rem;
 }
 
 .manualBar button {
   height: 48px;
-  border-radius: 16px;
+  border-radius: var(--chrome-radius-md);
   padding: 0 1.1rem;
 }
 
@@ -359,9 +369,10 @@ html.is-resizing-rail .railResizeHandle::before {
   margin: 0;
   color: var(--muted);
   padding: 0.6rem 0.75rem;
-  border-radius: 16px;
+  border-radius: var(--chrome-radius-md);
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025));
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--chrome-separator);
 }
 
 .section {
@@ -381,7 +392,7 @@ html.is-resizing-rail .railResizeHandle::before {
 .warning {
   margin-bottom: 0.85rem;
   padding: 0.75rem 0.85rem;
-  border-radius: 14px;
+  border-radius: var(--chrome-radius-md);
   background: var(--warning-bg);
   border: 1px solid var(--warning-border);
   color: var(--accent-strong);
@@ -394,21 +405,25 @@ html.is-resizing-rail .railResizeHandle::before {
   position: sticky;
   bottom: 0;
   margin-top: 0.75rem;
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(22, 25, 33, 0), rgba(22, 25, 33, 0.65) 24%, rgba(22, 25, 33, 0.88));
   backdrop-filter: blur(10px);
 }
 
 .helper-disclosure {
   margin: 0;
-  border-radius: 20px;
+  border-radius: var(--chrome-radius-lg);
   border: 1px solid var(--panel-line);
   background: linear-gradient(180deg, var(--panel-soft), var(--panel-softer));
   overflow: clip;
 }
 
 details.helper-disclosure[open] {
+  /* chrome-restyle: flatten in 007 */
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+  /* chrome-restyle: flatten in 007 */
   border-color: rgba(188, 217, 255, 0.2);
+  /* chrome-restyle: flatten in 007 */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
@@ -443,13 +458,13 @@ summary.helper-disclosure-summary::after {
 }
 
 summary.helper-disclosure-summary:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--chrome-bg-control-hover);
   color: var(--text);
 }
 
 details.helper-disclosure[open] > summary.helper-disclosure-summary {
   color: var(--accent-strong);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--chrome-separator);
 }
 
 details.helper-disclosure[open] > summary.helper-disclosure-summary::after {
@@ -469,7 +484,7 @@ details.helper-disclosure[open] > summary.helper-disclosure-summary::after {
 .helper-diagnostics .status {
   margin-bottom: 0;
   padding: 0.75rem 0.85rem;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--chrome-radius-md);
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
 }
