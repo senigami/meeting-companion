@@ -10,7 +10,7 @@ test('mode instructions stay specific', () => {
   );
   assert.equal(
     modeInstruction('prayer'),
-    'Do not summarize the prayer line by line. Only show a short status if the prayer has started, ended, or a request was announced.'
+    'Write a short prayer-shaped line that keeps the main requests and tone. Start with a simple opening like "Heavenly Father" and end with "Amen". Do not summarize line by line.'
   );
 });
 
@@ -27,6 +27,19 @@ test('prompt requires useful, specific output and rejects vague filler', () => {
   assert.match(prompt, /Forgive one another\./i);
 });
 
+test('prayer mode prompt keeps the output prayer-shaped and brief', () => {
+  const prompt = buildSummarizePrompt({
+    mode: 'prayer',
+    recentTranscript: 'Heavenly Father, please help the family and give them peace.',
+    visibleLines: []
+  });
+
+  assert.match(prompt, /Write a short prayer-shaped line/i);
+  assert.match(prompt, /Start with a simple opening like "Heavenly Father"/i);
+  assert.match(prompt, /end with "Amen"/i);
+  assert.match(prompt, /Do not summarize line by line\./i);
+});
+
 test('model line cleanup trims bullets and quotes', () => {
   assert.equal(cleanModelLine('  - "Hymn 241 selected"  '), 'Hymn 241 selected');
   assert.equal(cleanModelLine('Song starting now'), 'Song starting now');
@@ -37,4 +50,3 @@ test('vague model lines are rejected', () => {
   assert.equal(shouldAcceptModelLine('Hymn 241 selected', ['Hymn 241 selected']), false);
   assert.equal(shouldAcceptModelLine('Prayer has started'), true);
 });
-

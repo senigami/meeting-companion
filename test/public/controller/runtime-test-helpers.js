@@ -29,6 +29,30 @@ export function createElement(initial = {}) {
 }
 
 function createDefaultElements() {
+  const makeRangeHost = () => ({
+    style: {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return this[name] || '';
+      }
+    },
+    querySelector(selector) {
+      return this._thumb || null;
+    }
+  });
+  const fontSizeHost = makeRangeHost();
+  const displayMarginHost = makeRangeHost();
+  const summaryIntervalHost = makeRangeHost();
+
+  const fontSizeInput = createElement({ value: '84', parentElement: fontSizeHost });
+  const displayMarginInput = createElement({ value: '4.5', parentElement: displayMarginHost });
+  const summaryIntervalInput = createElement({ value: '1', parentElement: summaryIntervalHost });
+  fontSizeHost._thumb = createElement({ className: 'sliderThumb' });
+  displayMarginHost._thumb = createElement({ className: 'sliderThumb' });
+  summaryIntervalHost._thumb = createElement({ className: 'sliderThumb' });
+
   return {
     apiWarning: createElement({ hidden: true }),
     status: createElement({ textContent: '' }),
@@ -37,18 +61,28 @@ function createDefaultElements() {
     manualInput: createElement(),
     liveTranscript: createElement(),
     railTranscript: createElement(),
-    fontSizeInput: createElement({ value: '84' }),
+    fontSizeInput,
     fontSizeValue: createElement({ textContent: '' }),
-    displayMarginInput: createElement({ value: '4.5' }),
+    displayMarginInput,
     displayMarginValue: createElement({ textContent: '' }),
-    summaryIntervalInput: createElement({ value: '1' }),
+    summaryIntervalInput,
     summaryIntervalValue: createElement({ textContent: '' }),
+    viewPanel: createElement({ hidden: true }),
+    viewButton: createElement(),
+    closeViewPanel: createElement(),
     settingsPanel: createElement({ hidden: true }),
     settingsBackdrop: createElement({ hidden: true }),
     alertsSection: createElement({ hidden: true }),
-    alertButton: createElement({ hidden: true }),
+    settingsAlertBadge: createElement({ hidden: true }),
     settingsButton: createElement(),
     closeSettings: createElement(),
+    serviceRegistrationCard: createElement(),
+    serviceRegistrationKeyInput: createElement({ value: '' }),
+    serviceRegistrationSave: createElement(),
+    serviceRegistrationTest: createElement(),
+    serviceRegistrationDelete: createElement(),
+    serviceRegistrationOpenAi: createElement({ dataset: { registerProvider: 'openai' } }),
+    serviceRegistrationClaude: createElement({ dataset: { registerProvider: 'claude' } }),
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
@@ -117,7 +151,17 @@ export function createRuntimeHarness({
   }
 
   global.document = {
-    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    documentElement: {
+      style: {
+        setProperty(name, value) {
+          this[name] = String(value);
+        },
+        getPropertyValue(name) {
+          return this[name] || '';
+        }
+      },
+      requestFullscreen() {}
+    },
     getElementById(id) {
       return elements[id] || null;
     },
@@ -125,6 +169,12 @@ export function createRuntimeHarness({
       if (selector === '[data-kind="transcription"]') return transcriptionButtons;
       if (selector === '[data-kind="summarization"]') return summarizationButtons;
       if (selector === '.mode') return modeButtons;
+      if (selector === '[data-register-provider]') {
+        return [
+          elements.serviceRegistrationOpenAi,
+          elements.serviceRegistrationClaude
+        ];
+      }
       return [];
     },
     addEventListener() {}
@@ -146,6 +196,7 @@ export function createRuntimeHarness({
       lastSentText: '',
       settingsOpen: false,
       panelOpen: false,
+      registrationProvider: 'openai',
       transcriptionSource: 'browser',
       summarizationSource: 'openai',
       openAiReady: false,

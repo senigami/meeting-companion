@@ -1,6 +1,7 @@
 .panel,
 .controlPanel {
   grid-area: rail;
+  position: relative;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -20,17 +21,56 @@
   overflow: hidden;
 }
 
+.railResizeHandle {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18px;
+  margin-left: -9px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.railResizeHandle::before {
+  content: "";
+  width: 4px;
+  height: 68px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  opacity: 0.72;
+}
+
+.railResizeHandle:hover::before,
+.railResizeHandle:focus-visible::before,
+html.is-resizing-rail .railResizeHandle::before {
+  opacity: 1;
+  background: linear-gradient(180deg, rgba(188, 217, 255, 0.95), rgba(120, 183, 255, 0.75));
+  box-shadow: 0 0 0 1px rgba(188, 217, 255, 0.16), 0 0 18px rgba(120, 183, 255, 0.18);
+}
+
 .panel[hidden] {
   display: none;
 }
 
 .railTop,
 .controlHeader {
+  position: relative;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: flex-start;
   align-items: flex-start;
-  gap: 0.65rem;
+  gap: 1rem;
   flex-shrink: 0;
+  padding-bottom: 1rem;
+  padding-top: 0.15rem;
+  min-height: 4.25rem;
 }
 
 .railBrand {
@@ -54,15 +94,24 @@
 }
 
 .railActions {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  gap: 0.45rem;
+  align-items: flex-start;
+  justify-content: flex-end;
+  width: auto;
+  pointer-events: auto;
 }
 
 .controlIcon {
   width: 24px;
   height: 24px;
   flex: none;
+  display: block;
+  color: currentColor;
+  fill: currentColor;
+  stroke: currentColor;
 }
 
 .iconButton {
@@ -82,13 +131,29 @@
   height: 52px;
   min-width: 52px;
   border-radius: 18px;
+  position: relative;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
-.iconButton.alertButton {
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  border-radius: 15px;
+.settingsAlertBadge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 21px;
+  height: 21px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 194, 92, 0.96);
+  color: #171314;
+  border: 2px solid rgba(22, 25, 33, 0.95);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.badgeIcon {
+  width: 11px;
+  height: 11px;
+  display: block;
 }
 
 .railBody,
@@ -97,9 +162,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1.1rem;
   overflow-y: auto;
   padding-right: 0.25rem;
+  padding-top: 0.25rem;
 }
 
 .railSection,
@@ -120,7 +186,8 @@
 
 .quickControlsGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  grid-auto-flow: row dense;
   gap: 0.55rem;
 }
 
@@ -136,6 +203,7 @@
 }
 
 .railButton {
+  position: relative;
   min-height: 48px;
   border-radius: 16px;
   padding: 0.55rem 0.65rem;
@@ -159,6 +227,27 @@
   opacity: 0.82;
 }
 
+.shortcutBadge {
+  position: absolute;
+  right: 0.42rem;
+  bottom: 0.38rem;
+  min-width: 0.88rem;
+  height: 0.88rem;
+  padding: 0 0.14rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
 .modeGrid {
   display: grid;
   grid-template-columns: 1fr;
@@ -177,6 +266,40 @@
 
 .modeGrid .mode-label {
   justify-self: start;
+}
+
+.mode-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.mode-icon.icon-speaker {
+  -webkit-mask-image: url("../assets/icons/speaker.svg");
+  mask-image: url("../assets/icons/speaker.svg");
+}
+
+.mode-icon.icon-information {
+  -webkit-mask-image: url("../assets/icons/information.svg");
+  mask-image: url("../assets/icons/information.svg");
+}
+
+.mode-icon.icon-song {
+  -webkit-mask-image: url("../assets/icons/song.svg");
+  mask-image: url("../assets/icons/song.svg");
+}
+
+.mode-icon.icon-prayer {
+  -webkit-mask-image: url("../assets/icons/prayer.svg");
+  mask-image: url("../assets/icons/prayer.svg");
 }
 
 .manualBar {

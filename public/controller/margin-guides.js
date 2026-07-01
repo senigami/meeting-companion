@@ -14,3 +14,9 @@ export function flashDisplayMarginGuides(ctx, { setTimeoutFn = setTimeout, clear
   nextTimer?.unref?.();
   return nextTimer;
 }
+
+export function clearDisplayMarginGuideTimer(ctx, { clearTimeoutFn = clearTimeout } = {}) {
+  const currentTimer = marginGuideTimers.get(ctx) || null;
+  clearTimeoutFn(currentTimer);
+  marginGuideTimers.delete(ctx);
+}

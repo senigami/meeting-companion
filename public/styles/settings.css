@@ -3,6 +3,10 @@ dialog.settingsOverlay[hidden] {
   display: none !important;
 }
 
+.viewDrawer[hidden] {
+  display: none !important;
+}
+
 .settingsBackdrop {
   position: fixed;
   inset: 0;
@@ -31,6 +35,68 @@ dialog.settingsOverlay[hidden] {
   background: rgba(0, 0, 0, 0.42);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+}
+
+.viewDrawer {
+  position: fixed;
+  top: 5rem;
+  right: 0.75rem;
+  bottom: auto;
+  width: min(26rem, calc(100vw - 1.5rem));
+  height: auto;
+  z-index: 39;
+  pointer-events: none;
+}
+
+.viewDrawerShell {
+  height: auto;
+  max-height: calc(100dvh - 6rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 28px;
+  background: rgba(22, 26, 36, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 28px 84px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  transform: translateX(calc(100% + 1rem));
+  transition: transform 220ms ease, opacity 220ms ease;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.viewDrawer.is-open .viewDrawerShell {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.viewDrawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.05rem 1.15rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.viewDrawerHeader h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.viewDrawerBody {
+  min-height: 0;
+  overflow: hidden;
+  padding: 1rem 1rem 1.1rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  justify-items: stretch;
 }
 
 .settingsHeader {
@@ -71,32 +137,35 @@ dialog.settingsOverlay[hidden] {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.settingsCard > summary {
-  cursor: pointer;
-  list-style: none;
+.settingsViewCard {
+  grid-column: 1 / -1;
+  align-self: start;
 }
 
-.settingsCard > summary::-webkit-details-marker {
-  display: none;
+.settingsDiagnosticsCard {
+  grid-column: 1 / -1;
 }
 
-.settingsCard > summary::after {
-  content: "";
-  float: right;
-  width: 0.65rem;
-  height: 0.65rem;
-  margin-top: 0.2rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
+.serviceRegistrationCard {
+  grid-column: 1 / -1;
 }
 
-.settingsCard[open] > summary::after {
-  transform: rotate(225deg);
+.providerOption[hidden] {
+  display: none !important;
 }
 
 .providerCard {
   min-height: 0;
+}
+
+.providerReveal {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.6rem;
+}
+
+.providerReveal[hidden] {
+  display: none !important;
 }
 
 .providerOptions {
@@ -235,13 +304,23 @@ button.providerOption.active .providerStatus {
 .range-field {
   --slider-points: 2;
   --slider-track: rgba(255, 255, 255, 0.13);
-  --slider-dot: rgba(245, 247, 251, 0.48);
+  --slider-dot: rgba(245, 247, 251, 0.66);
   --slider-thumb: linear-gradient(180deg, #ffffff, #d9e1ec);
-  padding: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 0.85rem 0.95rem;
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032));
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.viewDrawer .settingsViewCard {
+  padding: 0.95rem;
+}
+
+.viewDrawer .settingsStack {
+  gap: 0.9rem;
 }
 
 .range-head {
@@ -263,8 +342,49 @@ button.providerOption.active .providerStatus {
   font-variant-numeric: tabular-nums;
 }
 
+.sliderVisual {
+  position: relative;
+  height: 1.75rem;
+  margin: 0.15rem 0 0;
+}
+
+.sliderTrack {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1rem;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at right center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
+      right center / 100% 100% no-repeat,
+    radial-gradient(circle at left center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
+      left center / calc(100% / (var(--slider-points) - 1)) 100% repeat-x,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22));
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.sliderThumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--slider-value, 0) * 1%);
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(15, 20, 28, 0.28);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(7, 19, 31, 0.18) 0 0.28rem, transparent 0.3rem),
+    linear-gradient(180deg, #ffffff, #d9e1ec);
+  box-shadow:
+    0 5px 14px rgba(0, 0, 0, 0.36),
+    0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
 #fontSize {
-  --slider-points: 23;
+  --slider-points: 31;
 }
 
 #displayMargin {
@@ -275,62 +395,24 @@ button.providerOption.active .providerStatus {
   --slider-points: 4;
 }
 
-input[type="range"] {
-  width: 100%;
-  padding: 0;
-  background: transparent;
-  accent-color: var(--accent);
-  min-height: 2rem;
-}
-
-.range-field input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 2rem;
+.sliderInput {
+  position: absolute;
+  inset: 0;
   margin: 0;
   border: 0;
-  background: transparent;
-}
-
-.range-field input[type="range"]::-webkit-slider-runnable-track,
-.range-field input[type="range"]::-moz-range-track {
-  height: 0.48rem;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at right center, var(--slider-dot) 0 0.14rem, transparent 0.16rem)
-      right center / 100% 100% no-repeat,
-    radial-gradient(circle at left center, var(--slider-dot) 0 0.14rem, transparent 0.16rem)
-      left center / calc(100% / (var(--slider-points) - 1)) 100% repeat-x,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.17), var(--slider-track));
-  box-shadow:
-    inset 0 1px 1px rgba(0, 0, 0, 0.34),
-    0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.range-field input[type="range"]::-webkit-slider-thumb,
-.range-field input[type="range"]::-moz-range-thumb {
-  width: 1.12rem;
-  height: 1.12rem;
-  border: 1px solid rgba(15, 20, 28, 0.18);
-  border-radius: 50%;
-  background: var(--slider-thumb);
-  box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.32),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.range-field input[type="range"]::-webkit-slider-thumb {
+  outline: none;
   -webkit-appearance: none;
   appearance: none;
-  margin-top: calc((0.48rem - 1.12rem) / 2);
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  pointer-events: none;
 }
 
-.range-field input[type="range"]::-moz-range-thumb {
-  appearance: none;
-}
-
-.range-field input[type="range"]::-moz-range-progress {
-  height: 0.48rem;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(188, 217, 255, 0.98), rgba(120, 183, 255, 0.92));
+.sliderInput:focus-visible + .sliderThumb,
+.sliderInput:active + .sliderThumb {
+  box-shadow:
+    0 0 0 4px rgba(164, 199, 255, 0.28),
+    0 5px 14px rgba(0, 0, 0, 0.36),
+    0 0 0 1px rgba(255, 255, 255, 0.14);
 }

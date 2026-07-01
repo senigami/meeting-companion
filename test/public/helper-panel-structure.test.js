@@ -71,6 +71,7 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(html, /class=(?:"[^"]*\boperatorRail\b[^"]*"|'[^']*\boperatorRail\b[^']*')/, '.operatorRail');
   assertContains(html, /class=(?:"[^"]*\brailTop\b[^"]*"|'[^']*\brailTop\b[^']*')/, '.railTop');
   assertContains(html, /class=(?:"[^"]*\brailBody\b[^"]*"|'[^']*\brailBody\b[^']*')/, '.railBody');
+  assertContains(html, /id=(?:"railResizeHandle"|'railResizeHandle')/, '#railResizeHandle');
   assertContains(html, /class=(?:"[^"]*\bmanualBar\b[^"]*"|'[^']*\bmanualBar\b[^']*')/, '.manualBar');
   assertContains(html, /class=(?:"[^"]*\bmanualBarInner\b[^"]*"|'[^']*\bmanualBarInner\b[^']*')/, '.manualBarInner');
   assertContains(html, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
@@ -78,12 +79,17 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(html, /class=(?:"[^"]*\bsettingsModal\b[^"]*"|'[^']*\bsettingsModal\b[^']*')/, '.settingsModal');
   assertContains(html, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
   assertContains(html, /class=(?:"[^"]*\bsettingsCard\b[^"]*"|'[^']*\bsettingsCard\b[^']*')/, '.settingsCard');
+  assertContains(html, /class=(?:"[^"]*\bsettingsViewCard\b[^"]*"|'[^']*\bsettingsViewCard\b[^']*')/, '.settingsViewCard');
+  assertContains(html, /id=(?:"viewButton"|'viewButton')/, '#viewButton');
+  assertContains(html, /class=(?:"[^"]*\bviewDrawer\b[^"]*"|'[^']*\bviewDrawer\b[^']*')/, '.viewDrawer');
+  assertContains(html, /class=(?:"[^"]*\bserviceRegistrationCard\b[^"]*"|'[^']*\bserviceRegistrationCard\b[^']*')/, '.serviceRegistrationCard');
   assertContains(html, /class=(?:"[^"]*\bsettingsGrid\b[^"]*"|'[^']*\bsettingsGrid\b[^']*')/, '.settingsGrid');
   assertContains(html, /class=(?:"[^"]*\bsettingsBackdrop\b[^"]*"|'[^']*\bsettingsBackdrop\b[^']*')/, '.settingsBackdrop');
   assertContains(html, /id=(?:"settingsButton"|'settingsButton')/, '#settingsButton');
-  assertContains(html, /id=(?:"alertButton"|'alertButton')/, '#alertButton');
+  assertContains(html, /id=(?:"settingsAlertBadge"|'settingsAlertBadge')/, '#settingsAlertBadge');
   assertContains(html, /class=(?:"[^"]*\bquickControlsGrid\b[^"]*"|'[^']*\bquickControlsGrid\b[^']*')/, '.quickControlsGrid');
   assertContains(html, /class=(?:"[^"]*\bmodeGrid\b[^"]*"|'[^']*\bmodeGrid\b[^']*')/, '.modeGrid');
+  assertContains(html, /class=(?:"[^"]*\bmode-icon\b[^"]*"|'[^']*\bmode-icon\b[^']*')/, '.mode-icon');
   assertContains(html, /class=(?:"[^"]*\brailButton\b[^"]*"|'[^']*\brailButton\b[^']*')/, '.railButton');
   assertContains(html, /class=(?:"[^"]*\biconButton\b[^"]*"|'[^']*\biconButton\b[^']*')/, '.iconButton');
 
@@ -91,6 +97,7 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assert.ok(railMatch, 'Operator rail is missing');
   const rail = railMatch[0];
   assertContains(rail, /class=(?:"[^"]*\brailActions\b[^"]*"|'[^']*\brailActions\b[^']*')/, '.railActions');
+  assertContains(rail, /id=(?:"railResizeHandle"|'railResizeHandle')/, '#railResizeHandle');
   assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
   assertContains(rail, /class=(?:"[^"]*\brailTranscriptDisclosure\b[^"]*"|'[^']*\brailTranscriptDisclosure\b[^']*')/, '.railTranscriptDisclosure');
   assertNotContains(rail, /<h1\b/i, 'large Controls heading');
@@ -104,22 +111,20 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(settings, /aria-modal=(?:"true"|'true')/, 'modal flag');
   assertContains(settings, /class=(?:"[^"]*\bsettingsHeader\b[^"]*"|'[^']*\bsettingsHeader\b[^']*')/, '.settingsHeader');
   assertContains(settings, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
-  assertContains(settings, /id=(?:"openaiKeyInput"|'openaiKeyInput')/, '#openaiKeyInput');
-  assertContains(settings, /id=(?:"claudeKeyInput"|'claudeKeyInput')/, '#claudeKeyInput');
-  assertContains(settings, /id=(?:"openaiKeySave"|'openaiKeySave')/, '#openaiKeySave');
-  assertContains(settings, /id=(?:"openaiKeyTest"|'openaiKeyTest')/, '#openaiKeyTest');
-  assertContains(settings, /id=(?:"openaiKeyDelete"|'openaiKeyDelete')/, '#openaiKeyDelete');
-  assertContains(settings, /id=(?:"claudeKeySave"|'claudeKeySave')/, '#claudeKeySave');
-  assertContains(settings, /id=(?:"claudeKeyTest"|'claudeKeyTest')/, '#claudeKeyTest');
-  assertContains(settings, /id=(?:"claudeKeyDelete"|'claudeKeyDelete')/, '#claudeKeyDelete');
   assertContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
-  assertContains(settings, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
-  assertContains(settings, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
   assertContains(settings, /id=(?:"status"|'status')/, '#status');
   assertContains(settings, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
   assertContains(settings, /id=(?:"pasteTranscript"|'pasteTranscript')/, '#pasteTranscript');
   assertContains(settings, /id=(?:"summarizeOnce"|'summarizeOnce')/, '#summarizeOnce');
   assertContains(settings, /summary/i, 'settings dialog labels');
+  assertContains(settings, /class=(?:"[^"]*\bsettingsViewCard\b[^"]*"|'[^']*\bsettingsViewCard\b[^']*')/, '.settingsViewCard');
+  assertContains(settings, /class=(?:"[^"]*\bserviceRegistrationCard\b[^"]*"|'[^']*\bserviceRegistrationCard\b[^']*')/, '.serviceRegistrationCard');
+  assertContains(settings, /data-register-provider=(?:"openai"|'openai')/, 'register openai button');
+  assertContains(settings, /data-register-provider=(?:"claude"|'claude')/, 'register claude button');
+  assertContains(settings, /id=(?:"serviceRegistrationKeyInput"|'serviceRegistrationKeyInput')/, '#serviceRegistrationKeyInput');
+  assertContains(settings, /id=(?:"serviceRegistrationSave"|'serviceRegistrationSave')/, '#serviceRegistrationSave');
+  assertContains(settings, /id=(?:"serviceRegistrationTest"|'serviceRegistrationTest')/, '#serviceRegistrationTest');
+  assertContains(settings, /id=(?:"serviceRegistrationDelete"|'serviceRegistrationDelete')/, '#serviceRegistrationDelete');
 
   const alertsMatch = settings.match(/<section\b[^>]*id=(?:"alertsSection"|'alertsSection')[^>]*[\s\S]*?<\/section>/i);
   assert.ok(alertsMatch, 'Alerts card is missing');
@@ -127,7 +132,19 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(alerts, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 
   const providerSections = countMatches(settings, /class=(?:"[^"]*\bproviderCard\b[^"]*"|'[^']*\bproviderCard\b[^']*')/g);
-  assert.ok(providerSections >= 2, 'provider key cards should be visible');
+  assert.ok(providerSections >= 2, 'source sections should stay visible');
+  const viewPanelMatch = html.match(/<aside\b[^>]*id=(?:"viewPanel"|'viewPanel')[^>]*[\s\S]*?<\/aside>/i);
+  assert.ok(viewPanelMatch, 'Display drawer is missing');
+  const viewPanel = viewPanelMatch[0];
+  assertContains(viewPanel, /class=(?:"[^"]*\bviewDrawerBody\b[^"]*"|'[^']*\bviewDrawerBody\b[^']*')/, '.viewDrawerBody');
+  assertContains(viewPanel, /class=(?:"[^"]*\brange-field\b[^"]*"|'[^']*\brange-field\b[^']*')/, '.range-field');
+  assertContains(viewPanel, /id=(?:"fontSize"|'fontSize')/, '#fontSize');
+  assertContains(viewPanel, /id=(?:"displayMargin"|'displayMargin')/, '#displayMargin');
+  assertNotContains(viewPanel, /id=(?:"sampleTextVisible"|'sampleTextVisible')/, '#sampleTextVisible');
+
+  assertNotContains(settings, /id=(?:"transcriptionOpenAiPanel"|'transcriptionOpenAiPanel')/, '#transcriptionOpenAiPanel');
+  assertNotContains(settings, /id=(?:"summaryOpenAiPanel"|'summaryOpenAiPanel')/, '#summaryOpenAiPanel');
+  assertNotContains(settings, /id=(?:"summaryClaudePanel"|'summaryClaudePanel')/, '#summaryClaudePanel');
 
   assertContains(settings, /data-kind=(?:"transcription"|'transcription')/, 'transcription source control');
   assertContains(settings, /data-kind=(?:"summarization"|'summarization')/, 'summary source control');
@@ -141,9 +158,11 @@ test('helper panel keeps quick actions compact and settings centered', async () 
     [/id=(?:"undo"|'undo')/, '#undo'],
     [/id=(?:"clear"|'clear')/, '#clear'],
     [/id=(?:"fullscreen"|'fullscreen')/, '#fullscreen'],
+    [/id=(?:"viewButton"|'viewButton')/, '#viewButton'],
     [/id=(?:"settingsButton"|'settingsButton')/, '#settingsButton'],
-    [/id=(?:"alertButton"|'alertButton')/, '#alertButton'],
-    [/class=(?:"mode"|'mode')/, '.mode buttons']
+    [/id=(?:"settingsAlertBadge"|'settingsAlertBadge')/, '#settingsAlertBadge'],
+    [/class=(?:"mode"|'mode')/, '.mode buttons'],
+    [/class=(?:"[^"]*\bmode-icon\b[^"]*"|'[^']*\bmode-icon\b[^']*')/, '.mode-icon']
   ];
 
   for (const [selector, description] of primarySelectors) {

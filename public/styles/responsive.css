@@ -1,6 +1,6 @@
 @media (max-width: 1180px) {
   .meetingShell {
-    grid-template-columns: minmax(0, 1fr) clamp(132px, 11vw, 160px);
+    grid-template-columns: minmax(0, 1fr) clamp(170px, var(--operator-rail-width, 220px), calc(100dvw - 280px));
   }
 
   .operatorRail {
@@ -38,6 +38,10 @@
     align-items: stretch;
   }
 
+  .railResizeHandle {
+    display: none;
+  }
+
   .railTop {
     min-width: max-content;
   }
@@ -73,6 +77,13 @@
     border-radius: 0;
   }
 
+  .viewDrawer {
+    top: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    width: min(22rem, calc(100vw - 1rem));
+  }
+
   .settingsBody {
     padding: 1rem;
   }
@@ -88,15 +99,46 @@
     gap: 0.6rem;
   }
 
+  .railTop {
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 6.5rem;
+  }
+
+  .railActions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .iconButton,
+  .iconButton.settingsButton {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+  }
+
+  .railSection,
+  .railTranscriptDisclosure {
+    min-width: 0;
+  }
+
+  .quickControlsGrid {
+    grid-template-columns: 1fr;
+  }
+
   .railSection {
-    min-width: 13.5rem;
+    min-width: 0;
   }
 
   .railTranscriptDisclosure {
-    min-width: 13.5rem;
+    min-width: 0;
   }
 
   .apiKeyActions {
     grid-template-columns: 1fr;
+  }
+
+  .viewDrawer {
+    width: calc(100vw - 1rem);
   }
 }

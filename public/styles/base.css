@@ -1,6 +1,7 @@
 :root {
   --font-size: 84px;
-  --display-margin: 4.5;
+  --display-margin: 4.5%;
+  --operator-rail-width: 220px;
   --line-gap: 0.28em;
   --bg: #0a0b10;
   --bg-soft: #14161d;
@@ -110,6 +111,12 @@ textarea:focus-visible,
 summary:focus-visible {
   outline: 3px solid var(--accent-strong);
   outline-offset: 3px;
+}
+
+html.is-resizing-rail,
+html.is-resizing-rail body {
+  cursor: col-resize;
+  user-select: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

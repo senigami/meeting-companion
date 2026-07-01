@@ -5,8 +5,7 @@ import {
 } from '../services/transcript-display.js';
 import {
   createSummarizationDriver,
-  createTranscriptionDriver,
-  listAvailableSources
+  createTranscriptionDriver
 } from '../services/registry.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
@@ -23,10 +22,11 @@ import {
   updateStatus,
   syncSettingsPanel,
   syncViewerControls,
+  setDisplayMarginGuidesVisible,
   updateSummaryIntervalControl
 } from './view.js';
 import { buildLiveTranscriptText } from './live-transcript.js';
-import { flashDisplayMarginGuides } from './margin-guides.js';
+import { clearDisplayMarginGuideTimer, flashDisplayMarginGuides } from './margin-guides.js';
 import { saveViewerSettings } from './view-settings-sync.js';
 import {
   isProviderConfigured,
@@ -69,14 +69,12 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  function openSettingsForProvider(provider) {
-    if (provider === 'browser') {
-      updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
-      return;
-    }
+  function openSettingsForProvider(provider, kind) {
+    if (provider === 'browser') return updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
+    ctx.state.registrationProvider = provider;
     setSettingsOpen(ctx, true);
     globalThis.requestAnimationFrame?.(() => {
-      const target = provider === 'claude' ? ctx.dom.claudeKeyInput : ctx.dom.openaiKeyInput;
+      const target = ctx.dom.serviceRegistrationKeyInput;
       target?.focus?.();
       target?.select?.();
     });
@@ -84,16 +82,17 @@ export function createRuntime(ctx, deps = {}) {
 
   function addLine(line, { source = 'manual', mode = ctx.state.mode } = {}) {
     const clean = normalizeText(line);
-    if (!clean) return;
+    if (!clean) return false;
     const nextItems = createTranscriptItems({
       text: clean,
       mode,
       source
     });
-    if (!nextItems.length) return;
+    if (!nextItems.length) return false;
     ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, nextItems);
     renderDisplay(ctx);
     showRecentTranscript();
+    return true;
   }
 
   function undoLine() {
@@ -211,9 +210,25 @@ export function createRuntime(ctx, deps = {}) {
 
   function setDisplayMargin(nextMargin) {
     ctx.state.displayMargin = clampDisplayMargin(nextMargin, ctx.state.displayMargin);
-    flashDisplayMarginGuides(ctx, { setTimeoutFn, clearTimeoutFn });
+    if (ctx.state.displayMarginAdjusting) {
+      setDisplayMarginGuidesVisible(ctx, true);
+    } else {
+      flashDisplayMarginGuides(ctx, { setTimeoutFn, clearTimeoutFn });
+    }
     saveViewerSettings(ctx);
     syncViewerControls(ctx);
+  }
+
+  function beginDisplayMarginAdjustment() {
+    ctx.state.displayMarginAdjusting = true;
+    clearDisplayMarginGuideTimer(ctx, { clearTimeoutFn });
+    setDisplayMarginGuidesVisible(ctx, true);
+  }
+
+  function endDisplayMarginAdjustment() {
+    ctx.state.displayMarginAdjusting = false;
+    clearDisplayMarginGuideTimer(ctx, { clearTimeoutFn });
+    setDisplayMarginGuidesVisible(ctx, false);
   }
 
   function setSummaryInterval(nextInterval) {
@@ -315,9 +330,10 @@ export function createRuntime(ctx, deps = {}) {
       updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
       return;
     }
-    ctx.state.pendingProviderSelection = { kind, source };
+    ctx.state.registrationProvider = source;
+    ctx.state.pendingProviderSelection = { provider: source, kind, source };
     updateStatus(ctx, `Add a ${source === 'openai' ? 'OpenAI' : 'Claude'} key to use this provider.`);
-    openSettingsForProvider(source);
+    openSettingsForProvider(source, kind);
   }
 
   async function saveProviderKey(provider, value) {
@@ -377,6 +393,13 @@ export function createRuntime(ctx, deps = {}) {
     clearPendingSelection(provider);
   }
 
+  function setRegistrationProvider(provider) {
+    if (provider !== 'openai' && provider !== 'claude') return;
+    ctx.state.registrationProvider = provider;
+    updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
+  }
+
   async function ensureSelectedTranscriptionSourceExists() {
     if (ctx.state.transcriptionSource === 'browser') return;
     if (ctx.state.transcriptionSource === 'openai' && ctx.state.openAiReady) return;
@@ -384,21 +407,11 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function resolveAvailableSummarizationSource() {
-    const availableSummarizationSources = listAvailableSources().summarization.map((source) => source.id);
-    const availableSummarizationSet = new Set(availableSummarizationSources);
-    const sourceReady = (source) => {
-      if (source === 'openai') return Boolean(ctx.state.openAiReady);
-      if (source === 'claude') return Boolean(ctx.state.anthropicReady);
-      return false;
-    };
-
-    if (availableSummarizationSet.has(ctx.state.summarizationSource) && sourceReady(ctx.state.summarizationSource)) {
-      return ctx.state.summarizationSource;
-    }
-
-    if (ctx.state.openAiReady && availableSummarizationSet.has('openai')) return 'openai';
-    if (ctx.state.anthropicReady && availableSummarizationSet.has('claude')) return 'claude';
-    return availableSummarizationSources[0] || getDefaultSummarizationSource();
+    if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
+    if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
+    if (ctx.state.anthropicReady) return 'claude';
+    if (ctx.state.openAiReady) return 'openai';
+    return getDefaultSummarizationSource();
   }
 
   async function ensureSelectedSummarizationSourceExists() {
@@ -477,6 +490,7 @@ export function createRuntime(ctx, deps = {}) {
     setSummaryInterval,
     setSummarizationSource,
     setTranscriptionSource,
+    setRegistrationProvider,
     promptProviderSetup,
     saveProviderKey,
     showRecentTranscript,
@@ -493,6 +507,8 @@ export function createRuntime(ctx, deps = {}) {
     updateSourceButtons: () => updateSourceButtons(ctx),
     syncViewerControls: () => syncViewerControls(ctx),
     saveViewerSettings: () => saveViewerSettings(ctx),
+    beginDisplayMarginAdjustment,
+    endDisplayMarginAdjustment,
     renderDisplay: () => renderDisplay(ctx)
   };
 }

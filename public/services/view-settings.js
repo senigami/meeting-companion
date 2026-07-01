@@ -1,7 +1,7 @@
-export const FONT_SIZE_MIN = 56;
+export const FONT_SIZE_MIN = 24;
 export const FONT_SIZE_MAX = 144;
 export const DISPLAY_MARGIN_MIN = 0;
-export const DISPLAY_MARGIN_MAX = 10;
+export const DISPLAY_MARGIN_MAX = 40;
 export const summaryIntervalOptions = [2, 5, 10, 15];
 export const summaryIntervalSliderMax = summaryIntervalOptions.length - 1;
 
