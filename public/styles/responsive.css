@@ -154,7 +154,7 @@
 
   .quickControlsGrid button {
     grid-template-rows: 22px auto;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0.3rem;
   }
 

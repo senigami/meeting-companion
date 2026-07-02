@@ -157,7 +157,8 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
     renderDisplay(ctx);
-    updateStatus(ctx, `Cleared ${outgoing.length} lines — press U or click Undo to bring them back.`);
+    const lineWord = outgoing.length === 1 ? 'line' : 'lines';
+    updateStatus(ctx, `Cleared ${outgoing.length} ${lineWord} — press U or click Undo to bring them back.`);
   }
 
   function showRecentTranscript() {
