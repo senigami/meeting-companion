@@ -20,10 +20,10 @@ The source tree is organized by responsibility, not by build artifact. The clien
 | `public/controller/start-app.js` | Bootstrap and event binding. |
 | `public/controller/runtime.js` | Controller state machine and app actions. |
 | `public/controller/view.js` | DOM/view updates for the display and helper panel. |
-| `public/controller/live-transcript.js` | Builds the raw transcript preview shown in the rail and diagnostics. |
 | `public/controller/demo-feed.js` | Demo/sample stream used for live visual debugging. |
 | `public/controller/rail-collapse.js` | Toggles the operator rail between full width and a 64px icon-only strip and persists the choice. |
 | `public/services/` | Shared prompts, catalogs, registry, and provider adapters. |
+| `public/services/transcript-bucket.js` | Partitions and trims the live transcript preview into sentence-complete "consumable" text vs. an in-progress tail, so the rail preview only drains finished sentences. |
 | `public/services/fetch-timeout.js` | Wraps `fetch` with an `AbortController`-based timeout for the transcribe/summarize/provider-test call sites. |
 | `public/services/summarization/claude.js` | Claude summarization client wrapper. |
 | `server/summarization.js` | Server-side provider switch for OpenAI and Claude summarization. |
@@ -38,7 +38,7 @@ The source tree is organized by responsibility, not by build artifact. The clien
 - `public/controller/start-app.js` handles bootstrap and event wiring.
 - `public/controller/runtime.js` handles state, shortcuts, source wiring, and AI loop behavior.
 - `public/controller/view.js` handles rendering and DOM updates.
-- `public/controller/live-transcript.js` keeps the preview text logic separate from the controller.
+- `public/services/transcript-bucket.js` keeps the sentence-boundary consumption logic for the live transcript preview separate from the controller.
 - `public/controller/demo-feed.js` keeps sample-data playback out of the production transcript path.
 - `public/controller/rail-collapse.js` keeps the collapse/expand toggle, its CSS-state class, and its persistence separate from `rail-resize.js`, which continues to own drag-resize only.
 - `public/services/` handles prompt construction and provider adapters.

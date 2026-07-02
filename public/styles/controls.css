@@ -24,8 +24,8 @@
   border: 1px solid var(--chrome-separator);
   color: var(--text);
   border-left: 1px solid var(--chrome-separator);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 0.65rem;
   overflow: hidden;
 }
@@ -84,11 +84,16 @@ html.is-resizing-rail .railResizeHandle::before {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  max-width: calc(100% - 140px);
+  min-width: 0;
 }
 
 .railName {
   font-size: 13px;
   font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .eyebrow {
@@ -255,6 +260,7 @@ html.is-resizing-rail .railResizeHandle::before {
 .controlScrollArea,
 .panel-main {
   min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 1.1rem;

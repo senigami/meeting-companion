@@ -28,7 +28,13 @@ import {
   setDisplayMarginGuidesVisible,
   updateSummaryIntervalControl
 } from './view.js';
-import { buildLiveTranscriptText } from './live-transcript.js';
+import {
+  BUCKET_SEND_MAX_CHARS,
+  bucketText,
+  partitionBucket,
+  removeConsumed,
+  trimBucket
+} from '../services/transcript-bucket.js';
 import { clearDisplayMarginGuideTimer, flashDisplayMarginGuides } from './margin-guides.js';
 import { saveViewerSettings } from './view-settings-sync.js';
 import {
@@ -180,13 +186,16 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function showRecentTranscript() {
-    ctx.state.transcriptChunks = ctx.state.transcriptChunks.filter((chunk) => chunk.at >= Date.now() - 5 * 60 * 1000);
-    const preview = buildLiveTranscriptText(ctx.state.transcriptChunks, ctx.state.transcriptPreview);
+    ctx.state.transcriptChunks = trimBucket(ctx.state.transcriptChunks);
+    const preview = bucketText(ctx.state.transcriptChunks, ctx.state.transcriptPreview);
     if (ctx.dom.liveTranscript) {
       ctx.dom.liveTranscript.textContent = preview;
     }
     if (ctx.dom.railTranscript) {
       ctx.dom.railTranscript.textContent = preview;
+      if (typeof ctx.dom.railTranscript.scrollHeight === 'number') {
+        ctx.dom.railTranscript.scrollTop = ctx.dom.railTranscript.scrollHeight;
+      }
     }
   }
 
@@ -290,12 +299,21 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   async function summarizeCurrentText(text) {
-    if (ctx.state.paused) return;
-    const recent = normalizeText(
-      text || buildLiveTranscriptText(ctx.state.transcriptChunks, ctx.state.transcriptPreview, { seconds: 30 })
-    );
+    if (ctx.state.paused || ctx.state.summarizeInFlight) return;
+
+    let consumedChunks = null;
+    let recent;
+    if (text) {
+      recent = normalizeText(text);
+    } else {
+      const { consumable, remainder } = partitionBucket(ctx.state.transcriptChunks);
+      consumedChunks = consumable;
+      recent = bucketText([...consumable, ...remainder], ctx.state.transcriptPreview, {
+        maxChars: BUCKET_SEND_MAX_CHARS
+      });
+    }
     if (!recent || recent === ctx.state.lastSentText) return;
-    ctx.state.lastSentText = recent;
+    ctx.state.summarizeInFlight = true;
     updateStatus(ctx, 'Summarizing...');
 
     try {
@@ -309,6 +327,13 @@ export function createRuntime(ctx, deps = {}) {
       resetSummarizeBackoff();
 
       if (ctx.state.paused) return;
+      // The bucket only drains on success while unpaused, so a failed or
+      // pause-interrupted request re-sends the same sentences next tick.
+      ctx.state.lastSentText = recent;
+      if (consumedChunks?.length) {
+        ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
+        showRecentTranscript();
+      }
       const recoveredLevel = ctx.state.listening ? 'listening' : 'manual';
       if (result.line) {
         addLine(result.line, { source: 'ai', mode: ctx.state.mode });
@@ -326,6 +351,8 @@ export function createRuntime(ctx, deps = {}) {
         `Could not summarize: ${error.message}`,
         ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
       );
+    } finally {
+      ctx.state.summarizeInFlight = false;
     }
   }
 

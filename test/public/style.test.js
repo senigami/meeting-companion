@@ -175,6 +175,8 @@ test('collapsed rail narrows the grid track and hides labels', async () => {
   assert.match(css, /html\.is-rail-collapsed \.buttonLabel[\s\S]*display:\s*none;/s);
   assert.match(css, /html\.is-rail-collapsed \.railResizeHandle[\s\S]*display:\s*none;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*#railCollapseToggle[\s\S]*display:\s*none;/s);
+  assert.match(css, /html\.is-rail-collapsed \.railActions\s*\{[^}]*position:\s*static;[^}]*flex-direction:\s*column;/s);
+  assert.match(css, /html\.is-rail-collapsed \.railSection,[\s\S]*background:\s*transparent;/s);
 });
 
 test('rail collapse transitions are smooth and honor reduced motion', async () => {

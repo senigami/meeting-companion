@@ -546,6 +546,94 @@ test('a summarize success without prior failures does not touch the alert surfac
   });
 });
 
+test('a summarize success consumes complete sentences from the bucket and keeps the partial tail', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: '' })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'welcome everyone to the meeting', at: now - 30000 },
+        { text: 'We sang hymn 152. And then the bishop', at: now - 1000 }
+      ]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['And then the bishop']);
+    assert.equal(elements.railTranscript.textContent, 'And then the bishop');
+    assert.equal(
+      ctx.state.lastSentText,
+      'welcome everyone to the meeting We sang hymn 152. And then the bishop'
+    );
+  });
+});
+
+test('a summarize failure consumes nothing so the same text retries later', async () => {
+  const failingDriver = {
+    id: 'openai',
+    summarize: async () => {
+      throw new Error('network down');
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => failingDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'The closing hymn is number 152.', at: now - 5000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+    assert.notEqual(ctx.state.lastSentText, 'The closing hymn is number 152.');
+
+    // Retry is not blocked by the lastSentText guard after a failure.
+    let secondAttemptText = null;
+    failingDriver.summarize = async ({ recentTranscript }) => {
+      secondAttemptText = recentTranscript;
+      return { line: '' };
+    };
+    await runtime.summarizeCurrentText();
+    assert.equal(secondAttemptText, 'The closing hymn is number 152.');
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+  });
+});
+
+test('overlapping summarize calls are serialized by the in-flight guard', async () => {
+  let resolveFirst;
+  let calls = 0;
+  const slowDriver = {
+    id: 'openai',
+    summarize: () => {
+      calls += 1;
+      return new Promise((resolve) => {
+        resolveFirst = () => resolve({ line: '' });
+      });
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => slowDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'An announcement about the picnic.', at: Date.now() - 5000 }]
+    }
+  }, async ({ runtime }) => {
+    const first = runtime.summarizeCurrentText();
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = runtime.summarizeCurrentText();
+    await new Promise((resolve) => setImmediate(resolve));
+    resolveFirst();
+    await Promise.all([first, second]);
+    assert.equal(calls, 1);
+  });
+});
+
 test('arming clear and letting the timeout elapse reverts without clearing anything', async () => {
   let pendingTimer = null;
 

@@ -121,12 +121,12 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .railTranscript {
   min-height: 4.5rem;
-  max-height: 7rem;
-  overflow: hidden;
+  max-height: 10rem;
+  overflow-y: auto;
   white-space: normal;
   color: var(--chrome-text-secondary);
-  font-size: 0.92rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.4;
   letter-spacing: 0.01em;
 }
 
@@ -328,6 +328,77 @@ html.is-rail-collapsed .modeGrid .mode {
   grid-template-columns: 1fr;
   justify-content: center;
   justify-items: center;
+}
+
+/* Collapsed strip layout: the 64px rail loses its box chrome so 44px
+   targets fit; header actions stack vertically so the expand toggle is
+   always reachable. Desktop-only — the collapse feature is inert <=900px. */
+@media (min-width: 901px) {
+  html.is-rail-collapsed .panel,
+  html.is-rail-collapsed .operatorRail {
+    padding: 0.5rem 0.35rem;
+  }
+
+  html.is-rail-collapsed .railTop {
+    align-items: center;
+    gap: 0.4rem;
+    padding-bottom: 0.5rem;
+  }
+
+  html.is-rail-collapsed .railActions {
+    position: static;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    gap: 0.25rem;
+  }
+
+  html.is-rail-collapsed .railStatus {
+    background: transparent;
+    border-color: transparent;
+    padding: 0.35rem 0;
+    margin-top: 0;
+  }
+
+  html.is-rail-collapsed .railBody {
+    gap: 0.5rem;
+  }
+
+  html.is-rail-collapsed .railSection,
+  html.is-rail-collapsed .section.helper-primary,
+  html.is-rail-collapsed .controlSection {
+    padding: 0.15rem 0;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  html.is-rail-collapsed .railSection .section-label,
+  html.is-rail-collapsed .helper-primary .section-label {
+    margin-bottom: 0;
+  }
+
+  html.is-rail-collapsed .quickControlsGrid {
+    gap: 0.25rem;
+  }
+
+  html.is-rail-collapsed .railButton,
+  html.is-rail-collapsed .quickControlsGrid button {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.25rem;
+  }
+
+  html.is-rail-collapsed .modeGrid .mode {
+    min-height: 44px;
+    padding: 0.5rem 0.25rem;
+  }
+
+  html.is-rail-collapsed #clear {
+    margin-left: 0;
+    margin-top: var(--chrome-space-2);
+  }
 }
 
 @media (max-width: 900px) {
