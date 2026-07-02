@@ -297,7 +297,8 @@ html.is-rail-collapsed .section-label,
 html.is-rail-collapsed .railBrand,
 html.is-rail-collapsed .railTranscriptDisclosure,
 html.is-rail-collapsed .mode-label,
-html.is-rail-collapsed .railStatusWord {
+html.is-rail-collapsed .railStatusWord,
+html.is-rail-collapsed .railNote {
   display: none;
   opacity: 0;
 }
@@ -326,6 +327,7 @@ html.is-rail-collapsed .quickControlsGrid button {
 html.is-rail-collapsed .modeGrid .mode {
   grid-template-columns: 1fr;
   justify-content: center;
+  justify-items: center;
 }
 
 @media (max-width: 900px) {
@@ -334,7 +336,8 @@ html.is-rail-collapsed .modeGrid .mode {
   html.is-rail-collapsed .railBrand,
   html.is-rail-collapsed .railTranscriptDisclosure,
   html.is-rail-collapsed .mode-label,
-  html.is-rail-collapsed .railStatusWord {
+  html.is-rail-collapsed .railStatusWord,
+  html.is-rail-collapsed .railNote {
     display: revert;
   }
 

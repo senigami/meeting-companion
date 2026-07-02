@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  flashRailNote,
   renderDisplay,
   renderReadyCheck,
   setViewPanelOpen,
@@ -449,6 +450,63 @@ test('updateStatus without a level leaves the previously set indicator untouched
   assert.equal(ctx.dom.status.textContent, 'Added: hello there');
   assert.equal(ctx.dom.railStatusWord.textContent, 'Listening');
   assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), true);
+});
+
+function createRailNoteCtx() {
+  return {
+    state: {},
+    dom: {
+      railNote: createStatusNode('div')
+    }
+  };
+}
+
+test('flashRailNote shows the note text and hides it again after the timer fires', () => {
+  const ctx = createRailNoteCtx();
+  ctx.dom.railNote.hidden = true;
+  const timers = [];
+  const setTimeoutFn = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const clearTimeoutFn = () => {};
+
+  flashRailNote(ctx, 'Cleared 2 lines.', { setTimeoutFn, clearTimeoutFn });
+
+  assert.equal(ctx.dom.railNote.textContent, 'Cleared 2 lines.');
+  assert.equal(ctx.dom.railNote.hidden, false);
+
+  timers[0]();
+
+  assert.equal(ctx.dom.railNote.hidden, true);
+});
+
+test('flashRailNote clears any prior timer so rapid successive calls do not flicker', () => {
+  const ctx = createRailNoteCtx();
+  ctx.dom.railNote.hidden = true;
+  let nextId = 0;
+  const cleared = [];
+  const setTimeoutFn = () => {
+    nextId += 1;
+    return nextId;
+  };
+  const clearTimeoutFn = (id) => {
+    cleared.push(id);
+  };
+
+  flashRailNote(ctx, 'Removed: "one"', { setTimeoutFn, clearTimeoutFn });
+  const firstTimer = ctx.state.railNoteTimer;
+  flashRailNote(ctx, 'Removed: "two"', { setTimeoutFn, clearTimeoutFn });
+
+  assert.ok(cleared.includes(firstTimer));
+  assert.equal(ctx.dom.railNote.textContent, 'Removed: "two"');
+  assert.equal(ctx.dom.railNote.hidden, false);
+});
+
+test('flashRailNote does nothing when there is no rail note element', () => {
+  const ctx = { state: {}, dom: {} };
+
+  assert.doesNotThrow(() => flashRailNote(ctx, 'Cleared 1 line.'));
 });
 
 function createReadyCheckCtx(stateOverrides = {}) {

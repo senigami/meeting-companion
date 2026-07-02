@@ -210,6 +210,37 @@ test('a fatal browser speech recognition error escalates the rail indicator to p
   });
 });
 
+test('a transient no-speech recognition error does not escalate the rail indicator to problem', async () => {
+  let capturedOnStatus = null;
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedOnStatus = deps.onStatus;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+
+    // Non-fatal: the browser driver keeps listening through no-speech/aborted blips.
+    capturedOnStatus('Speech recognition error: no-speech');
+
+    assert.equal(elements.status.textContent, 'Speech recognition error: no-speech');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+  });
+});
+
 test('pausing while listening is loud and honest about the microphone, resuming clears it', async () => {
   const driver = {
     id: 'browser',
@@ -666,5 +697,101 @@ test('cancelling an armed clear reverts the button state immediately', async () 
     assert.equal(ctx.state.clearArmed, false);
     assert.equal(ctx.state.transcriptItems.length, 1);
     assert.equal(elements.clearLabel.textContent, 'Clear');
+  });
+});
+
+test('confirming an armed clear also flashes the always-visible rail note', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+
+    assert.equal(elements.railNote.hidden, false);
+    assert.equal(elements.railNote.textContent, 'Cleared 2 lines — press U or click Undo to bring them back.');
+  });
+});
+
+test('undo of a single line also flashes the always-visible rail note', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.undoLine();
+
+    assert.equal(elements.railNote.hidden, false);
+    assert.equal(elements.railNote.textContent, 'Removed: "second line"');
+  });
+});
+
+test('undo after a clear flashes a short restored-count rail note', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }, { text: 'third line' }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+
+    runtime.undoLine();
+
+    assert.equal(elements.railNote.hidden, false);
+    assert.equal(elements.railNote.textContent, 'Restored 3 lines.');
+  });
+});
+
+test('rapid clear-confirm and undo actions reset the rail note timer instead of flickering', async () => {
+  const cleared = [];
+  let nextId = 0;
+
+  await withRuntimeHarness({
+    setTimeoutFn: () => {
+      nextId += 1;
+      return nextId;
+    },
+    clearTimeoutFn: (id) => {
+      cleared.push(id);
+    },
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+    const firstTimer = ctx.state.railNoteTimer;
+
+    runtime.undoLine();
+
+    assert.ok(cleared.includes(firstTimer));
+    assert.equal(elements.railNote.textContent, 'Restored 2 lines.');
+    assert.equal(elements.railNote.hidden, false);
+  });
+});
+
+test('clearing an already-empty transcript does not overwrite the undo snapshot', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+    assert.equal(ctx.state.transcriptItems.length, 0);
+    assert.equal(ctx.state.lastClearedItems.length, 2);
+
+    runtime.clearLines();
+    runtime.clearLines();
+
+    assert.equal(elements.status.textContent, 'Nothing to clear.');
+    assert.equal(ctx.state.lastClearedItems.length, 2);
+
+    runtime.undoLine();
+
+    assert.equal(ctx.state.transcriptItems.length, 2);
+    assert.equal(ctx.state.transcriptItems[0].text, 'first line');
+    assert.equal(ctx.state.transcriptItems[1].text, 'second line');
   });
 });

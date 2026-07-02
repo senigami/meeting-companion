@@ -46,6 +46,20 @@ export function updateStatus(ctx, text, { level } = {}) {
   }
 }
 
+const RAIL_NOTE_DURATION_MS = 4000;
+
+export function flashRailNote(ctx, text, { setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}) {
+  const note = ctx.dom.railNote;
+  if (!note) return;
+  clearTimeoutFn(ctx.state.railNoteTimer);
+  note.textContent = text;
+  note.hidden = false;
+  ctx.state.railNoteTimer = setTimeoutFn(() => {
+    ctx.state.railNoteTimer = null;
+    note.hidden = true;
+  }, RAIL_NOTE_DURATION_MS);
+}
+
 export function renderDisplay(ctx) {
   if (!ctx.dom.transcriptStack || !ctx.dom.transcriptViewport) return;
 

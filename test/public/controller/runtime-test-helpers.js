@@ -77,6 +77,7 @@ function createDefaultElements() {
     railStatus: createElement(),
     railStatusDot: createElement(),
     railStatusWord: createElement({ textContent: '' }),
+    railNote: createElement({ hidden: true }),
     display: createElement(),
     panel: createElement(),
     manualInput: createElement(),

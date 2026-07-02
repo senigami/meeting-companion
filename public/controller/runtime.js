@@ -15,6 +15,7 @@ import {
   clampSummaryIntervalSeconds
 } from '../services/view-settings.js';
 import {
+  flashRailNote,
   renderDisplay,
   setSettingsOpen,
   updateClearButton,
@@ -52,7 +53,13 @@ function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
 }
 
 function transcriptionStatusLevel(text) {
-  return /error|microphone stopped/i.test(String(text || '')) ? 'problem' : undefined;
+  const clean = String(text || '');
+  // Transient browser blips (no-speech, aborted) surface as "Speech recognition
+  // error: ..." while listening keeps running, so they must not raise a problem.
+  // Fatal cases use different phrasing ("Browser transcription stopped after
+  // speech recognition error: ...", "Microphone stopped. ...").
+  if (/^Speech recognition error:/i.test(clean)) return undefined;
+  return /error|microphone stopped/i.test(clean) ? 'problem' : undefined;
 }
 
 export function createRuntime(ctx, deps = {}) {
@@ -112,15 +119,20 @@ export function createRuntime(ctx, deps = {}) {
 
   function undoLine() {
     if (!ctx.state.transcriptItems.length && ctx.state.lastClearedItems) {
-      ctx.state.transcriptItems = ctx.state.lastClearedItems;
+      const restored = ctx.state.lastClearedItems;
+      ctx.state.transcriptItems = restored;
       ctx.state.lastClearedItems = null;
       renderDisplay(ctx);
+      const lineWord = restored.length === 1 ? 'line' : 'lines';
+      flashRailNote(ctx, `Restored ${restored.length} ${lineWord}.`, { setTimeoutFn, clearTimeoutFn });
       return;
     }
     const [removed] = ctx.state.transcriptItems.splice(-1, 1);
     renderDisplay(ctx);
     if (removed) {
-      updateStatus(ctx, `Removed: "${truncateForStatus(removed.text)}"`);
+      const text = `Removed: "${truncateForStatus(removed.text)}"`;
+      updateStatus(ctx, text);
+      flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
     }
   }
 
@@ -154,11 +166,17 @@ export function createRuntime(ctx, deps = {}) {
 
     disarmClear();
     const outgoing = ctx.state.transcriptItems;
+    if (!outgoing.length) {
+      updateStatus(ctx, 'Nothing to clear.');
+      return;
+    }
     ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';
-    updateStatus(ctx, `Cleared ${outgoing.length} ${lineWord} — press U or click Undo to bring them back.`);
+    const text = `Cleared ${outgoing.length} ${lineWord} — press U or click Undo to bring them back.`;
+    updateStatus(ctx, text);
+    flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
   }
 
   function showRecentTranscript() {
