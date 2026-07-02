@@ -386,15 +386,21 @@ html.is-resizing-rail .railResizeHandle::before {
 
 .manualBar input {
   min-width: 0;
-  height: 48px;
-  border-radius: var(--chrome-radius-md);
+  height: 38px;
+  border-radius: var(--chrome-radius-sm);
   padding: 0 1rem;
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  font-size: 13px;
+  box-shadow: none;
 }
 
 .manualBar button {
-  height: 48px;
-  border-radius: var(--chrome-radius-md);
+  height: 38px;
+  border-radius: var(--chrome-radius-sm);
   padding: 0 1.1rem;
+  min-height: 0;
+  box-shadow: none;
 }
 
 .shortcuts,

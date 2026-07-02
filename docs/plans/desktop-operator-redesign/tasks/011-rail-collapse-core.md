@@ -1,6 +1,6 @@
 # 011 — rail-collapse.js core
 
-Status: todo
+Status: done
 Map links: P7; invariants I2, I3, I5, I6, I10, I11, I12; risk R4. Depends on: 007, 008. Blocks: 012, 016.
 
 ## Goal

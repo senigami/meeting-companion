@@ -10,6 +10,10 @@ import {
   loadRailWidth
 } from './rail-resize.js';
 import {
+  bindRailCollapse,
+  loadRailCollapsed
+} from './rail-collapse.js';
+import {
   renderDisplay,
   bindTranscriptViewport,
   setSettingsOpen,
@@ -40,6 +44,7 @@ export function startApp() {
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
       operatorRailWidth: loadRailWidth(localStorage),
+      railCollapsed: loadRailCollapsed(localStorage),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
       displayMarginGuidesVisible: false,
       displayMarginAdjusting: false,
@@ -70,6 +75,7 @@ export function startApp() {
       transcriptStack: $('transcriptStack'),
       panel: $('panel'),
       railResizeHandle: $('railResizeHandle'),
+      railCollapseToggle: $('railCollapseToggle'),
       manualInput: $('manualInput'),
       pasteTranscript: $('pasteTranscript'),
       status: $('status'),
@@ -133,6 +139,7 @@ export function startApp() {
     bindControlButtons(ctx, runtime);
     bindViewerControls(ctx, runtime);
     bindRailResize(ctx);
+    bindRailCollapse(ctx);
     bindModeAndSourceButtons(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
     bindSettingsNav(ctx);

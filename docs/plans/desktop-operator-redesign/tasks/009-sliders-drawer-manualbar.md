@@ -1,6 +1,6 @@
 # 009 — Sliders, view drawer, manual bar detail restyle
 
-Status: todo
+Status: done
 Map links: P4, P6; invariants I1, I2, I3, I4, I12. Depends on: 007. Blocks: 020.
 
 ## Goal
