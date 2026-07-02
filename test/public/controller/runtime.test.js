@@ -158,6 +158,58 @@ test('runtime pauses and resumes the active transcription driver', async () => {
   });
 });
 
+test('stopping active transcription returns the rail indicator to manual', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+
+    await runtime.stopListening();
+
+    assert.equal(elements.railStatusDot.classList.contains('is-level-manual'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Manual');
+  });
+});
+
+test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
+  let capturedOnStatus = null;
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedOnStatus = deps.onStatus;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+
+    capturedOnStatus('Browser transcription stopped after speech recognition error: not-allowed');
+
+    assert.equal(elements.status.textContent, 'Browser transcription stopped after speech recognition error: not-allowed');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
+  });
+});
+
 test('pausing while listening is loud and honest about the microphone, resuming clears it', async () => {
   const driver = {
     id: 'browser',
@@ -174,6 +226,9 @@ test('pausing while listening is loud and honest about the microphone, resuming 
   }, async ({ ctx, elements, runtime }) => {
     await runtime.startListening();
 
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+
     await runtime.togglePauseAi();
 
     assert.equal(ctx.state.paused, true);
@@ -183,6 +238,8 @@ test('pausing while listening is loud and honest about the microphone, resuming 
     );
     assert.equal(elements.pauseAi.classList.contains('is-paused'), true);
     assert.equal(elements.panel.classList.contains('is-paused'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-paused'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Paused');
 
     await runtime.togglePauseAi();
 
@@ -190,6 +247,8 @@ test('pausing while listening is loud and honest about the microphone, resuming 
     assert.equal(elements.status.textContent, 'AI resumed — microphone listening again.');
     assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
     assert.equal(elements.panel.classList.contains('is-paused'), false);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
   });
 });
 
@@ -202,6 +261,8 @@ test('pausing while not listening does not falsely claim the microphone stopped'
     assert.equal(elements.status.textContent, 'AI paused. Manual lines still work.');
     assert.equal(elements.pauseAi.classList.contains('is-paused'), true);
     assert.equal(elements.panel.classList.contains('is-paused'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-paused'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Paused');
 
     await runtime.togglePauseAi();
 
@@ -209,6 +270,8 @@ test('pausing while not listening does not falsely claim the microphone stopped'
     assert.equal(elements.status.textContent, 'AI resumed. Microphone is still stopped.');
     assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
     assert.equal(elements.panel.classList.contains('is-paused'), false);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-manual'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Manual');
   });
 });
 
@@ -384,6 +447,8 @@ test('three consecutive summarize failures escalate the alert surface and double
     assert.equal(elements.apiWarning.hidden, false);
     assert.match(elements.apiWarning.textContent, /AI summaries are failing\. Manual lines still work\./);
     assert.equal(ctx.state.effectiveIntervalSeconds, 10);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
   });
 });
 
@@ -423,6 +488,9 @@ test('a summarize success after failures clears the alert, resets the counter, a
     assert.equal(elements.settingsAlertBadge.hidden, true);
     assert.equal(elements.apiWarning.hidden, true);
     assert.equal(elements.apiWarning.textContent, '');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-manual'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Manual');
   });
 });
 

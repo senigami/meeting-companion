@@ -51,6 +51,10 @@ function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
   return clean.length > maxChars ? `${clean.slice(0, maxChars)}…` : clean;
 }
 
+function transcriptionStatusLevel(text) {
+  return /error|microphone stopped/i.test(String(text || '')) ? 'problem' : undefined;
+}
+
 export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
   let summarizationDriver = null;
@@ -183,7 +187,10 @@ export function createRuntime(ctx, deps = {}) {
   function buildTranscriptionDriver() {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
-      onStatus: (text) => updateStatus(ctx, text),
+      onStatus: (text) => {
+        const level = transcriptionStatusLevel(text);
+        updateStatus(ctx, text, level ? { level } : undefined);
+      },
       fetchImpl,
       setTimeoutFn,
       clearTimeoutFn
@@ -283,18 +290,23 @@ export function createRuntime(ctx, deps = {}) {
       resetSummarizeBackoff();
 
       if (ctx.state.paused) return;
+      const recoveredLevel = ctx.state.listening ? 'listening' : 'manual';
       if (result.line) {
         addLine(result.line, { source: 'ai', mode: ctx.state.mode });
-        updateStatus(ctx, `Added: ${result.line}`);
+        updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
       } else {
-        updateStatus(ctx, result.reason || 'No new useful line.');
+        updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
       }
     } catch (error) {
       ctx.state.summarizeFailureCount = (ctx.state.summarizeFailureCount || 0) + 1;
       if (ctx.state.summarizeFailureCount === 3) {
         escalateSummarizeFailure();
       }
-      updateStatus(ctx, `Could not summarize: ${error.message}`);
+      updateStatus(
+        ctx,
+        `Could not summarize: ${error.message}`,
+        ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
+      );
     }
   }
 
@@ -351,7 +363,7 @@ export function createRuntime(ctx, deps = {}) {
   async function startListening({ force = false } = {}) {
     if (ctx.state.listening && !force) return;
     if (ctx.state.transcriptionSource === 'openai' && !ctx.state.openAiReady) {
-      updateStatus(ctx, 'OpenAI transcription is unavailable until OPENAI_API_KEY is set.');
+      updateStatus(ctx, 'OpenAI transcription is unavailable until OPENAI_API_KEY is set.', { level: 'problem' });
       return;
     }
 
@@ -364,8 +376,11 @@ export function createRuntime(ctx, deps = {}) {
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
       startLoop();
+      if (!ctx.state.paused) {
+        updateStatus(ctx, 'Listening.', { level: 'listening' });
+      }
     } catch (error) {
-      updateStatus(ctx, `Could not start listening: ${error.message}`);
+      updateStatus(ctx, `Could not start listening: ${error.message}`, { level: 'problem' });
     }
   }
 
@@ -382,6 +397,9 @@ export function createRuntime(ctx, deps = {}) {
     await pauseActiveTranscription();
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
+    if (!ctx.state.paused) {
+      updateStatus(ctx, 'Manual mode.', { level: 'manual' });
+    }
   }
 
   async function togglePauseAi() {
@@ -397,16 +415,17 @@ export function createRuntime(ctx, deps = {}) {
         ctx,
         wasListening
           ? 'AI paused — microphone stopped. Manual lines still work.'
-          : 'AI paused. Manual lines still work.'
+          : 'AI paused. Manual lines still work.',
+        { level: 'paused' }
       );
       return;
     }
 
     if (ctx.state.listening) {
       await startListening({ force: true });
-      updateStatus(ctx, 'AI resumed — microphone listening again.');
+      updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
     } else {
-      updateStatus(ctx, 'AI resumed. Microphone is still stopped.');
+      updateStatus(ctx, 'AI resumed. Microphone is still stopped.', { level: 'manual' });
     }
   }
 

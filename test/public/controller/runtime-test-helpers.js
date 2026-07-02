@@ -74,6 +74,9 @@ function createDefaultElements() {
   return {
     apiWarning: createElement({ hidden: true }),
     status: createElement({ textContent: '' }),
+    railStatus: createElement(),
+    railStatusDot: createElement(),
+    railStatusWord: createElement({ textContent: '' }),
     display: createElement(),
     panel: createElement(),
     manualInput: createElement(),

@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   renderDisplay,
+  renderReadyCheck,
   setViewPanelOpen,
   setSettingsOpen,
   setSettingsSection,
-  getDefaultSettingsSection
+  getDefaultSettingsSection,
+  updateStatus
 } from '../../../public/controller/view.js';
 
 function createNode(tagName = 'div') {
@@ -341,4 +343,269 @@ test('setSettingsOpen defaults to the Timing section when opening with no active
   assert.equal(timingNode.hidden, false);
   const timingNav = ctx.dom.settingsNavButtons.find((node) => node.dataset.settingsNav === 'timing');
   assert.equal(timingNav.attributes['aria-current'], 'true');
+});
+
+test('setSettingsOpen renders the ready check rows so they reflect the current state on open', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createSettingsCtx({
+      transcriptionSource: 'browser',
+      summarizationSource: 'openai',
+      openAiReady: false,
+      anthropicReady: false
+    });
+    ctx.dom.settingsPanel = createNode('dialog');
+    ctx.dom.settingsPanel.hidden = true;
+    ctx.dom.readyCheckMicDot = createStatusNode('span');
+    ctx.dom.readyCheckMicFix = createNode('div');
+    ctx.dom.readyCheckAiDot = createStatusNode('span');
+    ctx.dom.readyCheckAiFix = createNode('div');
+    ctx.dom.readyCheckDisplayDot = createStatusNode('span');
+    ctx.dom.readyCheckDisplayFix = createNode('div');
+
+    setSettingsOpen(ctx, true);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-not-ready'), true);
+    assert.match(ctx.dom.readyCheckMicFix.textContent, /can't listen/i);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+function createStatusNode(tagName = 'div') {
+  const classes = new Set();
+  const node = createNode(tagName);
+  node.classList = {
+    add(name) {
+      classes.add(name);
+    },
+    remove(name) {
+      classes.delete(name);
+    },
+    toggle(name, force) {
+      const shouldAdd = force === undefined ? !classes.has(name) : Boolean(force);
+      if (shouldAdd) classes.add(name);
+      else classes.delete(name);
+      return shouldAdd;
+    },
+    contains(name) {
+      return classes.has(name);
+    }
+  };
+  return node;
+}
+
+function createStatusCtx() {
+  return {
+    state: {},
+    dom: {
+      status: createStatusNode(),
+      railStatusDot: createStatusNode('span'),
+      railStatusWord: createStatusNode('span')
+    }
+  };
+}
+
+test('updateStatus always writes the diagnostics status text', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Summarizing...');
+
+  assert.equal(ctx.dom.status.textContent, 'Summarizing...');
+  assert.equal(ctx.dom.railStatusWord.textContent, '');
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), false);
+});
+
+test('updateStatus with a level sets the rail dot class and word without changing the diagnostics behavior', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+
+  assert.equal(ctx.dom.status.textContent, 'Listening.');
+  assert.equal(ctx.dom.railStatusWord.textContent, 'Listening');
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), true);
+  assert.equal(ctx.state.railStatusLevel, 'listening');
+});
+
+test('updateStatus switches the rail dot level cleanly between calls', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+  updateStatus(ctx, 'AI paused.', { level: 'paused' });
+
+  assert.equal(ctx.dom.railStatusWord.textContent, 'Paused');
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), false);
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-paused'), true);
+});
+
+test('updateStatus without a level leaves the previously set indicator untouched', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+  updateStatus(ctx, 'Added: hello there');
+
+  assert.equal(ctx.dom.status.textContent, 'Added: hello there');
+  assert.equal(ctx.dom.railStatusWord.textContent, 'Listening');
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), true);
+});
+
+function createReadyCheckCtx(stateOverrides = {}) {
+  return {
+    state: {
+      transcriptionSource: 'browser',
+      summarizationSource: 'openai',
+      openAiReady: false,
+      anthropicReady: false,
+      ...stateOverrides
+    },
+    dom: {
+      readyCheckMicDot: createStatusNode('span'),
+      readyCheckMicFix: createNode('div'),
+      readyCheckAiDot: createStatusNode('span'),
+      readyCheckAiFix: createNode('div'),
+      readyCheckDisplayDot: createStatusNode('span'),
+      readyCheckDisplayFix: createNode('div')
+    }
+  };
+}
+
+test('renderReadyCheck marks the microphone row red with a plain fix when browser speech is unavailable and OpenAI transcription is not ready', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({ transcriptionSource: 'browser', openAiReady: false });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), false);
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-not-ready'), true);
+    assert.match(ctx.dom.readyCheckMicFix.textContent, /can't listen/i);
+    assert.equal(ctx.dom.readyCheckMicFix.hidden, false);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the microphone row green when browser speech is available', () => {
+  const originalWindow = global.window;
+  global.window = { SpeechRecognition: function SpeechRecognition() {} };
+
+  try {
+    const ctx = createReadyCheckCtx({ transcriptionSource: 'browser', openAiReady: false });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckMicFix.textContent, '');
+    assert.equal(ctx.dom.readyCheckMicFix.hidden, true);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the microphone row green when the selected transcription source is OpenAI and ready, even without browser speech', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({ transcriptionSource: 'openai', openAiReady: true });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckMicFix.hidden, true);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the AI summaries row red with a plain fix when the active summary provider has no key', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({ summarizationSource: 'openai', openAiReady: false, anthropicReady: true });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-ready'), false);
+    assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-not-ready'), true);
+    assert.match(ctx.dom.readyCheckAiFix.textContent, /openai key is missing/i);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the AI summaries row green when the active Claude provider is ready', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({ summarizationSource: 'claude', openAiReady: false, anthropicReady: true });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckAiFix.hidden, true);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the AI summaries row red for Claude with a plain fix when Claude has no key', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({ summarizationSource: 'claude', openAiReady: true, anthropicReady: false });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-ready'), false);
+    assert.match(ctx.dom.readyCheckAiFix.textContent, /claude key is missing/i);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the TV display row green with no fix text', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx();
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckDisplayDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckDisplayFix.textContent, '');
+    assert.equal(ctx.dom.readyCheckDisplayFix.hidden, true);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck reflects an all-green state when browser speech is available and both providers are ready', () => {
+  const originalWindow = global.window;
+  global.window = { SpeechRecognition: function SpeechRecognition() {} };
+
+  try {
+    const ctx = createReadyCheckCtx({
+      transcriptionSource: 'browser',
+      summarizationSource: 'openai',
+      openAiReady: true,
+      anthropicReady: true
+    });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-ready'), true);
+    assert.equal(ctx.dom.readyCheckDisplayDot.classList.contains('is-ready'), true);
+  } finally {
+    global.window = originalWindow;
+  }
 });

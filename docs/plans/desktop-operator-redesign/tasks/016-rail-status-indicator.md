@@ -1,6 +1,6 @@
 # 016 — Rail status indicator + TV inactive-card opacity tweak
 
-Status: todo
+Status: done
 Map links: P1 (sanctioned tweak), P9; invariants I1, I2, I7, I11. Depends on: 005, 011, 015. Blocks: 017, 020.
 
 ## Goal

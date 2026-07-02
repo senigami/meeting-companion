@@ -205,3 +205,29 @@ test('paused state is loud on the pause button and the rail in both expanded and
     /@media \(prefers-reduced-motion: no-preference\)[\s\S]*#pauseAi\.is-paused[\s\S]*animation:\s*pauseAmberPulse/s
   );
 });
+
+test('inactive transcript cards render at 0.8 opacity on the TV canvas', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /\.transcript-item:not\(\[data-active="true"\]\)\s*\{[^}]*opacity:\s*0\.8;/s);
+});
+
+test('rail status indicator exposes a dot and word, hiding only the word when collapsed', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /\.railStatus\s*\{/);
+  assert.match(css, /\.railStatusDot\s*\{/);
+  assert.match(css, /\.railStatusDot\.is-level-listening[\s\S]*\{/);
+  assert.match(css, /\.railStatusDot\.is-level-paused[\s\S]*\{/);
+  assert.match(css, /\.railStatusDot\.is-level-manual[\s\S]*\{/);
+  assert.match(css, /\.railStatusDot\.is-level-problem[\s\S]*\{/);
+  assert.match(
+    css,
+    /html\.is-rail-collapsed \.buttonLabel[\s\S]*\.railStatusWord[\s\S]*display:\s*none;/s
+  );
+  assert.doesNotMatch(css, /html\.is-rail-collapsed \.railStatusDot\s*\{[^}]*display:\s*none;/s);
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.railStatusDot\.is-level-listening[\s\S]*animation:\s*railStatusPulse/s
+  );
+});

@@ -81,8 +81,19 @@ export function startApp() {
       manualInput: $('manualInput'),
       pasteTranscript: $('pasteTranscript'),
       status: $('status'),
+      railStatus: $('railStatus'),
+      railStatusDot: $('railStatusDot'),
+      railStatusWord: $('railStatusWord'),
       liveTranscript: $('liveTranscript'),
       railTranscript: $('railTranscript'),
+      readyCheckMicDot: $('readyCheckMicDot'),
+      readyCheckMicFix: $('readyCheckMicFix'),
+      readyCheckAiDot: $('readyCheckAiDot'),
+      readyCheckAiFix: $('readyCheckAiFix'),
+      readyCheckAiTest: $('readyCheckAiTest'),
+      readyCheckDisplayDot: $('readyCheckDisplayDot'),
+      readyCheckDisplayFix: $('readyCheckDisplayFix'),
+      readyCheckDisplaySample: $('readyCheckDisplaySample'),
       fontSizeInput: $('fontSize'),
       fontSizeValue: $('fontSizeValue'),
       displayMarginInput: $('displayMargin'),
@@ -148,6 +159,7 @@ export function startApp() {
     bindModeAndSourceButtons(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
     bindSettingsNav(ctx);
+    bindReadyCheck(ctx, runtime);
     bindKeyboardShortcuts(ctx, runtime);
   }
 
@@ -264,6 +276,18 @@ function bindModeAndSourceButtons(ctx, runtime) {
 function bindSettingsNav(ctx) {
   (ctx.dom.settingsNavButtons || []).forEach((btn) => {
     btn.addEventListener('click', () => setSettingsSection(ctx, btn.dataset.settingsNav));
+  });
+}
+
+function bindReadyCheck(ctx, runtime) {
+  ctx.dom.readyCheckAiTest?.addEventListener('click', () => {
+    const provider = ctx.state.summarizationSource === 'claude' ? 'claude' : 'openai';
+    runtime.testProviderKey(provider);
+  });
+
+  ctx.dom.readyCheckDisplaySample?.addEventListener('click', () => {
+    runtime.setSettingsOpen(false);
+    setViewPanelOpen(ctx, true);
   });
 }
 
