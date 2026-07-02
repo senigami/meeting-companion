@@ -1,6 +1,6 @@
 # 019 — Reconcile docs/ with shipped behavior
 
-Status: todo
+Status: done
 Map links: P13. Depends on: all of W1–W5. Blocks: 020.
 
 ## Goal

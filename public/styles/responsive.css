@@ -93,6 +93,80 @@
   }
 }
 
+/*
+ * Height tiers are scoped to (min-width: 901px) so they never compound with
+ * the ≤900px stacked/row layout above (that tier already gets compact via
+ * width rules). Height tiers only need to help the two-column desktop
+ * layout (TV canvas + rail) survive short windows.
+ */
+@media (max-height: 760px) and (min-width: 901px) {
+  .railTop {
+    padding-top: 0.1rem;
+    padding-bottom: 0.6rem;
+    min-height: 3.5rem;
+    gap: 0.6rem;
+  }
+
+  .railBody {
+    gap: 0.7rem;
+  }
+
+  .railSection,
+  .section.helper-primary,
+  .controlSection {
+    padding: 0.5rem;
+  }
+
+  .section-label {
+    margin-bottom: 0.3rem;
+  }
+
+  .railSection .section-label,
+  .helper-primary .section-label {
+    margin-bottom: 0.3rem;
+  }
+
+  .railButton {
+    min-height: 44px;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .quickControlsGrid button {
+    min-height: clamp(40px, 4.5vh, 48px);
+    padding: 0.45rem 0.5rem 0.4rem;
+  }
+
+  .manualBar input,
+  .manualBar button {
+    height: 34px;
+  }
+
+  .manualBar {
+    padding: 0.55rem 0.9rem;
+  }
+}
+
+@media (max-height: 600px) and (min-width: 901px) {
+  .quickControlsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(3.25rem, 1fr));
+    gap: 0.4rem;
+  }
+
+  .quickControlsGrid button {
+    grid-template-rows: 22px auto;
+    min-height: 40px;
+    padding: 0.3rem;
+  }
+
+  .quickControlsGrid .buttonLabel {
+    display: none;
+  }
+
+  .railTranscriptDisclosure .railTranscript {
+    max-height: 3.5rem;
+  }
+}
+
 @media (max-width: 640px) {
   .meetingShell {
     padding: 0.5rem;

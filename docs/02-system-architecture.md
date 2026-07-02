@@ -6,11 +6,13 @@
 
 The architecture has three layers: the server, the client controller, and the source modules. The server is intentionally thin. It serves `public/`, exposes runtime config, validates locally stored provider keys on demand, and proxies OpenAI transcription plus OpenAI or Claude summarization requests. It does not store state.
 
-The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry, shows only configured services in the source selectors, and uses a separate registration flow to add provider keys before a source appears in the available list.
+The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry, shows only configured services in the source selectors, and uses a separate registration flow to add provider keys before a source appears in the available list. The Settings surface (`<dialog id="settingsPanel">`) is a master-detail layout: a `.settingsNav` list of plain-language sections (Alerts, Timing, Transcription, Summaries, AI services, Tools) selects which single `.settingsDetail` section is visible, mirroring macOS System Settings rather than one long scrolling panel.
 
 Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI and Claude are summarization drivers. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
 
 The UI uses Lucide-backed SVG symbols for generic controls like settings, alerts, undo, fullscreen, trash, pause, stop, and microphone. Church-specific icons such as speaker, information, song, prayer, and manual stay as custom SVGs when the hand-tuned symbol is a better semantic fit.
+
+The client's CSS is split into two token tiers so the TV display and the operator chrome can change independently: TV canvas tokens (`--bg`, `--text`, `--panel`, `--accent`, `--muted`, `--font-size`, and related transcript-card values) stay frozen and untouched by chrome work, while a separate `--chrome-*` tier (dark macOS-style surfaces, `#0A84FF` accent, 6/10/12px radii) is the only source colors/radii/spacing come from in the rail, Settings modal, view drawer, and manual bar. Chrome surfaces are intentionally flat, with no blur or glass effects.
 
 ## Big picture flow
 
@@ -18,19 +20,22 @@ The UI uses Lucide-backed SVG symbols for generic controls like settings, alerts
 graph TD
   Boot[public/app.js] --> Controller[public/controller/app-controller.js]
   Controller --> Runtime[public/controller/start-app.js]
+  Runtime --> RailCollapse[public/controller/rail-collapse.js]
   Runtime --> Registry[public/services/registry.js]
   Registry --> BrowserTx[public/services/transcription/browser.js]
   Registry --> OpenAITx[public/services/transcription/openai.js]
   Registry --> OpenAISummary[public/services/summarization/openai.js]
   Registry --> ClaudeSummary[public/services/summarization/claude.js]
   Runtime --> Config[/GET /api/config/]
-  OpenAITx --> Transcribe[/POST /api/transcribe/]
-  OpenAISummary --> Summarize[/POST /api/summarize/]
-  ClaudeSummary --> Summarize
+  OpenAITx -- fetch-timeout.js --> Transcribe[/POST /api/transcribe/]
+  OpenAISummary -- fetch-timeout.js --> Summarize[/POST /api/summarize/]
+  ClaudeSummary -- fetch-timeout.js --> Summarize
   Transcribe --> OpenAI[(OpenAI API)]
   Summarize --> OpenAI
   Summarize --> Claude[(Anthropic API)]
   Runtime --> View[public/controller/view.js]
+  View -- updateStatus --> RailStatus[rail status indicator]
+  View -- updateStatus --> DiagnosticsStatus[Settings > Tools status]
   View --> UIState[transcript-card display + helper panel]
 ```
 
@@ -46,6 +51,9 @@ graph TD
 | P5b - Claude summarizer | Sends recent transcript text to the server and returns one useful line | `public/services/summarization/claude.js` | existing |
 | P6 - Server API | Serves static files, reports runtime config, validates provider keys, proxies transcription and summarization to provider APIs | `server.js` | existing |
 | P7 - Docs and tests | Keeps specs, ADRs, plan files, and mirrored tests aligned with code | `docs/`, `test/` | new/updated |
+| P8 - Rail collapse | Toggles the operator rail between its full width and a 64px icon-only strip, persists the choice, and interoperates with rail resizing | `public/controller/rail-collapse.js` | new |
+| P9 - Fetch timeout wrapper | Wraps the three network call sites with an `AbortController`-based timeout so a stalled provider request cannot hang the UI | `public/services/fetch-timeout.js` | new |
+| P10 - Status pipeline | Single `updateStatus(ctx, text, { level })` write point that renders the diagnostics status line in Settings > Tools and the always-visible rail status indicator (dot + word) together | `public/controller/view.js` | changed |
 
 ## Connections
 
@@ -60,6 +68,9 @@ graph TD
 | P5 | P6 | `/api/summarize` | The server must accept transcript text and visible lines, then return `{ line }`. |
 | P1 | P6 | `/api/config` | The client must be able to detect whether OpenAI or Anthropic is configured and hide unavailable source options until they are registered. |
 | P1 | P6 | `/api/provider/test` | The client must be able to test a candidate OpenAI or Claude key without exposing the secret back to the UI. |
+| P8 | P1 | `#railCollapseToggle` sets `html.is-rail-collapsed` and writes `--operator-rail-width` | Collapsing must genuinely narrow the grid track so the TV display widens; the collapsed choice persists in `localStorage` (`operatorRailCollapsed`) and defaults to expanded; it is a desktop-only feature (inert at narrow viewport widths). |
+| P4, P5, P5b | P9 | Transcribe/summarize/provider-test fetches | Each of the three network call sites (`/api/transcribe`, `/api/summarize`, `/api/provider/test`) is wrapped with a ~12 second timeout so a stalled request surfaces as a failure instead of hanging. |
+| P10 | P1 | `updateStatus(ctx, text, { level })` | Remains the single write point for status; it must keep updating both the Settings > Tools diagnostics line and the rail status indicator (dot + word: Listening/Paused/Manual/Problem) together. |
 
 ## Invariants & things to keep in mind
 
@@ -71,6 +82,7 @@ graph TD
 - **INV-6** - Claude summaries must stay off when `ANTHROPIC_API_KEY` is missing.
 - **INV-7** - On startup, the runtime must switch summarization to a configured provider when the selected source is unavailable or stale.
 - **INV-8** - The app does not persist audio or transcript history by default.
+- **INV-9** - The TV canvas tokens (`--bg`, `--text`, `--panel`, `--accent`, `--muted`, `--font-size`) stay separate from the `--chrome-*` tier; operator chrome restyling must never require changing TV canvas rules.
 
 ## Risks & open questions
 

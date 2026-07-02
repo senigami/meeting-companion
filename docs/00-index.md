@@ -20,7 +20,7 @@ Meeting Companion Display is a tiny local helper for one deaf and low-vision per
 
 The app stays local and lightweight: Express serves the static UI and the JSON endpoints, the browser can transcribe speech locally when supported, and OpenAI can be used for transcription while OpenAI or Claude can be used for summarization when the helper chooses it. The display stays label-light and shows readable transcript cards rather than one dense wall of text.
 
-The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, while Settings keeps source selection limited to services that are already available and uses a separate service-registration card to add or validate new provider keys before they appear in the source lists. A compact live transcript preview can stay visible in the rail so the helper can see the raw incoming stream. Alerts and diagnostics stay inside Settings instead of occupying the live rail. Provider keys are managed by the local server session, not browser storage. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
+The operator surface is intentionally slim so it can be scanned under pressure. It keeps icon-first quick controls, mode selection, and viewer adjustments visible in a right-side rail, styled as a dark, flat macOS-desktop-app chrome that is deliberately separate from the TV canvas's own visual language. The rail can collapse to a narrow icon-only strip so the TV display can reclaim width, and an always-visible rail status indicator (dot + word) shows Listening/Paused/Manual/Problem at a glance. Settings keeps source selection limited to services that are already available and uses a separate service-registration card to add or validate new provider keys before they appear in the source lists; Settings itself is a macOS System Settings-style master-detail with plain-language sections (Alerts, Timing, Transcription, Summaries, AI services, Tools), and Tools also holds a lean Ready check plus the same diagnostics status. A compact live transcript preview can stay visible in the rail so the helper can see the raw incoming stream. Provider keys are managed by the local server session, not browser storage. Manual lines stay anchored at the bottom of the window. The visible output is always constrained to the five most recent lines.
 
 ## Key Decisions
 
@@ -37,13 +37,16 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 - Transcription source ids are stable contract values: `browser` and `openai`.
 - Summary source ids are stable contract values and currently `openai` and `claude`.
 - The visible display renders a scrollable stack of digestible transcript cards, with new items appearing at the bottom and older items moving up.
-- Settings contains transcription source and summary source controls, a service-registration card for adding and validating provider keys, alerts, and diagnostics.
+- Settings is a master-detail dialog with plain-language sections: Alerts, Timing, Transcription, Summaries, AI services, and Tools. Transcription/Summaries hold the source controls, AI services holds the service-registration card, and Tools holds diagnostics plus the Ready check.
 - The live transcript preview in the operator rail shows the raw stream tail and can be collapsed.
+- The operator rail itself can be collapsed to a narrow icon-only strip (desktop only); the choice persists locally and defaults to expanded.
+- A rail status indicator (dot + word: Listening/Paused/Manual/Problem) is always visible in the rail, in addition to the status line in Settings > Tools.
 - View options contains text size, margins, and update interval controls.
 - Display margins are percentage-based up to 40%, adjusted with a custom track-width slider, and they set the actual transcript text-flow width. Red guides show that same inset while the helper is dragging the margin control.
 - When the Display controls are open and no transcript cards exist yet, the display shows temporary sample text for typography tuning. Closing the Display controls removes the sample text.
-- Diagnostics is hidden behind Settings by default.
+- Diagnostics is hidden behind Settings by default, inside the Tools section.
 - Manual lines always take effect immediately, even if AI is paused.
+- Clearing the transcript requires a two-stage confirm (the button arms, then confirms within a few seconds) and a single Undo restores everything that was cleared.
 
 ## Open compliance items
 

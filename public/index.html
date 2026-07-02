@@ -92,22 +92,18 @@
             <button id="startListening" type="button" class="railButton" aria-label="Start listening" title="Start listening">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
               <span class="buttonLabel">Start</span>
-              <span class="shortcutBadge" aria-hidden="true">S</span>
             </button>
             <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" title="Stop listening" disabled>
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
               <span class="buttonLabel">Stop</span>
-              <span class="shortcutBadge" aria-hidden="true">T</span>
             </button>
-            <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI" aria-pressed="false">
+            <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI (P)" aria-keyshortcuts="p" aria-pressed="false">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
               <span id="pauseAiLabel" class="buttonLabel">Pause</span>
-              <span class="shortcutBadge" aria-hidden="true">P</span>
             </button>
-            <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line">
+            <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line (U)" aria-keyshortcuts="u">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
               <span class="buttonLabel">Undo</span>
-              <span class="shortcutBadge" aria-hidden="true">U</span>
             </button>
             <button id="clear" type="button" class="railButton" aria-label="Clear all lines" title="Clear all lines">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
@@ -116,7 +112,6 @@
             <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen" title="Enter fullscreen">
               <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
               <span class="buttonLabel">Full</span>
-              <span class="shortcutBadge" aria-hidden="true">F</span>
             </button>
           </div>
         </section>
@@ -124,19 +119,19 @@
         <section class="section railSection">
           <div class="section-label">Mode</div>
           <div class="modeGrid" role="group" aria-label="Mode selection">
-            <button type="button" data-mode="speaker" class="mode railButton active" aria-pressed="true" aria-label="Speaker mode" title="Speaker mode">
+            <button type="button" data-mode="speaker" class="mode railButton active" aria-pressed="true" aria-label="Speaker mode" title="Speaker mode (1)" aria-keyshortcuts="1">
               <span class="mode-icon icon-speaker" aria-hidden="true"></span>
               <span class="mode-label">Speaker</span>
             </button>
-            <button type="button" data-mode="information" class="mode railButton" aria-pressed="false" aria-label="Information mode" title="Information mode">
+            <button type="button" data-mode="information" class="mode railButton" aria-pressed="false" aria-label="Information mode" title="Information mode (2)" aria-keyshortcuts="2">
               <span class="mode-icon icon-information" aria-hidden="true"></span>
               <span class="mode-label">Info</span>
             </button>
-            <button type="button" data-mode="song" class="mode railButton" aria-pressed="false" aria-label="Song mode" title="Song mode">
+            <button type="button" data-mode="song" class="mode railButton" aria-pressed="false" aria-label="Song mode" title="Song mode (3)" aria-keyshortcuts="3">
               <span class="mode-icon icon-song" aria-hidden="true"></span>
               <span class="mode-label">Song</span>
             </button>
-            <button type="button" data-mode="prayer" class="mode railButton" aria-pressed="false" aria-label="Prayer mode" title="Prayer mode">
+            <button type="button" data-mode="prayer" class="mode railButton" aria-pressed="false" aria-label="Prayer mode" title="Prayer mode (4)" aria-keyshortcuts="4">
               <span class="mode-icon icon-prayer" aria-hidden="true"></span>
               <span class="mode-label">Prayer</span>
             </button>
@@ -155,7 +150,7 @@
     <section id="manualBar" class="manualBar manualLinePanel" aria-label="Manual line">
       <div class="manualBarInner">
         <label class="manualLabel" for="manualInput">Manual line</label>
-        <input id="manualInput" type="text" placeholder="Type a line to show immediately" autocomplete="off" />
+        <input id="manualInput" type="text" placeholder="Type a line to show immediately" autocomplete="off" aria-keyshortcuts="/" />
         <button id="addManual" type="button" class="primary">Show now</button>
       </div>
     </section>

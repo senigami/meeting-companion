@@ -45,12 +45,12 @@ graph LR
 - [x] 015 — Loud paused state + honest pause wording — `tasks/015-loud-pause.md`
 - [x] 016 — Rail status indicator (dot + word) + TV inactive-card opacity tweak — `tasks/016-rail-status-indicator.md`
 - [x] 017 — Lean Ready check (mic / AI / display sample) — `tasks/017-ready-check.md`
-- [ ] 018 — Workflow keyboard polish + shortcut badge cleanup — `tasks/018-shortcut-polish.md`
-- [ ] 021 — Vertical responsiveness for the operator chrome (user-requested addition) — `tasks/021-vertical-responsiveness.md`
+- [x] 018 — Workflow keyboard polish + shortcut badge cleanup — `tasks/018-shortcut-polish.md`
+- [x] 021 — Vertical responsiveness for the operator chrome (user-requested addition) — `tasks/021-vertical-responsiveness.md`
 
 ## W6 — Close-out
 
-- [ ] 019 — Reconcile `docs/` specs with shipped behavior — `tasks/019-docs-reconcile.md`
+- [x] 019 — Reconcile `docs/` specs with shipped behavior — `tasks/019-docs-reconcile.md`
 - [ ] 020 — Final verification sweep (full tests + manual smoke checklist + TV-freeze audit vs `ff78760`) — `tasks/020-final-verification.md`
 
 ## Milestones
