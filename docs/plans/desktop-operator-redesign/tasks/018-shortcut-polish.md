@@ -1,6 +1,6 @@
 # 018 — Shortcut badge cleanup + keyboard polish
 
-Status: todo
+Status: done
 Map links: P3, P8; invariants I2, I3, I8, I12. Depends on: 008, 011, 013, 014. Blocks: 020.
 
 ## Goal

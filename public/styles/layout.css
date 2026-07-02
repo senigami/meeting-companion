@@ -281,7 +281,6 @@ html.is-rail-collapsed .app-shell {
   }
 
   .buttonLabel,
-  .shortcutBadge,
   .section-label,
   .railBrand,
   .railTranscriptDisclosure,
@@ -294,7 +293,6 @@ html.is-rail-collapsed .app-shell {
 }
 
 html.is-rail-collapsed .buttonLabel,
-html.is-rail-collapsed .shortcutBadge,
 html.is-rail-collapsed .section-label,
 html.is-rail-collapsed .railBrand,
 html.is-rail-collapsed .railTranscriptDisclosure,
@@ -332,7 +330,6 @@ html.is-rail-collapsed .modeGrid .mode {
 
 @media (max-width: 900px) {
   html.is-rail-collapsed .buttonLabel,
-  html.is-rail-collapsed .shortcutBadge,
   html.is-rail-collapsed .section-label,
   html.is-rail-collapsed .railBrand,
   html.is-rail-collapsed .railTranscriptDisclosure,

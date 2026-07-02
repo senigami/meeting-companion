@@ -131,6 +131,29 @@ test('very narrow screens collapse the rail header and quick controls', async ()
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.quickControlsGrid[\s\S]*grid-template-columns:\s*1fr;/s);
 });
 
+test('short windows compress the rail chrome without touching the TV canvas', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /@media \(max-height: 760px\) and \(min-width: 901px\)/);
+  assert.match(
+    css,
+    /@media \(max-height: 760px\) and \(min-width: 901px\)[\s\S]*\.railButton[\s\S]*min-height:\s*44px;/s
+  );
+  assert.match(
+    css,
+    /@media \(max-height: 760px\) and \(min-width: 901px\)[\s\S]*\.manualBar input,\s*\.manualBar button[\s\S]*height:\s*34px;/s
+  );
+  assert.match(css, /@media \(max-height: 600px\) and \(min-width: 901px\)/);
+  assert.match(
+    css,
+    /@media \(max-height: 600px\) and \(min-width: 901px\)[\s\S]*\.quickControlsGrid \.buttonLabel[\s\S]*display:\s*none;/s
+  );
+  assert.match(
+    css,
+    /@media \(max-height: 600px\) and \(min-width: 901px\)[\s\S]*\.railTranscriptDisclosure \.railTranscript[\s\S]*max-height:\s*3\.5rem;/s
+  );
+});
+
 test('range sliders use discrete Apple-style tick marks', async () => {
   const css = await readSplitCss();
 

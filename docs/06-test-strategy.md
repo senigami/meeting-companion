@@ -22,15 +22,23 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Percentage-based display-margin guides and the small operator-rail raw transcript preview.
 - Helper panel structure tests that keep Settings, Diagnostics, and View options separate from the main control surface.
 - Server API behavior for `/api/transcribe` and `/api/summarize` route contracts.
+- Rail collapse/expand behavior, its localStorage persistence, and its interplay with rail resizing.
+- `fetch-timeout.js` wrapping behavior, including that a timed-out request rejects instead of hanging.
+- The status pipeline (`updateStatus`) writing to both the diagnostics status line and the rail status indicator.
+- The pinned CSS contract in `test/public/style.test.js`, including the `--chrome-*` token tier values and the settings master-detail selectors, alongside the existing rail-width, grid, and slider pins.
 
 ## What to verify manually
 
 - The transcript-card TV display from a distance.
 - `H` to hide/show the helper panel.
 - The red margin guide lines at different display sizes.
-- The compact raw transcript preview in the operator rail.
-- Keyboard interaction for the Settings and Diagnostics disclosure regions.
-- `Undo`, `Clear`, `Pause AI`, and the view sliders.
+- The compact raw transcript preview in the operator rail and its disclosure toggle.
+- Keyboard and pointer interaction for the Settings master-detail nav (switching between Alerts, Timing, Transcription, Summaries, AI services, and Tools).
+- `Undo`, the two-stage `Clear` confirm and its snapshot restore, `Pause AI`, and the view sliders.
+- The `/` shortcut focusing the manual input from anywhere, and that the removed bare `C` shortcut no longer clears the transcript.
+- The collapsible rail: collapse/expand via the toggle button and via double-click on the resize divider, and that state survives a reload.
+- The rail status indicator (dot + word) reflecting Listening/Paused/Manual/Problem states, alongside the same status in Settings > Tools.
+- The Ready check rows in Settings > Tools (microphone, AI summaries with its Test button, TV display with its Show-sample-line button).
 - Browser transcription fallback and OpenAI disabled state when `OPENAI_API_KEY` is missing.
 - Summarization fallback to Claude when OpenAI is unavailable but Anthropic is configured.
 - The warning banner when OpenAI is unavailable.

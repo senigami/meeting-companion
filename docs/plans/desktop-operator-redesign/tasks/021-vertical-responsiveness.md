@@ -1,6 +1,6 @@
 # 021 — Vertical responsiveness for the operator chrome
 
-Status: todo
+Status: done
 Map links: P3, P4, P6; invariants I1, I2, I3, I4, I12. Depends on: 017, 018. Blocks: 020. (User-requested addition mid-execution.)
 
 ## Goal

@@ -22,7 +22,9 @@ The source tree is organized by responsibility, not by build artifact. The clien
 | `public/controller/view.js` | DOM/view updates for the display and helper panel. |
 | `public/controller/live-transcript.js` | Builds the raw transcript preview shown in the rail and diagnostics. |
 | `public/controller/demo-feed.js` | Demo/sample stream used for live visual debugging. |
+| `public/controller/rail-collapse.js` | Toggles the operator rail between full width and a 64px icon-only strip and persists the choice. |
 | `public/services/` | Shared prompts, catalogs, registry, and provider adapters. |
+| `public/services/fetch-timeout.js` | Wraps `fetch` with an `AbortController`-based timeout for the transcribe/summarize/provider-test call sites. |
 | `public/services/summarization/claude.js` | Claude summarization client wrapper. |
 | `server/summarization.js` | Server-side provider switch for OpenAI and Claude summarization. |
 | `summarizer.js` | Compatibility re-export for the summarizer helpers. |
@@ -38,7 +40,9 @@ The source tree is organized by responsibility, not by build artifact. The clien
 - `public/controller/view.js` handles rendering and DOM updates.
 - `public/controller/live-transcript.js` keeps the preview text logic separate from the controller.
 - `public/controller/demo-feed.js` keeps sample-data playback out of the production transcript path.
+- `public/controller/rail-collapse.js` keeps the collapse/expand toggle, its CSS-state class, and its persistence separate from `rail-resize.js`, which continues to own drag-resize only.
 - `public/services/` handles prompt construction and provider adapters.
+- `public/services/fetch-timeout.js` keeps the shared request-timeout behavior out of each individual provider driver.
 - `server/summarization.js` keeps provider-specific summarization code out of the route handler.
 
 Do not put provider-specific logic in the HTML or the display renderer. The view should only know about the registry and the current state.
@@ -60,11 +64,18 @@ Mirror the source tree under `test/`:
 | `public/services/transcription/openai.js` | `test/public/services/transcription/openai.test.js` |
 | `public/services/view-settings.js` | `test/public/services/view-settings.test.js` |
 | `public/services/summarization/claude.js` | `test/public/services/summarization/claude.test.js` |
+| `public/services/fetch-timeout.js` | `test/public/services/fetch-timeout.test.js` |
+| `public/controller/rail-collapse.js` | `test/public/controller/rail-collapse.test.js` |
+| `public/controller/rail-resize.js` | `test/public/controller/rail-resize.test.js` |
+| `public/controller/view.js` | `test/public/controller/view.test.js` |
 | `public/index.html` | `test/public/helper-panel-structure.test.js` |
+| `public/style.css` (and the split `*.css` files it composes) | `test/public/style.test.js` |
 | `server.js` | `test/server/app.test.js` |
 | `server/summarization.js` | `test/server/summarization.test.js` |
 
 This layout makes it obvious which tests cover which source file and keeps coverage easy to scan.
+
+`test/public/style.test.js` is a pinned CSS contract: it regex-asserts specific selectors and literal values rather than snapshotting the whole file. This now includes the `--chrome-*` token tier (colors, radii, spacing) alongside the pre-existing pins for rail width, grid layout, and slider behavior. A change that touches a pinned value must update that specific assertion in the same change, with the reason stated; the file should never be rewritten wholesale to make a test pass.
 
 ## File size and responsibility
 
