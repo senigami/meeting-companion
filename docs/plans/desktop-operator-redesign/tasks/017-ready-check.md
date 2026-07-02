@@ -1,6 +1,6 @@
 # 017 — Lean Ready check
 
-Status: todo
+Status: done
 Map links: P11, P5; invariants I2, I7, I10; risk R5. Depends on: 010, 016. Blocks: 020.
 
 ## Goal
