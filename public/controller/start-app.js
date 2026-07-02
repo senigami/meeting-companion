@@ -84,6 +84,7 @@ export function startApp() {
       railStatus: $('railStatus'),
       railStatusDot: $('railStatusDot'),
       railStatusWord: $('railStatusWord'),
+      railNote: $('railNote'),
       liveTranscript: $('liveTranscript'),
       railTranscript: $('railTranscript'),
       readyCheckMicDot: $('readyCheckMicDot'),
