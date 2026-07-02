@@ -231,3 +231,12 @@ test('rail status indicator exposes a dot and word, hiding only the word when co
     /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.railStatusDot\.is-level-listening[\s\S]*animation:\s*railStatusPulse/s
   );
 });
+
+test('ready check rows expose a dot, label, and optional fix/action for the tools section pre-flight', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /\.readyCheckRow\s*\{/);
+  assert.match(css, /\.readyCheckDot\s*\{/);
+  assert.match(css, /\.readyCheckDot\.is-ready[\s\S]*\{/);
+  assert.match(css, /\.readyCheckDot\.is-not-ready[\s\S]*\{/);
+});

@@ -29,6 +29,18 @@ function createElement(initial = {}) {
   };
 }
 
+function createClickable(initial = {}) {
+  const element = createElement(initial);
+  element.handlers = {};
+  element.addEventListener = function addEventListener(type, handler) {
+    this.handlers[type] = handler;
+  };
+  element.click = function click() {
+    this.handlers.click?.({ preventDefault() {} });
+  };
+  return element;
+}
+
 test('app bootstrap loads without module errors and shows runtime warning when OpenAI is missing', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
@@ -229,6 +241,173 @@ test('app bootstrap loads without module errors and shows runtime warning when O
       }
     });
     assert.equal(elements.manualInput.focusCount, 1);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+    global.fetch = originalFetch;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(global, 'navigator', originalNavigatorDescriptor);
+    } else {
+      delete global.navigator;
+    }
+  }
+});
+
+test('ready check test button calls testProviderKey and the sample button closes settings and opens the view drawer', async () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+  const originalFetch = global.fetch;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+
+  const testCalls = [];
+
+  const elements = {
+    display: createElement({ focus() {} }),
+    panel: createElement(),
+    apiWarning: createElement({ hidden: true }),
+    manualInput: createElement({ value: '' }),
+    pasteTranscript: createElement({ value: '' }),
+    status: createElement({ textContent: '' }),
+    liveTranscript: createElement({ textContent: '' }),
+    railTranscript: createElement({ textContent: '' }),
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement(),
+    fontSize: createElement({ value: '84' }),
+    fontSizeValue: createElement({ textContent: '' }),
+    displayMargin: createElement({ value: '4.5' }),
+    displayMarginValue: createElement({ textContent: '' }),
+    summaryInterval: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    viewPanel: createElement({ hidden: true }),
+    viewButton: createElement(),
+    closeViewPanel: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    settingsAlertBadge: createElement({ hidden: true }),
+    settingsButton: createElement({}),
+    closeSettings: createElement(),
+    serviceRegistrationCard: createElement(),
+    serviceRegistrationKeyInput: createElement({ value: '' }),
+    serviceRegistrationSave: createElement(),
+    serviceRegistrationTest: createElement(),
+    serviceRegistrationDelete: createElement(),
+    serviceRegistrationOpenAi: createElement({ dataset: { registerProvider: 'openai' } }),
+    serviceRegistrationClaude: createElement({ dataset: { registerProvider: 'claude' } }),
+    addManual: createElement(),
+    summarizeOnce: createElement(),
+    startListening: createElement(),
+    stopListening: createElement({ disabled: true }),
+    pauseAi: createElement(),
+    undo: createElement(),
+    clear: createElement(),
+    clearLabel: createElement({ textContent: 'Clear' }),
+    fullscreen: createClickable(),
+    readyCheckMicDot: createElement(),
+    readyCheckMicFix: createElement(),
+    readyCheckAiDot: createElement(),
+    readyCheckAiFix: createElement(),
+    readyCheckAiTest: createClickable(),
+    readyCheckDisplayDot: createElement(),
+    readyCheckDisplayFix: createElement(),
+    readyCheckDisplaySample: createClickable()
+  };
+
+  const modeButtons = [
+    createElement({ dataset: { mode: 'speaker' } }),
+    createElement({ dataset: { mode: 'information' } }),
+    createElement({ dataset: { mode: 'song' } }),
+    createElement({ dataset: { mode: 'prayer' } })
+  ];
+
+  const transcriptionButtons = [
+    createElement({ dataset: { kind: 'transcription', source: 'browser' } }),
+    createElement({ dataset: { kind: 'transcription', source: 'openai' } })
+  ];
+
+  const summarizationButtons = [
+    createElement({ dataset: { kind: 'summarization', source: 'openai' } }),
+    createElement({ dataset: { kind: 'summarization', source: 'claude' } })
+  ];
+
+  global.localStorage = {
+    getItem() { return null; },
+    setItem() {}
+  };
+
+  global.fetch = async (url) => {
+    if (url === '/api/provider/test') {
+      testCalls.push(url);
+      return { ok: true, json: async () => ({}) };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        hasOpenAIKey: true,
+        hasAnthropicKey: false,
+        model: null,
+        sources: {
+          transcription: [
+            { id: 'browser', label: 'Browser', description: 'Browser' },
+            { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+          ],
+          summarization: [
+            { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+            { id: 'claude', label: 'Claude', description: 'Claude' }
+          ]
+        }
+      })
+    };
+  };
+
+  Object.defineProperty(global, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } },
+    writable: true
+  });
+  global.document = {
+    fullscreenElement: null,
+    documentElement: {
+      style: { setProperty() {} },
+      requestFullscreen() {}
+    },
+    exitFullscreen() {},
+    handlers: {},
+    getElementById(id) {
+      return elements[id] || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '.mode') return modeButtons;
+      if (selector === '[data-kind="transcription"]') return transcriptionButtons;
+      if (selector === '[data-kind="summarization"]') return summarizationButtons;
+      if (selector === '[data-register-provider]') {
+        return [
+          elements.serviceRegistrationOpenAi,
+          elements.serviceRegistrationClaude
+        ];
+      }
+      return [];
+    },
+    addEventListener(type, handler) {
+      this.handlers[type] = handler;
+    }
+  };
+
+  delete global.window;
+
+  try {
+    await import('../../public/app.js?bootstrap-test=' + Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    elements.readyCheckAiTest.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(testCalls.length, 1);
+    assert.match(elements.status.textContent, /openai/i);
+
+    elements.settingsPanel.hidden = false;
+    elements.readyCheckDisplaySample.click();
+    assert.equal(elements.settingsPanel.hidden, true);
+    assert.equal(elements.viewPanel.hidden, false);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;
