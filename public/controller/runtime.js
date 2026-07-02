@@ -389,16 +389,24 @@ export function createRuntime(ctx, deps = {}) {
     updatePauseButton(ctx);
 
     if (ctx.state.paused) {
-      if (ctx.state.listening) {
+      const wasListening = ctx.state.listening;
+      if (wasListening) {
         await pauseActiveTranscription();
       }
-      updateStatus(ctx, 'AI paused. Manual lines still work.');
+      updateStatus(
+        ctx,
+        wasListening
+          ? 'AI paused — microphone stopped. Manual lines still work.'
+          : 'AI paused. Manual lines still work.'
+      );
       return;
     }
 
-    updateStatus(ctx, 'AI resumed.');
     if (ctx.state.listening) {
       await startListening({ force: true });
+      updateStatus(ctx, 'AI resumed — microphone listening again.');
+    } else {
+      updateStatus(ctx, 'AI resumed. Microphone is still stopped.');
     }
   }
 

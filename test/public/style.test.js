@@ -190,3 +190,18 @@ test('chrome token tier is declared for operator surfaces', async () => {
   assert.match(css, /--chrome-focus-ring-width:/);
   assert.match(css, /--chrome-focus-ring-offset:/);
 });
+
+test('paused state is loud on the pause button and the rail in both expanded and collapsed layouts', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /#pauseAi\.is-paused[\s\S]*background:\s*var\(--pause-amber\);/s);
+  assert.match(css, /\.operatorRail\.is-paused[\s\S]*border-top-color:\s*var\(--pause-amber, #ffc15c\);/s);
+  assert.match(
+    css,
+    /html\.is-rail-collapsed \.operatorRail\.is-paused #pauseAi[\s\S]*box-shadow:\s*0 0 0 2px var\(--pause-amber, #ffc15c\);/s
+  );
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*#pauseAi\.is-paused[\s\S]*animation:\s*pauseAmberPulse/s
+  );
+});
