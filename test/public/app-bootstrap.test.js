@@ -39,7 +39,13 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     display: createElement({ focus() {} }),
     panel: createElement(),
     apiWarning: createElement({ hidden: true }),
-    manualInput: createElement({ value: '' }),
+    manualInput: createElement({
+      value: '',
+      focusCount: 0,
+      focus() {
+        this.focusCount += 1;
+      }
+    }),
     pasteTranscript: createElement({ value: '' }),
     status: createElement({ textContent: '' }),
     liveTranscript: createElement({ textContent: '' }),
@@ -203,6 +209,26 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     });
     assert.equal(elements.clearLabel.textContent, 'Clear');
     assert.equal(elements.clear.getAttribute('aria-label'), undefined);
+
+    let slashPrevented = false;
+    global.document.handlers.keydown?.({
+      key: '/',
+      target: { tagName: 'BODY' },
+      preventDefault() {
+        slashPrevented = true;
+      }
+    });
+    assert.equal(slashPrevented, true);
+    assert.equal(elements.manualInput.focusCount, 1);
+
+    global.document.handlers.keydown?.({
+      key: '/',
+      target: { tagName: 'INPUT' },
+      preventDefault() {
+        throw new Error('should not preventDefault while typing');
+      }
+    });
+    assert.equal(elements.manualInput.focusCount, 1);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

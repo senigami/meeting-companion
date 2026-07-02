@@ -479,6 +479,47 @@ test('normal undo still pops the last line when there is no pending clear snapsh
   });
 });
 
+test('undo of a single line reports which line was removed', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.undoLine();
+
+    assert.equal(elements.status.textContent, 'Removed: "second line"');
+  });
+});
+
+test('undo status truncates long removed lines to about 40 characters', async () => {
+  const longLine = 'This is a very long transcript line that goes on and on past forty characters';
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: longLine }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.undoLine();
+
+    assert.equal(elements.status.textContent, `Removed: "${longLine.slice(0, 40)}…"`);
+  });
+});
+
+test('undo after a clear restores the snapshot without overwriting its own status message', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+    assert.equal(elements.status.textContent, 'Cleared 2 lines — press U or click Undo to bring them back.');
+
+    runtime.undoLine();
+
+    assert.equal(elements.status.textContent, 'Cleared 2 lines — press U or click Undo to bring them back.');
+  });
+});
+
 test('arming clear does not clear anything on its own even if the transcript is empty', async () => {
   await withRuntimeHarness({}, async ({ ctx, runtime }) => {
     runtime.clearLines();

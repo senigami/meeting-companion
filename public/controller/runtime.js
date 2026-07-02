@@ -44,6 +44,12 @@ const STORAGE = {
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
+const UNDO_STATUS_MAX_CHARS = 40;
+
+function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
+  const clean = typeof text === 'string' ? text : '';
+  return clean.length > maxChars ? `${clean.slice(0, maxChars)}…` : clean;
+}
 
 export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
@@ -107,8 +113,11 @@ export function createRuntime(ctx, deps = {}) {
       renderDisplay(ctx);
       return;
     }
-    ctx.state.transcriptItems.pop();
+    const [removed] = ctx.state.transcriptItems.splice(-1, 1);
     renderDisplay(ctx);
+    if (removed) {
+      updateStatus(ctx, `Removed: "${truncateForStatus(removed.text)}"`);
+    }
   }
 
   function armClear() {
