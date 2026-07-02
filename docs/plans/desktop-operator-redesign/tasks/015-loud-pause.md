@@ -1,6 +1,6 @@
 # 015 — Loud paused state + honest pause wording
 
-Status: todo
+Status: done
 Map links: P8, P9; invariants I2, I7, I11. Depends on: 007, 011. Blocks: 016, 020.
 
 ## Goal

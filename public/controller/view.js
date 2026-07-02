@@ -325,10 +325,13 @@ export function syncServiceRegistration(ctx) {
 
 export function updatePauseButton(ctx) {
   const button = ctx.dom.pauseAi;
+  const paused = Boolean(ctx.state.paused);
   if (ctx.dom.pauseAiLabel) {
-    ctx.dom.pauseAiLabel.textContent = ctx.state.paused ? 'Resume' : 'Pause';
+    ctx.dom.pauseAiLabel.textContent = paused ? 'Resume' : 'Pause';
   }
-  button.setAttribute('aria-pressed', String(ctx.state.paused));
+  button.setAttribute('aria-pressed', String(paused));
+  button.classList?.toggle?.('is-paused', paused);
+  ctx.dom.panel?.classList?.toggle?.('is-paused', paused);
 }
 
 export function updateClearButton(ctx) {

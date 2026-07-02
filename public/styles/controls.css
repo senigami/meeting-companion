@@ -272,6 +272,48 @@ html.is-resizing-rail .railResizeHandle::before {
   border-radius: 999px;
 }
 
+#pauseAi.is-paused {
+  /* chrome literal: amber matches the settings alert badge, no chrome-* token */
+  --pause-amber: #ffc15c;
+  border-color: var(--pause-amber);
+  background: var(--pause-amber);
+  color: #171314;
+}
+
+#pauseAi.is-paused:hover {
+  border-color: var(--pause-amber);
+  background: var(--pause-amber);
+  color: #171314;
+}
+
+#pauseAi.is-paused .buttonLabel {
+  color: #171314;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #pauseAi.is-paused {
+    animation: pauseAmberPulse 420ms ease-out;
+  }
+}
+
+@keyframes pauseAmberPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 92, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(255, 193, 92, 0);
+  }
+}
+
+.operatorRail.is-paused {
+  border-top-color: var(--pause-amber, #ffc15c);
+  border-top-width: 3px;
+}
+
+html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
+  box-shadow: 0 0 0 2px var(--pause-amber, #ffc15c);
+}
+
 .buttonLabel {
   font-size: 12px;
   line-height: 1;

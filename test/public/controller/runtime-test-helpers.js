@@ -1,6 +1,7 @@
 import { createRuntime } from '../../../public/controller/runtime.js';
 
 export function createElement(initial = {}) {
+  const classes = new Set(initial.classes || []);
   return {
     textContent: initial.textContent || '',
     hidden: Boolean(initial.hidden),
@@ -10,7 +11,24 @@ export function createElement(initial = {}) {
     attributes: initial.attributes || {},
     children: initial.children || [],
     classList: {
-      toggle() {}
+      toggle(name, force) {
+        const shouldAdd = force === undefined ? !classes.has(name) : Boolean(force);
+        if (shouldAdd) {
+          classes.add(name);
+        } else {
+          classes.delete(name);
+        }
+        return shouldAdd;
+      },
+      add(name) {
+        classes.add(name);
+      },
+      remove(name) {
+        classes.delete(name);
+      },
+      contains(name) {
+        return classes.has(name);
+      }
     },
     replaceChildren(...nodes) {
       this.children = [...nodes];

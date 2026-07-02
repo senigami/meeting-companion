@@ -158,6 +158,60 @@ test('runtime pauses and resumes the active transcription driver', async () => {
   });
 });
 
+test('pausing while listening is loud and honest about the microphone, resuming clears it', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+
+    await runtime.togglePauseAi();
+
+    assert.equal(ctx.state.paused, true);
+    assert.equal(
+      elements.status.textContent,
+      'AI paused — microphone stopped. Manual lines still work.'
+    );
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), true);
+    assert.equal(elements.panel.classList.contains('is-paused'), true);
+
+    await runtime.togglePauseAi();
+
+    assert.equal(ctx.state.paused, false);
+    assert.equal(elements.status.textContent, 'AI resumed — microphone listening again.');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
+    assert.equal(elements.panel.classList.contains('is-paused'), false);
+  });
+});
+
+test('pausing while not listening does not falsely claim the microphone stopped', async () => {
+  await withRuntimeHarness({}, async ({ ctx, elements, runtime }) => {
+    await runtime.togglePauseAi();
+
+    assert.equal(ctx.state.paused, true);
+    assert.equal(ctx.state.listening, false);
+    assert.equal(elements.status.textContent, 'AI paused. Manual lines still work.');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), true);
+    assert.equal(elements.panel.classList.contains('is-paused'), true);
+
+    await runtime.togglePauseAi();
+
+    assert.equal(ctx.state.paused, false);
+    assert.equal(elements.status.textContent, 'AI resumed. Microphone is still stopped.');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
+    assert.equal(elements.panel.classList.contains('is-paused'), false);
+  });
+});
+
 test('settings open state keeps alert and settings buttons in sync', async () => {
   await withRuntimeHarness({}, async ({ elements, runtime }) => {
     runtime.setSettingsOpen(true);
