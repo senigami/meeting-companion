@@ -154,6 +154,20 @@ test('collapsed rail narrows the grid track and hides labels', async () => {
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*#railCollapseToggle[\s\S]*display:\s*none;/s);
 });
 
+test('rail collapse transitions are smooth and honor reduced motion', async () => {
+  const css = await readSplitCss();
+
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*grid-template-columns 220ms cubic-bezier\(0\.25, 0\.1, 0\.25, 1\)/s
+  );
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.buttonLabel[\s\S]*transition:\s*opacity 150ms/s
+  );
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*transition:\s*none !important;/s);
+});
+
 test('chrome token tier is declared for operator surfaces', async () => {
   const css = await readSplitCss();
 

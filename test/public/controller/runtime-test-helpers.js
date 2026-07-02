@@ -86,6 +86,9 @@ function createDefaultElements() {
     startListening: createElement(),
     stopListening: createElement({ disabled: true }),
     pauseAi: createElement(),
+    undo: createElement(),
+    clear: createElement(),
+    clearLabel: createElement({ textContent: 'Clear' }),
     transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
     transcriptStack: createElement()
   };
@@ -183,6 +186,8 @@ export function createRuntimeHarness({
   const ctx = {
     state: {
       transcriptItems: [],
+      clearArmed: false,
+      lastClearedItems: null,
       mode: 'speaker',
       paused: false,
       fontSize: 84,

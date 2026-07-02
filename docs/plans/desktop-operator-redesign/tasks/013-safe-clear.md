@@ -1,6 +1,6 @@
 # 013 — Safe Clear: two-stage confirm, snapshot restore, remove bare C
 
-Status: todo
+Status: done
 Map links: P8, P9; invariants I2, I7, I8, I9. Depends on: 008 (Clear styling), 011 (collapsed state exists). Blocks: 020.
 
 ## Goal

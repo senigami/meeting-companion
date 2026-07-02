@@ -75,6 +75,7 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     pauseAi: createElement(),
     undo: createElement(),
     clear: createElement(),
+    clearLabel: createElement({ textContent: 'Clear' }),
     fullscreen: {
       ...createElement(),
       handlers: {},
@@ -193,6 +194,15 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     elements.fullscreen.click();
     assert.equal(global.document.fullscreenElement, null);
     assert.equal(elements.fullscreen.getAttribute('aria-label'), 'Enter fullscreen');
+
+    elements.transcriptStack.children = [{ text: 'still here' }];
+    global.document.handlers.keydown?.({
+      key: 'c',
+      target: { tagName: 'BODY' },
+      preventDefault() {}
+    });
+    assert.equal(elements.clearLabel.textContent, 'Clear');
+    assert.equal(elements.clear.getAttribute('aria-label'), undefined);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

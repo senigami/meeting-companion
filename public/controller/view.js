@@ -331,6 +331,18 @@ export function updatePauseButton(ctx) {
   button.setAttribute('aria-pressed', String(ctx.state.paused));
 }
 
+export function updateClearButton(ctx) {
+  const button = ctx.dom.clear;
+  if (!button) return;
+  const armed = Boolean(ctx.state.clearArmed);
+  if (ctx.dom.clearLabel) {
+    ctx.dom.clearLabel.textContent = armed ? 'Confirm?' : 'Clear';
+  }
+  button.setAttribute('aria-label', armed ? 'Confirm clear all lines' : 'Clear all lines');
+  button.title = armed ? 'Confirm clear all lines' : 'Clear all lines';
+  button.classList?.toggle?.('is-armed', armed);
+}
+
 export function updateSummaryIntervalControl(ctx) {
   if (!ctx.dom.summaryIntervalInput || !ctx.dom.summaryIntervalValue) return;
   ctx.dom.summaryIntervalInput.value = String(

@@ -1,3 +1,5 @@
+import { syncRailWidth } from './rail-resize.js';
+
 const STORAGE_KEY = 'operatorRailCollapsed';
 const COLLAPSED_CLASS = 'is-rail-collapsed';
 
@@ -13,6 +15,10 @@ const COLLAPSED_LABEL = {
 
 function getToggle(ctx) {
   return ctx.dom.railCollapseToggle || null;
+}
+
+function getRailHandle(ctx) {
+  return ctx.dom.railResizeHandle || null;
 }
 
 function persistCollapsed(collapsed) {
@@ -48,11 +54,37 @@ export function setRailCollapsed(ctx, collapsed) {
 
   persistCollapsed(isCollapsed);
 
+  if (!isCollapsed) {
+    // Collapse never rewrites ctx.state.operatorRailWidth or its storage key,
+    // so re-syncing here restores the pre-collapse width rather than 64px.
+    syncRailWidth(ctx);
+  }
+
   return isCollapsed;
 }
 
 export function bindRailCollapse(ctx) {
   const toggle = getToggle(ctx);
+  const handle = getRailHandle(ctx);
+
+  if (handle) {
+    // Suppress the drag-start that rail-resize.js begins on pointerdown when
+    // that pointerdown is part of a multi-click (dblclick) sequence. Capture
+    // phase guarantees this runs before rail-resize.js's bubble-phase
+    // listener, regardless of binding order. Documented exception per I5/I6:
+    // rail-resize.js itself is not modified.
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.detail > 1) {
+        event.stopImmediatePropagation?.();
+      }
+    }, true);
+
+    handle.addEventListener('dblclick', (event) => {
+      event.preventDefault?.();
+      setRailCollapsed(ctx, !ctx.state.railCollapsed);
+    });
+  }
+
   if (!toggle) return;
 
   toggle.addEventListener('click', () => {
