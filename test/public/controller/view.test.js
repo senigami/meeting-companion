@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   renderDisplay,
-  setViewPanelOpen
+  setViewPanelOpen,
+  setSettingsOpen,
+  setSettingsSection,
+  getDefaultSettingsSection
 } from '../../../public/controller/view.js';
 
 function createNode(tagName = 'div') {
@@ -238,4 +241,104 @@ test('display controls keep existing transcript text instead of showing sample t
   assert.equal(transcriptStack.children.length, 1);
   assert.equal(card.className.includes('transcript-item--sample'), false);
   assert.equal(body.textContent, 'Real meeting text.');
+});
+
+function createSettingsSectionNode(section, { hidden = false } = {}) {
+  const node = createNode('section');
+  node.dataset.settingsSection = section;
+  node.hidden = hidden;
+  return node;
+}
+
+function createSettingsNavNode(section) {
+  const node = createNode('button');
+  node.dataset.settingsNav = section;
+  return node;
+}
+
+function createSettingsCtx(stateOverrides = {}) {
+  const sections = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
+  const settingsSections = sections.map((section) => createSettingsSectionNode(section, { hidden: true }));
+  const settingsNavButtons = sections.map((section) => createSettingsNavNode(section));
+
+  return {
+    state: {
+      openAiReady: true,
+      anthropicReady: true,
+      ...stateOverrides
+    },
+    dom: {
+      settingsSections,
+      settingsNavButtons
+    }
+  };
+}
+
+test('getDefaultSettingsSection picks Timing when there are no alerts', () => {
+  const ctx = createSettingsCtx({ openAiReady: true, anthropicReady: true });
+  assert.equal(getDefaultSettingsSection(ctx), 'timing');
+});
+
+test('getDefaultSettingsSection picks Alerts when the alert badge is lit', () => {
+  const ctx = createSettingsCtx({ openAiReady: false, anthropicReady: true });
+  assert.equal(getDefaultSettingsSection(ctx), 'alerts');
+});
+
+test('setSettingsSection shows only the requested section and marks the matching nav item current', () => {
+  const ctx = createSettingsCtx({ openAiReady: true, anthropicReady: true });
+
+  setSettingsSection(ctx, 'transcription');
+
+  for (const node of ctx.dom.settingsSections) {
+    assert.equal(node.hidden, node.dataset.settingsSection !== 'transcription');
+  }
+
+  for (const button of ctx.dom.settingsNavButtons) {
+    const expectedCurrent = button.dataset.settingsNav === 'transcription' ? 'true' : 'false';
+    assert.equal(button.attributes['aria-current'], expectedCurrent);
+  }
+});
+
+test('setSettingsSection keeps the alerts section hidden when there are no alerts even if selected directly', () => {
+  const ctx = createSettingsCtx({ openAiReady: true, anthropicReady: true });
+
+  setSettingsSection(ctx, 'alerts');
+
+  const alertsNode = ctx.dom.settingsSections.find((node) => node.dataset.settingsSection === 'alerts');
+  assert.equal(alertsNode.hidden, true);
+});
+
+test('setSettingsSection reveals the alerts section when selected while alerts are active', () => {
+  const ctx = createSettingsCtx({ openAiReady: false, anthropicReady: true });
+
+  setSettingsSection(ctx, 'alerts');
+
+  const alertsNode = ctx.dom.settingsSections.find((node) => node.dataset.settingsSection === 'alerts');
+  assert.equal(alertsNode.hidden, false);
+});
+
+test('setSettingsOpen defaults to the Alerts section when opening with an active alert', () => {
+  const ctx = createSettingsCtx({ openAiReady: false, anthropicReady: true });
+  ctx.dom.settingsPanel = createNode('dialog');
+  ctx.dom.settingsPanel.hidden = true;
+
+  setSettingsOpen(ctx, true);
+
+  const alertsNode = ctx.dom.settingsSections.find((node) => node.dataset.settingsSection === 'alerts');
+  assert.equal(alertsNode.hidden, false);
+  const alertsNav = ctx.dom.settingsNavButtons.find((node) => node.dataset.settingsNav === 'alerts');
+  assert.equal(alertsNav.attributes['aria-current'], 'true');
+});
+
+test('setSettingsOpen defaults to the Timing section when opening with no active alert', () => {
+  const ctx = createSettingsCtx({ openAiReady: true, anthropicReady: true });
+  ctx.dom.settingsPanel = createNode('dialog');
+  ctx.dom.settingsPanel.hidden = true;
+
+  setSettingsOpen(ctx, true);
+
+  const timingNode = ctx.dom.settingsSections.find((node) => node.dataset.settingsSection === 'timing');
+  assert.equal(timingNode.hidden, false);
+  const timingNav = ctx.dom.settingsNavButtons.find((node) => node.dataset.settingsNav === 'timing');
+  assert.equal(timingNav.attributes['aria-current'], 'true');
 });

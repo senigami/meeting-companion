@@ -52,10 +52,10 @@ test('operator rail and settings modal expose compact responsive hooks', async (
   assert.match(css, /\.settingsOverlay/);
   assert.match(css, /\.settingsModal/);
   assert.match(css, /\.settingsBody/);
-  assert.match(css, /\.settingsGrid/);
+  assert.match(css, /\.settingsNav/);
+  assert.match(css, /\.settingsDetail/);
   assert.match(css, /\.settingsCard/);
   assert.match(css, /\.settingsViewCard/);
-  assert.match(css, /\.serviceRegistrationCard/);
   assert.match(css, /\.providerCard/);
   assert.match(css, /\.providerReveal/);
   assert.match(css, /\.apiKeyBox/);
@@ -91,11 +91,10 @@ test('display text stays centered and viewport-safe', async () => {
   assert.match(css, /\.modeGrid[\s\S]*grid-template-columns:\s*1fr;/s);
   assert.match(css, /\.settingsOverlay\.settingsModal[\s\S]*width:\s*min\(960px, calc\(100vw - 2rem\)\);/s);
   assert.match(css, /\.settingsCard[\s\S]*display:\s*grid;/s);
-  assert.match(css, /\.settingsGrid[\s\S]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
-  assert.match(css, /\.settingsViewCard[\s\S]*grid-column:\s*1 \/ -1;/s);
-  assert.match(css, /\.serviceRegistrationCard[\s\S]*grid-column:\s*1 \/ -1;/s);
+  assert.match(css, /\.settingsBody[\s\S]*grid-template-columns:\s*180px minmax\(0, 1fr\);/s);
+  assert.match(css, /\.settingsDetail \[data-settings-section\]\[hidden\][\s\S]*display:\s*none !important;/s);
   assert.match(css, /\.providerOption\[hidden\][\s\S]*display:\s*none !important;/s);
-  assert.match(css, /\.settingsOverlay\.settingsModal::backdrop[\s\S]*backdrop-filter:\s*blur\(18px\);/s);
+  assert.match(css, /\.settingsOverlay\.settingsModal::backdrop[\s\S]*background:\s*rgba\(0, 0, 0, 0\.5\);/s);
   assert.match(css, /\.displayPanel::before[\s\S]*\.displayPanel::after\s*\{/s);
   assert.match(css, /\.displayPanel\[data-margin-guides='true'\]::before[\s\S]*opacity:\s*0\.9;/s);
   assert.match(css, /html\.is-adjusting-display-margin \.displayPanel[\s\S]*opacity:\s*0\.5;/s);

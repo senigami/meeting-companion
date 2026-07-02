@@ -13,6 +13,7 @@ import {
   renderDisplay,
   bindTranscriptViewport,
   setSettingsOpen,
+  setSettingsSection,
   setViewPanelOpen,
   syncViewerControls,
   updateModeButtons,
@@ -117,7 +118,9 @@ export function startApp() {
       fullscreen: $('fullscreen'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
-      summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]'))
+      summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
+      settingsNavButtons: Array.from(document.querySelectorAll('[data-settings-nav]')),
+      settingsSections: Array.from(document.querySelectorAll('[data-settings-section]'))
     }
   };
 
@@ -132,6 +135,7 @@ export function startApp() {
     bindRailResize(ctx);
     bindModeAndSourceButtons(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
+    bindSettingsNav(ctx);
     bindKeyboardShortcuts(ctx, runtime);
   }
 
@@ -242,6 +246,12 @@ function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.modeButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setMode(btn.dataset.mode)));
   ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
   ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
+}
+
+function bindSettingsNav(ctx) {
+  (ctx.dom.settingsNavButtons || []).forEach((btn) => {
+    btn.addEventListener('click', () => setSettingsSection(ctx, btn.dataset.settingsNav));
+  });
 }
 
 function bindServiceRegistrationControls(ctx, runtime) {

@@ -83,7 +83,8 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(html, /id=(?:"viewButton"|'viewButton')/, '#viewButton');
   assertContains(html, /class=(?:"[^"]*\bviewDrawer\b[^"]*"|'[^']*\bviewDrawer\b[^']*')/, '.viewDrawer');
   assertContains(html, /class=(?:"[^"]*\bserviceRegistrationCard\b[^"]*"|'[^']*\bserviceRegistrationCard\b[^']*')/, '.serviceRegistrationCard');
-  assertContains(html, /class=(?:"[^"]*\bsettingsGrid\b[^"]*"|'[^']*\bsettingsGrid\b[^']*')/, '.settingsGrid');
+  assertContains(html, /class=(?:"[^"]*\bsettingsNav\b[^"]*"|'[^']*\bsettingsNav\b[^']*')/, '.settingsNav');
+  assertContains(html, /class=(?:"[^"]*\bsettingsDetail\b[^"]*"|'[^']*\bsettingsDetail\b[^']*')/, '.settingsDetail');
   assertContains(html, /class=(?:"[^"]*\bsettingsBackdrop\b[^"]*"|'[^']*\bsettingsBackdrop\b[^']*')/, '.settingsBackdrop');
   assertContains(html, /id=(?:"settingsButton"|'settingsButton')/, '#settingsButton');
   assertContains(html, /id=(?:"settingsAlertBadge"|'settingsAlertBadge')/, '#settingsAlertBadge');
@@ -111,6 +112,10 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(settings, /aria-modal=(?:"true"|'true')/, 'modal flag');
   assertContains(settings, /class=(?:"[^"]*\bsettingsHeader\b[^"]*"|'[^']*\bsettingsHeader\b[^']*')/, '.settingsHeader');
   assertContains(settings, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
+  assertContains(settings, /class=(?:"[^"]*\bsettingsNav\b[^"]*"|'[^']*\bsettingsNav\b[^']*')/, '.settingsNav');
+  assertContains(settings, /class=(?:"[^"]*\bsettingsDetail\b[^"]*"|'[^']*\bsettingsDetail\b[^']*')/, '.settingsDetail');
+  assert.equal(countMatches(settings, /data-settings-nav=/g), 6, 'six settings nav items');
+  assert.equal(countMatches(settings, /data-settings-section=/g), 6, 'six settings detail sections');
   assertContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
   assertContains(settings, /id=(?:"status"|'status')/, '#status');
   assertContains(settings, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');

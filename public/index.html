@@ -150,92 +150,104 @@
           <div class="eyebrow">Meeting Companion</div>
           <h2 id="settingsTitle">Settings</h2>
         </div>
-        <button id="closeSettings" type="button" class="ghost">Close</button>
+        <button id="closeSettings" type="button" class="iconButton settingsCloseButton" aria-label="Close settings">
+          <span aria-hidden="true">&times;</span>
+        </button>
       </header>
 
       <div id="settingsBody" class="settingsBody">
-        <section id="alertsSection" class="settingsCard alertCard">
-          <div class="section-label">Alerts</div>
-          <p id="apiWarning" class="alertMessage" role="status"></p>
-        </section>
+        <nav class="settingsNav" aria-label="Settings sections">
+          <button type="button" class="settingsNavItem" data-settings-nav="alerts" aria-current="false">Alerts</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="timing" aria-current="false">Timing</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="transcription" aria-current="false">Transcription</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="summaries" aria-current="false">Summaries</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="services" aria-current="false">AI services</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="tools" aria-current="false">Tools</button>
+        </nav>
 
-        <section class="settingsCard settingsViewCard">
-          <div class="section-label">Update interval</div>
-          <div class="settingsStack">
-            <div class="range-field">
-              <div class="range-head">
-                <label for="summaryInterval">Update interval</label>
-                <output id="summaryIntervalValue" for="summaryInterval"></output>
+        <div class="settingsDetail">
+          <section id="alertsSection" class="settingsCard alertCard" data-settings-section="alerts">
+            <div class="section-label">Alerts</div>
+            <p id="apiWarning" class="alertMessage" role="status"></p>
+          </section>
+
+          <section class="settingsCard settingsViewCard" data-settings-section="timing">
+            <div class="section-label">Update interval</div>
+            <div class="settingsStack">
+              <div class="range-field">
+                <div class="range-head">
+                  <label for="summaryInterval">Update interval</label>
+                  <output id="summaryIntervalValue" for="summaryInterval"></output>
+                </div>
+                <input id="summaryInterval" type="range" min="0" max="3" step="1" />
+                <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
               </div>
-              <input id="summaryInterval" type="range" min="0" max="3" step="1" />
-              <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <div class="settingsGrid">
-        <section class="settingsCard providerCard">
-          <div class="section-label">Transcription source</div>
-          <div class="providerOptions" role="group" aria-label="Transcription source">
-            <button id="transcriptionBrowser" type="button" data-kind="transcription" data-source="browser" class="providerOption active" aria-pressed="true">
-              <span class="providerName">Browser</span>
-              <span class="providerStatus">Local</span>
-            </button>
-            <button id="transcriptionOpenAi" type="button" data-kind="transcription" data-source="openai" class="providerOption" aria-pressed="false" hidden>
-              <span class="providerName">OpenAI</span>
-              <span class="providerStatus">Available</span>
-            </button>
-          </div>
-          <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available.</p>
-        </section>
+          <section class="settingsCard providerCard" data-settings-section="transcription">
+            <div class="section-label">Transcription source</div>
+            <div class="providerOptions" role="group" aria-label="Transcription source">
+              <button id="transcriptionBrowser" type="button" data-kind="transcription" data-source="browser" class="providerOption active" aria-pressed="true">
+                <span class="providerName">Browser</span>
+                <span class="providerStatus">Local</span>
+              </button>
+              <button id="transcriptionOpenAi" type="button" data-kind="transcription" data-source="openai" class="providerOption" aria-pressed="false" hidden>
+                <span class="providerName">OpenAI</span>
+                <span class="providerStatus">Available</span>
+              </button>
+            </div>
+            <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available.</p>
+          </section>
 
-        <section class="settingsCard providerCard">
-          <div class="section-label">Summary source</div>
-          <div class="providerOptions" role="group" aria-label="Summary source">
-            <button id="summaryOpenAi" type="button" data-kind="summarization" data-source="openai" class="providerOption active" aria-pressed="true" hidden>
-              <span class="providerName">OpenAI</span>
-              <span class="providerStatus">Available</span>
-            </button>
-            <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false" hidden>
-              <span class="providerName">Claude</span>
-              <span class="providerStatus">Available</span>
-            </button>
-          </div>
-          <p id="summaryHint" class="field-note">Only configured services appear here. Add a service below to make one available.</p>
-        </section>
+          <section class="settingsCard providerCard" data-settings-section="summaries">
+            <div class="section-label">Summary source</div>
+            <div class="providerOptions" role="group" aria-label="Summary source">
+              <button id="summaryOpenAi" type="button" data-kind="summarization" data-source="openai" class="providerOption active" aria-pressed="true" hidden>
+                <span class="providerName">OpenAI</span>
+                <span class="providerStatus">Available</span>
+              </button>
+              <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false" hidden>
+                <span class="providerName">Claude</span>
+                <span class="providerStatus">Available</span>
+              </button>
+            </div>
+            <p id="summaryHint" class="field-note">Only configured services appear here. Add a service below to make one available.</p>
+          </section>
 
-        <section class="settingsCard serviceRegistrationCard">
-          <div class="section-label">Register service</div>
-          <div class="providerOptions" role="group" aria-label="Service to add">
-            <button id="serviceRegistrationOpenAi" type="button" data-register-provider="openai" class="providerOption active" aria-pressed="true">
-              <span class="providerName">OpenAI</span>
-              <span id="serviceRegistrationOpenAiStatus" class="providerStatus">Needs key</span>
-            </button>
-            <button id="serviceRegistrationClaude" type="button" data-register-provider="claude" class="providerOption" aria-pressed="false">
-              <span class="providerName">Claude</span>
-              <span id="serviceRegistrationClaudeStatus" class="providerStatus">Needs key</span>
-            </button>
-          </div>
-          <div class="apiKeyBox">
-            <div class="apiKeyHeader">
-              <div>
-                <h3 id="serviceRegistrationTitle">OpenAI API key</h3>
-                <p id="serviceRegistrationDescription">No key saved in this browser.</p>
+          <section class="settingsCard serviceRegistrationCard" data-settings-section="services">
+            <div class="section-label">Register service</div>
+            <div class="providerOptions" role="group" aria-label="Service to add">
+              <button id="serviceRegistrationOpenAi" type="button" data-register-provider="openai" class="providerOption active" aria-pressed="true">
+                <span class="providerName">OpenAI</span>
+                <span id="serviceRegistrationOpenAiStatus" class="providerStatus">Needs key</span>
+              </button>
+              <button id="serviceRegistrationClaude" type="button" data-register-provider="claude" class="providerOption" aria-pressed="false">
+                <span class="providerName">Claude</span>
+                <span id="serviceRegistrationClaudeStatus" class="providerStatus">Needs key</span>
+              </button>
+            </div>
+            <div class="apiKeyBox">
+              <div class="apiKeyHeader">
+                <div>
+                  <h3 id="serviceRegistrationTitle">OpenAI API key</h3>
+                  <p id="serviceRegistrationDescription">No key saved in this browser.</p>
+                </div>
+                <span id="serviceRegistrationState" class="statusPill warning">Needs key</span>
               </div>
-              <span id="serviceRegistrationState" class="statusPill warning">Needs key</span>
+              <div id="serviceRegistrationMasked" class="maskedKey" hidden></div>
+              <label for="serviceRegistrationKeyInput">Paste API key</label>
+              <input id="serviceRegistrationKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
+              <div class="apiKeyActions">
+                <button id="serviceRegistrationSave" type="button" class="primary">Add and validate</button>
+                <button id="serviceRegistrationTest" type="button">Test key</button>
+                <button id="serviceRegistrationDelete" type="button" class="ghost">Delete local key</button>
+              </div>
+              <p id="serviceRegistrationHint" class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
             </div>
-            <div id="serviceRegistrationMasked" class="maskedKey" hidden></div>
-            <label for="serviceRegistrationKeyInput">Paste API key</label>
-            <input id="serviceRegistrationKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key or local override" />
-            <div class="apiKeyActions">
-              <button id="serviceRegistrationSave" type="button" class="primary">Add and validate</button>
-              <button id="serviceRegistrationTest" type="button">Test key</button>
-              <button id="serviceRegistrationDelete" type="button" class="ghost">Delete local key</button>
-            </div>
-            <p id="serviceRegistrationHint" class="field-note">Saved locally in this browser. Do not use this on a shared computer.</p>
-          </div>
-        </section>
-          <section class="settingsCard settingsDiagnosticsCard">
+          </section>
+
+          <section class="settingsCard settingsDiagnosticsCard" data-settings-section="tools">
             <div class="section-label">Diagnostics</div>
             <div class="settingsDetailsBody">
               <section class="section">

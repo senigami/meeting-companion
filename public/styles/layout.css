@@ -160,7 +160,7 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 }
 
 .transcript-item:not([data-active="true"]) {
-  opacity: 0.62;
+  opacity: 0.8;
   transform: scale(0.992);
 }
 
