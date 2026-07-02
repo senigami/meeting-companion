@@ -267,3 +267,54 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 .transcript-item:not(:last-child) .transcript-text {
   opacity: 0.94;
 }
+
+html.is-rail-collapsed .meetingShell,
+html.is-rail-collapsed .app-shell {
+  --operator-rail-width: 64px;
+  grid-template-columns: minmax(0, 1fr) 64px;
+}
+
+html.is-rail-collapsed .buttonLabel,
+html.is-rail-collapsed .shortcutBadge,
+html.is-rail-collapsed .section-label,
+html.is-rail-collapsed .railBrand,
+html.is-rail-collapsed .railTranscriptDisclosure,
+html.is-rail-collapsed .mode-label {
+  display: none;
+}
+
+html.is-rail-collapsed .railResizeHandle {
+  display: none;
+}
+
+html.is-rail-collapsed .quickControlsGrid,
+html.is-rail-collapsed .modeGrid {
+  grid-template-columns: 1fr;
+}
+
+html.is-rail-collapsed .railButton,
+html.is-rail-collapsed .quickControlsGrid button {
+  grid-template-columns: 1fr;
+  grid-template-rows: none;
+  justify-content: center;
+}
+
+html.is-rail-collapsed .modeGrid .mode {
+  grid-template-columns: 1fr;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  html.is-rail-collapsed .buttonLabel,
+  html.is-rail-collapsed .shortcutBadge,
+  html.is-rail-collapsed .section-label,
+  html.is-rail-collapsed .railBrand,
+  html.is-rail-collapsed .railTranscriptDisclosure,
+  html.is-rail-collapsed .mode-label {
+    display: revert;
+  }
+
+  #railCollapseToggle {
+    display: none;
+  }
+}

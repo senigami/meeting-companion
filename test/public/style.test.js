@@ -144,6 +144,16 @@ test('range sliders use discrete Apple-style tick marks', async () => {
   assert.match(css, /radial-gradient\(circle at right center, var\(--slider-dot\)/);
 });
 
+test('collapsed rail narrows the grid track and hides labels', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /html\.is-rail-collapsed \.meetingShell[\s\S]*--operator-rail-width:\s*64px;/s);
+  assert.match(css, /html\.is-rail-collapsed \.meetingShell[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) 64px;/s);
+  assert.match(css, /html\.is-rail-collapsed \.buttonLabel[\s\S]*display:\s*none;/s);
+  assert.match(css, /html\.is-rail-collapsed \.railResizeHandle[\s\S]*display:\s*none;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*#railCollapseToggle[\s\S]*display:\s*none;/s);
+});
+
 test('chrome token tier is declared for operator surfaces', async () => {
   const css = await readSplitCss();
 

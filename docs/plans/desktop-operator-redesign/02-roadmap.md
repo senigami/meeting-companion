@@ -30,12 +30,12 @@ graph LR
 
 - [x] 007 — Chrome token values → macOS palette; surface/material restyle (flat, hairlines, radii, focus, type scale) — `tasks/007-chrome-surfaces.md`
 - [x] 008 — Button consolidation + segmented-style mode group — `tasks/008-buttons-and-modes.md`
-- [ ] 009 — Sliders + view drawer + manual bar detail restyle — `tasks/009-sliders-drawer-manualbar.md`
+- [x] 009 — Sliders + view drawer + manual bar detail restyle — `tasks/009-sliders-drawer-manualbar.md`
 - [x] 010 — Settings modal → System-Settings-style master-detail (HTML+CSS+JS+tests) — `tasks/010-settings-master-detail.md`
 
 ## W4 — Collapsible rail (after W3)
 
-- [ ] 011 — `rail-collapse.js` core: toggle button, collapsed CSS state, persistence, tests — `tasks/011-rail-collapse-core.md`
+- [x] 011 — `rail-collapse.js` core: toggle button, collapsed CSS state, persistence, tests — `tasks/011-rail-collapse-core.md`
 - [ ] 012 — Collapse polish: double-click snap, resize interplay, transitions, tooltips audit — `tasks/012-rail-collapse-polish.md`
 
 ## W5 — Safety, workflow, status, pre-flight (after W3/W4)
