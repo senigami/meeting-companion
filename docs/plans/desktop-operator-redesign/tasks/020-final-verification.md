@@ -1,6 +1,6 @@
 # 020 — Final verification sweep
 
-Status: todo
+Status: done
 Map links: all parts; invariants I1–I13. Depends on: everything. Blocks: nothing (last).
 
 ## Goal
@@ -26,3 +26,19 @@ Prove the plan's success criteria (00-overview.md) against the real app, not aga
 ## Acceptance criteria
 
 - Every smoke item passes; TV-freeze audit clean; suite green. The plan's 00-overview success criteria can each be answered "yes" with evidence.
+
+## Completion note (orchestrator-run sweep)
+
+Machine-verified against the live app (Chromium preview, ports vary):
+- Full suite 120/120 green.
+- TV-freeze audit vs ff78760: only 3 removed lines in layout.css, all sanctioned (railTranscript retoken; ::before radius removal + overflow clip per user request; inactive opacity .62->.8).
+- Collapse: toggle -> html.is-rail-collapsed, grid track animates to a true 64px, expand restores, localStorage persists.
+- Clear: arm shows red "Confirm?", data intact while armed, confirm clears + status message (pluralization fixed in 1aab896), one Undo restores all.
+- Pause: is-paused on rail + button, honest wording, status word Paused/Manual.
+- '/' focuses manual input; settings opens to Alerts when badge lit; six sections switch; Ready check rows reflect real state (mic green via browser speech, AI red + fix text with no key, display green).
+- Height tiers at 1280x580: nothing clipped, manual bar 34px, dense icon grid, 44px targets (fixed in 1aab896).
+
+Deferred to the operator's human checklist (needs real hardware):
+- Live microphone listening + browser speech restart behavior.
+- Real TV mirror readability + fullscreen button behavior.
+- Reduced-motion behavior (CSS pinned by tests; OS-level toggle untested here).

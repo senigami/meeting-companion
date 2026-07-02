@@ -51,7 +51,7 @@ graph LR
 ## W6 — Close-out
 
 - [x] 019 — Reconcile `docs/` specs with shipped behavior — `tasks/019-docs-reconcile.md`
-- [ ] 020 — Final verification sweep (full tests + manual smoke checklist + TV-freeze audit vs `ff78760`) — `tasks/020-final-verification.md`
+- [x] 020 — Final verification sweep (full tests + manual smoke checklist + TV-freeze audit vs `ff78760`) — `tasks/020-final-verification.md`
 
 ## Milestones
 
