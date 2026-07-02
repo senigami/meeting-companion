@@ -28,10 +28,10 @@ graph LR
 
 ## W3 — macOS chrome restyle (after W1)
 
-- [ ] 007 — Chrome token values → macOS palette; surface/material restyle (flat, hairlines, radii, focus, type scale) — `tasks/007-chrome-surfaces.md`
-- [ ] 008 — Button consolidation + segmented-style mode group — `tasks/008-buttons-and-modes.md`
+- [x] 007 — Chrome token values → macOS palette; surface/material restyle (flat, hairlines, radii, focus, type scale) — `tasks/007-chrome-surfaces.md`
+- [x] 008 — Button consolidation + segmented-style mode group — `tasks/008-buttons-and-modes.md`
 - [ ] 009 — Sliders + view drawer + manual bar detail restyle — `tasks/009-sliders-drawer-manualbar.md`
-- [ ] 010 — Settings modal → System-Settings-style master-detail (HTML+CSS+JS+tests) — `tasks/010-settings-master-detail.md`
+- [x] 010 — Settings modal → System-Settings-style master-detail (HTML+CSS+JS+tests) — `tasks/010-settings-master-detail.md`
 
 ## W4 — Collapsible rail (after W3)
 

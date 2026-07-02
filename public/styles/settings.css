@@ -1,3 +1,15 @@
+.settingsOverlay button:focus-visible,
+.settingsOverlay input:focus-visible,
+.settingsOverlay textarea:focus-visible,
+.settingsOverlay summary:focus-visible,
+.viewDrawer button:focus-visible,
+.viewDrawer input:focus-visible,
+.viewDrawer textarea:focus-visible,
+.viewDrawer summary:focus-visible {
+  outline: var(--chrome-focus-ring-width) solid var(--chrome-accent);
+  outline-offset: var(--chrome-focus-ring-offset);
+}
+
 .settingsOverlay[hidden],
 dialog.settingsOverlay[hidden] {
   display: none !important;
@@ -11,9 +23,7 @@ dialog.settingsOverlay[hidden] {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(5, 8, 12, 0.45); /* chrome-restyle: flatten in 007 */
-  backdrop-filter: blur(4px); /* chrome-restyle: flatten in 007 */
-  -webkit-backdrop-filter: blur(4px); /* chrome-restyle: flatten in 007 */
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .settingsOverlay.settingsModal {
@@ -26,15 +36,13 @@ dialog.settingsOverlay[hidden] {
   border-radius: var(--chrome-radius-lg);
   background: var(--chrome-bg-elevated);
   border: 1px solid var(--chrome-separator);
-  box-shadow: 0 32px 110px rgba(0, 0, 0, 0.58); /* chrome-restyle: flatten in 007 */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   padding: 0;
   color: var(--text);
 }
 
 .settingsOverlay.settingsModal::backdrop {
-  background: rgba(0, 0, 0, 0.42); /* chrome-restyle: flatten in 007 */
-  backdrop-filter: blur(18px); /* chrome-restyle: flatten in 007 */
-  -webkit-backdrop-filter: blur(18px); /* chrome-restyle: flatten in 007 */
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .viewDrawer {
@@ -56,9 +64,7 @@ dialog.settingsOverlay[hidden] {
   border-radius: var(--chrome-radius-lg);
   background: var(--chrome-bg-elevated);
   border: 1px solid var(--chrome-separator);
-  box-shadow: 0 28px 84px rgba(0, 0, 0, 0.45); /* chrome-restyle: flatten in 007 */
-  backdrop-filter: blur(22px); /* chrome-restyle: flatten in 007 */
-  -webkit-backdrop-filter: blur(22px); /* chrome-restyle: flatten in 007 */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   transform: translateX(calc(100% + 1rem));
   transition: transform 220ms ease, opacity 220ms ease;
   opacity: 0;
@@ -86,7 +92,8 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
 
 .viewDrawerHeader h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .viewDrawerBody {
@@ -103,28 +110,72 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 1.35rem;
+  gap: var(--chrome-space-4);
+  min-height: 44px;
+  padding: var(--chrome-space-2) var(--chrome-space-4);
   border-bottom: 1px solid var(--chrome-separator);
 }
 
 .settingsHeader h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settingsCloseButton {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--chrome-radius-sm);
+  font-size: 18px;
+  line-height: 1;
 }
 
 .settingsBody {
   min-height: 0;
-  overflow-y: auto;
-  padding: 1.15rem;
+  overflow: hidden;
   display: grid;
-  gap: 1rem;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
 }
 
-.settingsGrid {
+.settingsNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chrome-space-1);
+  align-self: stretch;
+  padding: var(--chrome-space-3) var(--chrome-space-2);
+  border-right: 1px solid var(--chrome-separator);
+  overflow-y: auto;
+}
+
+.settingsNavItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--chrome-space-2) var(--chrome-space-3);
+  border-radius: var(--chrome-radius-sm);
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.settingsNavItem[aria-current='true'] {
+  background: var(--chrome-bg-control);
+  color: var(--chrome-accent);
+}
+
+.settingsDetail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--chrome-space-4);
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--chrome-space-4);
+}
+
+.settingsDetail [data-settings-section][hidden] {
+  display: none !important;
 }
 
 .settingsCard {
@@ -132,22 +183,8 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
   gap: 0.75rem;
   padding: 0.85rem;
   border-radius: var(--chrome-radius-md);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032)); /* chrome-restyle: flatten in 007 */
+  background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03); /* chrome-restyle: flatten in 007 */
-}
-
-.settingsViewCard {
-  grid-column: 1 / -1;
-  align-self: start;
-}
-
-.settingsDiagnosticsCard {
-  grid-column: 1 / -1;
-}
-
-.serviceRegistrationCard {
-  grid-column: 1 / -1;
 }
 
 .providerOption[hidden] {
@@ -190,13 +227,13 @@ html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
 }
 
 .providerStatus {
-  font-size: 0.78rem;
+  font-size: 13px;
   font-weight: 700;
   color: var(--chrome-text-secondary);
 }
 
 button.providerOption.active .providerStatus {
-  color: rgba(7, 19, 31, 0.8);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .apiKeyBox {
@@ -213,13 +250,14 @@ button.providerOption.active .providerStatus {
 
 .apiKeyHeader h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .apiKeyHeader p {
   margin: 0.15rem 0 0;
   color: var(--chrome-text-secondary);
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 .statusPill {
@@ -229,7 +267,7 @@ button.providerOption.active .providerStatus {
   min-height: 30px;
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 13px;
   font-weight: 750;
   letter-spacing: 0.03em;
   border: 1px solid var(--chrome-separator);
@@ -259,10 +297,6 @@ button.providerOption.active .providerStatus {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
-}
-
-.alertCard {
-  grid-column: 1 / -1;
 }
 
 .alertMessage {
@@ -303,16 +337,15 @@ button.providerOption.active .providerStatus {
 
 .range-field {
   --slider-points: 2;
-  --slider-track: rgba(255, 255, 255, 0.13); /* chrome-restyle: flatten in 007 */
-  --slider-dot: rgba(245, 247, 251, 0.66); /* chrome-restyle: flatten in 007 */
-  --slider-thumb: linear-gradient(180deg, #ffffff, #d9e1ec); /* chrome-restyle: flatten in 007 */
+  --slider-track: var(--chrome-bg-control);
+  --slider-dot: var(--chrome-text-secondary);
+  --slider-thumb: var(--chrome-text);
   display: grid;
   gap: 0.55rem;
   padding: 0.85rem 0.85rem 0.95rem;
   border-radius: var(--chrome-radius-md);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032)); /* chrome-restyle: flatten in 007 */
+  background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03); /* chrome-restyle: flatten in 007 */
 }
 
 .viewDrawer .settingsViewCard {
@@ -329,7 +362,7 @@ button.providerOption.active .providerStatus {
   align-items: center;
   gap: 1rem;
   margin-bottom: 0.55rem;
-  font-size: 0.92rem;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -359,11 +392,8 @@ button.providerOption.active .providerStatus {
       right center / 100% 100% no-repeat,
     radial-gradient(circle at left center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
       left center / calc(100% / (var(--slider-points) - 1)) 100% repeat-x,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22)); /* chrome-restyle: flatten in 007 */
-  box-shadow:
-    inset 0 1px 1px rgba(0, 0, 0, 0.34),
-    0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 1px 0 rgba(255, 255, 255, 0.04); /* chrome-restyle: flatten in 007 */
+    var(--slider-track);
+  border: 1px solid var(--chrome-separator);
 }
 
 .sliderThumb {
@@ -373,14 +403,9 @@ button.providerOption.active .providerStatus {
   width: 1.75rem;
   height: 1.75rem;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(15, 20, 28, 0.28);
+  border: 1px solid var(--chrome-separator);
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(7, 19, 31, 0.18) 0 0.28rem, transparent 0.3rem),
-    linear-gradient(180deg, #ffffff, #d9e1ec); /* chrome-restyle: flatten in 007 */
-  box-shadow:
-    0 5px 14px rgba(0, 0, 0, 0.36),
-    0 0 0 1px rgba(255, 255, 255, 0.14); /* chrome-restyle: flatten in 007 */
+  background: var(--slider-thumb);
 }
 
 #fontSize {
@@ -409,10 +434,28 @@ button.providerOption.active .providerStatus {
   pointer-events: none;
 }
 
+@media (max-width: 900px) {
+  .settingsBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settingsNav {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--chrome-separator);
+  }
+
+  .settingsNavItem {
+    flex: 0 0 auto;
+    width: auto;
+  }
+}
+
 .sliderInput:focus-visible + .sliderThumb,
 .sliderInput:active + .sliderThumb {
-  box-shadow:
-    0 0 0 4px rgba(164, 199, 255, 0.28),
-    0 5px 14px rgba(0, 0, 0, 0.36),
-    0 0 0 1px rgba(255, 255, 255, 0.14); /* chrome-restyle: flatten in 007 */
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: 1px;
 }

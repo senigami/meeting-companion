@@ -1,6 +1,6 @@
 # 007 — macOS palette + surface/material restyle
 
-Status: todo
+Status: done
 Map links: P2, P3, P4, P5, P6; invariants I1, I3, I4, I11, I12. Depends on: 001–003. Blocks: 008–012.
 
 ## Goal

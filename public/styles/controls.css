@@ -1,3 +1,15 @@
+.operatorRail button:focus-visible,
+.operatorRail input:focus-visible,
+.operatorRail textarea:focus-visible,
+.operatorRail summary:focus-visible,
+.manualBar button:focus-visible,
+.manualBar input:focus-visible,
+.manualBar textarea:focus-visible,
+.manualBar summary:focus-visible {
+  outline: var(--chrome-focus-ring-width) solid var(--chrome-accent);
+  outline-offset: var(--chrome-focus-ring-offset);
+}
+
 .panel,
 .controlPanel {
   grid-area: rail;
@@ -11,11 +23,7 @@
   background: var(--chrome-bg);
   border: 1px solid var(--chrome-separator);
   color: var(--text);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow:
-    inset 1px 0 0 rgba(255, 255, 255, 0.03),
-    0 18px 54px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(18px) saturate(1.08);
+  border-left: 1px solid var(--chrome-separator);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.65rem;
@@ -42,10 +50,8 @@
   width: 4px;
   height: 68px;
   border-radius: 999px;
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
-  transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  background: var(--chrome-bg-control);
+  transition: background-color 160ms ease, opacity 160ms ease;
   opacity: 0.72;
 }
 
@@ -53,9 +59,7 @@
 .railResizeHandle:focus-visible::before,
 html.is-resizing-rail .railResizeHandle::before {
   opacity: 1;
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(188, 217, 255, 0.95), rgba(120, 183, 255, 0.75));
-  box-shadow: 0 0 0 1px rgba(188, 217, 255, 0.16), 0 0 18px rgba(120, 183, 255, 0.18);
+  background: var(--chrome-accent);
 }
 
 .panel[hidden] {
@@ -83,14 +87,14 @@ html.is-resizing-rail .railResizeHandle::before {
 }
 
 .railName {
-  font-size: 1rem;
+  font-size: 13px;
   font-weight: 750;
-  letter-spacing: -0.02em;
 }
 
 .eyebrow {
-  font-size: 0.75rem;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 0.2rem;
@@ -119,24 +123,33 @@ html.is-resizing-rail .railResizeHandle::before {
 
 .iconButton {
   flex: none;
-  width: 52px;
-  height: 52px;
-  min-width: 52px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   border-radius: var(--chrome-radius-md);
   display: grid;
   place-items: center;
-  padding: 0;
+  padding: 6px;
   font-size: 1.1rem;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.iconButton .controlIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.iconButton:hover {
+  background: var(--chrome-bg-control-hover);
 }
 
 .iconButton.settingsButton {
-  width: 52px;
-  height: 52px;
-  min-width: 52px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   border-radius: var(--chrome-radius-md);
   position: relative;
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
 .settingsAlertBadge {
@@ -152,8 +165,6 @@ html.is-resizing-rail .railResizeHandle::before {
   background: rgba(255, 194, 92, 0.96);
   color: #171314;
   border: 2px solid var(--chrome-bg);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
 }
 
 .badgeIcon {
@@ -180,11 +191,8 @@ html.is-resizing-rail .railResizeHandle::before {
   margin-bottom: 0;
   padding: 0.7rem;
   border-radius: var(--chrome-radius-md);
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.024));
+  background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .railSection .section-label,
@@ -213,26 +221,43 @@ html.is-resizing-rail .railResizeHandle::before {
 .railButton {
   position: relative;
   min-height: 48px;
-  border-radius: var(--chrome-radius-md);
+  border-radius: var(--chrome-radius-sm);
   padding: 0.55rem 0.65rem;
   display: grid;
   place-items: center;
   gap: 0.25rem;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color 160ms ease;
+}
+
+.railButton:hover {
   background: var(--chrome-bg-control);
-  border: 1px solid var(--chrome-separator);
 }
 
 .railButton svg,
 .railButton .controlIcon {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
+}
+
+#clear {
+  margin-left: var(--chrome-space-3);
+  border-color: var(--chrome-separator);
+  color: var(--chrome-text-secondary);
+}
+
+#clear:hover {
+  background: var(--chrome-bg-control);
+  border-color: var(--chrome-accent);
+  color: var(--chrome-text);
 }
 
 .buttonLabel {
-  font-size: 0.7rem;
+  font-size: 12px;
   line-height: 1;
-  font-weight: 700;
-  opacity: 0.82;
+  font-weight: 500;
+  color: var(--chrome-text-secondary, currentColor);
 }
 
 .shortcutBadge {
@@ -251,16 +276,15 @@ html.is-resizing-rail .railResizeHandle::before {
   color: var(--chrome-text-secondary);
   background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .modeGrid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.5rem;
+  gap: 0;
+  border-radius: var(--chrome-radius-md);
+  background: var(--chrome-bg-elevated);
+  overflow: hidden;
 }
 
 .modeGrid .mode {
@@ -271,6 +295,30 @@ html.is-resizing-rail .railResizeHandle::before {
   text-align: left;
   justify-content: start;
   padding-inline: 0.8rem;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid var(--chrome-separator);
+}
+
+.modeGrid .mode:last-child {
+  border-bottom: 0;
+}
+
+.modeGrid .mode:hover {
+  background: var(--chrome-bg-control-hover);
+}
+
+.modeGrid .mode[aria-pressed="true"] {
+  background: var(--chrome-accent);
+  color: #ffffff;
+}
+
+.modeGrid .mode[aria-pressed="true"] .mode-icon {
+  background-color: #ffffff;
+}
+
+.modeGrid .mode[aria-pressed="true"] .mode-label {
+  color: #ffffff;
 }
 
 .modeGrid .mode-label {
@@ -316,10 +364,6 @@ html.is-resizing-rail .railResizeHandle::before {
   border-radius: var(--chrome-radius-lg);
   background: var(--chrome-bg);
   border: 1px solid var(--chrome-separator);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: 0 16px 54px rgba(0, 0, 0, 0.3);
   padding: clamp(0.65rem, 1vw, 0.9rem);
 }
 
@@ -332,9 +376,10 @@ html.is-resizing-rail .railResizeHandle::before {
 
 .manualLabel {
   color: var(--chrome-text-secondary);
-  font-size: 0.8rem;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   white-space: nowrap;
   margin: 0;
 }
@@ -357,7 +402,7 @@ html.is-resizing-rail .railResizeHandle::before {
 .status,
 .transcript,
 .warning {
-  font-size: 0.95rem;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -370,8 +415,7 @@ html.is-resizing-rail .railResizeHandle::before {
   color: var(--muted);
   padding: 0.6rem 0.75rem;
   border-radius: var(--chrome-radius-md);
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025));
+  background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
 }
 
@@ -381,9 +425,9 @@ html.is-resizing-rail .railResizeHandle::before {
 
 .section-label {
   display: block;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 0.5rem;
@@ -405,26 +449,20 @@ html.is-resizing-rail .railResizeHandle::before {
   position: sticky;
   bottom: 0;
   margin-top: 0.75rem;
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(22, 25, 33, 0), rgba(22, 25, 33, 0.65) 24%, rgba(22, 25, 33, 0.88));
-  backdrop-filter: blur(10px);
+  background: var(--chrome-bg);
 }
 
 .helper-disclosure {
   margin: 0;
   border-radius: var(--chrome-radius-lg);
-  border: 1px solid var(--panel-line);
-  background: linear-gradient(180deg, var(--panel-soft), var(--panel-softer));
+  border: 1px solid var(--chrome-separator);
+  background: var(--chrome-bg-control);
   overflow: clip;
 }
 
 details.helper-disclosure[open] {
-  /* chrome-restyle: flatten in 007 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
-  /* chrome-restyle: flatten in 007 */
-  border-color: rgba(188, 217, 255, 0.2);
-  /* chrome-restyle: flatten in 007 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  background: var(--chrome-bg-control-hover);
+  border-color: var(--chrome-accent);
 }
 
 summary.helper-disclosure-summary {
@@ -436,9 +474,8 @@ summary.helper-disclosure-summary {
   cursor: pointer;
   list-style: none;
   color: var(--muted);
-  font-size: 0.94rem;
+  font-size: 13px;
   font-weight: 650;
-  letter-spacing: 0.01em;
   transition: background-color 160ms ease, color 160ms ease;
 }
 

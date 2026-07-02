@@ -19,17 +19,17 @@
   --warning-bg: rgba(128, 78, 18, 0.38);
   --warning-border: rgba(243, 201, 105, 0.46);
 
-  --chrome-bg: rgba(22, 25, 33, 0.78);
-  --chrome-bg-elevated: rgba(22, 25, 33, 0.92);
-  --chrome-bg-control: rgba(255, 255, 255, 0.07);
-  --chrome-bg-control-hover: rgba(255, 255, 255, 0.11);
-  --chrome-separator: rgba(255, 255, 255, 0.12);
-  --chrome-text: #f5f7fb;
-  --chrome-text-secondary: #b8bfcd;
-  --chrome-accent: var(--accent);
-  --chrome-radius-sm: 12px;
-  --chrome-radius-md: 16px;
-  --chrome-radius-lg: 24px;
+  --chrome-bg: #1e1e1e;
+  --chrome-bg-elevated: #262626;
+  --chrome-bg-control: #323234;
+  --chrome-bg-control-hover: #3a3a3c;
+  --chrome-separator: rgba(255, 255, 255, 0.08);
+  --chrome-text: rgba(255, 255, 255, 0.92);
+  --chrome-text-secondary: rgba(255, 255, 255, 0.55);
+  --chrome-accent: #0a84ff;
+  --chrome-radius-sm: 6px;
+  --chrome-radius-md: 10px;
+  --chrome-radius-lg: 12px;
   --chrome-space-1: 4px;
   --chrome-space-2: 8px;
   --chrome-space-3: 12px;
@@ -98,10 +98,10 @@ button:disabled {
 button.active,
 button.primary,
 button.source.active {
-  background: linear-gradient(180deg, rgba(188, 217, 255, 0.98), rgba(120, 183, 255, 0.92));
-  color: #07131f;
-  border-color: rgba(152, 202, 255, 0.54);
-  box-shadow: 0 6px 22px rgba(24, 74, 143, 0.26);
+  background: var(--chrome-accent);
+  color: #ffffff;
+  border-color: var(--chrome-accent);
+  box-shadow: none;
 }
 
 button.ghost {
@@ -128,8 +128,8 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
-  outline: 3px solid var(--accent-strong);
-  outline-offset: 3px;
+  outline: var(--chrome-focus-ring-width) solid var(--chrome-accent);
+  outline-offset: var(--chrome-focus-ring-offset);
 }
 
 html.is-resizing-rail,

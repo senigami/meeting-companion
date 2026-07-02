@@ -18,6 +18,9 @@ const MANUAL_META = {
 
 const TRANSCRIPT_SCROLL_DURATION_MS = 720;
 
+const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
+const DEFAULT_SETTINGS_SECTION = 'timing';
+
 export function updateStatus(ctx, text) {
   ctx.dom.status.textContent = text;
 }
@@ -101,10 +104,38 @@ function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
   ctx.state.transcriptScrollFrame = requestFrame(animate);
 }
 
+export function getDefaultSettingsSection(ctx) {
+  return buildAlerts(ctx).length > 0 ? 'alerts' : DEFAULT_SETTINGS_SECTION;
+}
+
+export function setSettingsSection(ctx, section) {
+  const next = SETTINGS_SECTIONS.includes(section) ? section : DEFAULT_SETTINGS_SECTION;
+  ctx.state.settingsSection = next;
+  const hasAlerts = buildAlerts(ctx).length > 0;
+
+  (ctx.dom.settingsSections || []).forEach((node) => {
+    const sectionName = node.dataset?.settingsSection;
+    const isActive = sectionName === next;
+    // The alerts section stays hidden whenever there are no alerts to show,
+    // even if a helper navigates to it directly.
+    node.hidden = sectionName === 'alerts' ? !(isActive && hasAlerts) : !isActive;
+  });
+
+  (ctx.dom.settingsNavButtons || []).forEach((button) => {
+    const isActive = button.dataset?.settingsNav === next;
+    button.setAttribute('aria-current', String(isActive));
+    button.classList?.toggle?.('active', isActive);
+  });
+}
+
 export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
   const next = Boolean(open);
   ctx.state.settingsOpen = next;
   ctx.state.panelOpen = next;
+
+  if (next) {
+    setSettingsSection(ctx, getDefaultSettingsSection(ctx));
+  }
 
   if (ctx.dom.settingsPanel) {
     ctx.dom.settingsPanel.hidden = !next;

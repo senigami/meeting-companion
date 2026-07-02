@@ -1,6 +1,6 @@
 # 008 — Button consolidation + segmented-style mode group
 
-Status: todo
+Status: done
 Map links: P3; invariants I2, I3, I4, I12; risk R3. Depends on: 007. Blocks: 011.
 
 ## Goal
