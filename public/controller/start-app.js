@@ -379,6 +379,12 @@ function bindKeyboardShortcuts(ctx, runtime) {
       return;
     }
 
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      ctx.dom.manualInput.focus();
+      return;
+    }
+
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '1') runtime.setMode('speaker');
     if (e.key === '2') runtime.setMode('information');

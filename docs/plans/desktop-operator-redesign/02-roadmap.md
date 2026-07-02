@@ -41,7 +41,7 @@ graph LR
 ## W5 — Safety, workflow, status, pre-flight (after W3/W4)
 
 - [x] 013 — Safe Clear: two-stage confirm, snapshot restore, remove bare `C` — `tasks/013-safe-clear.md`
-- [ ] 014 — `/` focus hotkey + undo feedback — `tasks/014-focus-hotkey-undo-feedback.md`
+- [x] 014 — `/` focus hotkey + undo feedback — `tasks/014-focus-hotkey-undo-feedback.md`
 - [ ] 015 — Loud paused state + honest pause wording — `tasks/015-loud-pause.md`
 - [ ] 016 — Rail status indicator (dot + word) + TV inactive-card opacity tweak — `tasks/016-rail-status-indicator.md`
 - [ ] 017 — Lean Ready check (mic / AI / display sample) — `tasks/017-ready-check.md`

@@ -1,6 +1,6 @@
 # 014 — `/` focus hotkey + undo feedback
 
-Status: todo
+Status: done
 Map links: P8, P9; invariants I2, I7, I8, I11. Depends on: 013. Blocks: 020.
 
 ## Goal
