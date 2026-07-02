@@ -36,11 +36,11 @@ graph LR
 ## W4 — Collapsible rail (after W3)
 
 - [x] 011 — `rail-collapse.js` core: toggle button, collapsed CSS state, persistence, tests — `tasks/011-rail-collapse-core.md`
-- [ ] 012 — Collapse polish: double-click snap, resize interplay, transitions, tooltips audit — `tasks/012-rail-collapse-polish.md`
+- [x] 012 — Collapse polish: double-click snap, resize interplay, transitions, tooltips audit — `tasks/012-rail-collapse-polish.md`
 
 ## W5 — Safety, workflow, status, pre-flight (after W3/W4)
 
-- [ ] 013 — Safe Clear: two-stage confirm, snapshot restore, remove bare `C` — `tasks/013-safe-clear.md`
+- [x] 013 — Safe Clear: two-stage confirm, snapshot restore, remove bare `C` — `tasks/013-safe-clear.md`
 - [ ] 014 — `/` focus hotkey + undo feedback — `tasks/014-focus-hotkey-undo-feedback.md`
 - [ ] 015 — Loud paused state + honest pause wording — `tasks/015-loud-pause.md`
 - [ ] 016 — Rail status indicator (dot + word) + TV inactive-card opacity tweak — `tasks/016-rail-status-indicator.md`

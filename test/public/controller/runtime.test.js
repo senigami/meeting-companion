@@ -392,3 +392,116 @@ test('a summarize success without prior failures does not touch the alert surfac
     assert.equal(elements.settingsAlertBadge.hidden, true);
   });
 });
+
+test('arming clear and letting the timeout elapse reverts without clearing anything', async () => {
+  let pendingTimer = null;
+
+  await withRuntimeHarness({
+    setTimeoutFn: (callback) => {
+      pendingTimer = callback;
+      return 1;
+    },
+    clearTimeoutFn: () => {
+      pendingTimer = null;
+    },
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.clearLines();
+
+    assert.equal(ctx.state.clearArmed, true);
+    assert.equal(ctx.state.transcriptItems.length, 2);
+    assert.equal(elements.clearLabel.textContent, 'Confirm?');
+    assert.equal(elements.clear.getAttribute('aria-label'), 'Confirm clear all lines');
+
+    pendingTimer?.();
+
+    assert.equal(ctx.state.clearArmed, false);
+    assert.equal(ctx.state.transcriptItems.length, 2);
+    assert.equal(elements.clearLabel.textContent, 'Clear');
+    assert.equal(elements.clear.getAttribute('aria-label'), 'Clear all lines');
+  });
+});
+
+test('confirming an armed clear wipes the transcript, snapshots it, and announces the result', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.clearLines();
+    assert.equal(ctx.state.clearArmed, true);
+
+    runtime.clearLines();
+
+    assert.equal(ctx.state.clearArmed, false);
+    assert.equal(ctx.state.transcriptItems.length, 0);
+    assert.equal(ctx.state.lastClearedItems.length, 2);
+    assert.equal(elements.status.textContent, 'Cleared 2 lines — press U or click Undo to bring them back.');
+    assert.equal(elements.clearLabel.textContent, 'Clear');
+  });
+});
+
+test('undo after a clear restores the whole snapshot exactly once', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }, { text: 'third line' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+    assert.equal(ctx.state.transcriptItems.length, 0);
+
+    runtime.undoLine();
+
+    assert.equal(ctx.state.transcriptItems.length, 3);
+    assert.equal(ctx.state.transcriptItems[0].text, 'first line');
+    assert.equal(ctx.state.lastClearedItems, null);
+
+    runtime.undoLine();
+
+    assert.equal(ctx.state.transcriptItems.length, 2);
+  });
+});
+
+test('normal undo still pops the last line when there is no pending clear snapshot', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }, { text: 'second line' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.undoLine();
+
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    assert.equal(ctx.state.transcriptItems[0].text, 'first line');
+    assert.equal(ctx.state.lastClearedItems, null);
+  });
+});
+
+test('arming clear does not clear anything on its own even if the transcript is empty', async () => {
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    runtime.clearLines();
+
+    assert.equal(ctx.state.clearArmed, true);
+    assert.equal(ctx.state.transcriptItems.length, 0);
+    assert.equal(ctx.state.lastClearedItems, null);
+  });
+});
+
+test('cancelling an armed clear reverts the button state immediately', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.clearLines();
+    assert.equal(ctx.state.clearArmed, true);
+
+    runtime.cancelClearArm();
+
+    assert.equal(ctx.state.clearArmed, false);
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    assert.equal(elements.clearLabel.textContent, 'Clear');
+  });
+});

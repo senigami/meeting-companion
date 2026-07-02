@@ -39,6 +39,8 @@ export function startApp() {
   const ctx = {
     state: {
       transcriptItems: [],
+      clearArmed: false,
+      lastClearedItems: null,
       mode: 'speaker',
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
@@ -119,6 +121,9 @@ export function startApp() {
       summaryHint: $('summaryHint'),
       pauseAi: $('pauseAi'),
       pauseAiLabel: $('pauseAiLabel'),
+      undo: $('undo'),
+      clear: $('clear'),
+      clearLabel: $('clearLabel'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
       fullscreen: $('fullscreen'),
@@ -195,8 +200,9 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.startListening.addEventListener('click', runtime.startListening);
   ctx.dom.stopListening.addEventListener('click', runtime.stopListening);
   ctx.dom.pauseAi.addEventListener('click', runtime.togglePauseAi);
-  $('undo').addEventListener('click', runtime.undoLine);
-  $('clear').addEventListener('click', runtime.clearLines);
+  ctx.dom.undo.addEventListener('click', runtime.undoLine);
+  ctx.dom.clear.addEventListener('click', runtime.clearLines);
+  ctx.dom.clear.addEventListener('blur', runtime.cancelClearArm);
   const fullscreenButton = ctx.dom.fullscreen || $('fullscreen');
   const syncFullscreenButton = () => {
     const active = Boolean(document.fullscreenElement);
@@ -352,6 +358,11 @@ function bindKeyboardShortcuts(ctx, runtime) {
       if (ctx.state.settingsOpen) {
         e.preventDefault();
         runtime.setSettingsOpen(false, { focusReturn: true });
+        return;
+      }
+      if (ctx.state.clearArmed) {
+        e.preventDefault();
+        runtime.cancelClearArm();
       }
       return;
     }
@@ -359,12 +370,6 @@ function bindKeyboardShortcuts(ctx, runtime) {
     if (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       runtime.undoLine();
-      return;
-    }
-
-    if (key === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      runtime.clearLines();
       return;
     }
 

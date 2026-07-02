@@ -1,6 +1,6 @@
 # 012 — Rail collapse polish
 
-Status: todo
+Status: done
 Map links: P7; invariants I5, I6, I11. Depends on: 011. Blocks: 020.
 
 ## Goal

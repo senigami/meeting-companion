@@ -17,6 +17,7 @@ import {
 import {
   renderDisplay,
   setSettingsOpen,
+  updateClearButton,
   updateModeButtons,
   updatePauseButton,
   updateSourceButtons,
@@ -42,9 +43,12 @@ const STORAGE = {
   summarizationSource: 'summarizationSource'
 };
 
+const CLEAR_ARM_TIMEOUT_MS = 3000;
+
 export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
   let summarizationDriver = null;
+  let clearArmTimer = null;
   const {
     createTranscriptionDriverFn = createTranscriptionDriver,
     createSummarizationDriverFn = createSummarizationDriver,
@@ -97,13 +101,50 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function undoLine() {
+    if (!ctx.state.transcriptItems.length && ctx.state.lastClearedItems) {
+      ctx.state.transcriptItems = ctx.state.lastClearedItems;
+      ctx.state.lastClearedItems = null;
+      renderDisplay(ctx);
+      return;
+    }
     ctx.state.transcriptItems.pop();
     renderDisplay(ctx);
   }
 
+  function armClear() {
+    ctx.state.clearArmed = true;
+    updateClearButton(ctx);
+    clearTimeoutFn(clearArmTimer);
+    clearArmTimer = setTimeoutFn(() => {
+      clearArmTimer = null;
+      disarmClear();
+    }, CLEAR_ARM_TIMEOUT_MS);
+  }
+
+  function disarmClear() {
+    clearTimeoutFn(clearArmTimer);
+    clearArmTimer = null;
+    if (!ctx.state.clearArmed) return;
+    ctx.state.clearArmed = false;
+    updateClearButton(ctx);
+  }
+
+  function cancelClearArm() {
+    disarmClear();
+  }
+
   function clearLines() {
+    if (!ctx.state.clearArmed) {
+      armClear();
+      return;
+    }
+
+    disarmClear();
+    const outgoing = ctx.state.transcriptItems;
+    ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
     renderDisplay(ctx);
+    updateStatus(ctx, `Cleared ${outgoing.length} lines — press U or click Undo to bring them back.`);
   }
 
   function showRecentTranscript() {
@@ -530,6 +571,7 @@ export function createRuntime(ctx, deps = {}) {
 
   return {
     addLine,
+    cancelClearArm,
     clearLines,
     handleTranscriptEvent,
     deleteProviderKey,

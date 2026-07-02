@@ -253,6 +253,25 @@ html.is-resizing-rail .railResizeHandle::before {
   color: var(--chrome-text);
 }
 
+#clear.is-armed {
+  --clear-danger: #ff453a;
+  border-color: var(--clear-danger);
+  color: var(--clear-danger);
+  background: rgba(255, 69, 58, 0.12);
+}
+
+#clear.is-armed:hover {
+  border-color: var(--clear-danger);
+  color: var(--clear-danger);
+  background: rgba(255, 69, 58, 0.18);
+}
+
+#clear.is-armed .controlIcon {
+  outline: 1px solid var(--clear-danger);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
 .buttonLabel {
   font-size: 12px;
   line-height: 1;

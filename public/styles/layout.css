@@ -274,6 +274,24 @@ html.is-rail-collapsed .app-shell {
   grid-template-columns: minmax(0, 1fr) 64px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .app-shell,
+  .meetingShell {
+    transition: grid-template-columns 220ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  .buttonLabel,
+  .shortcutBadge,
+  .section-label,
+  .railBrand,
+  .railTranscriptDisclosure,
+  .mode-label {
+    transition: opacity 150ms cubic-bezier(0.25, 0.1, 0.25, 1), display 150ms allow-discrete;
+    overflow: clip;
+    white-space: nowrap;
+  }
+}
+
 html.is-rail-collapsed .buttonLabel,
 html.is-rail-collapsed .shortcutBadge,
 html.is-rail-collapsed .section-label,
@@ -281,6 +299,7 @@ html.is-rail-collapsed .railBrand,
 html.is-rail-collapsed .railTranscriptDisclosure,
 html.is-rail-collapsed .mode-label {
   display: none;
+  opacity: 0;
 }
 
 html.is-rail-collapsed .railResizeHandle {
