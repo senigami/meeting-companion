@@ -21,8 +21,29 @@ const TRANSCRIPT_SCROLL_DURATION_MS = 720;
 const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
 const DEFAULT_SETTINGS_SECTION = 'timing';
 
-export function updateStatus(ctx, text) {
+const RAIL_STATUS_WORDS = {
+  listening: 'Listening',
+  paused: 'Paused',
+  manual: 'Manual',
+  problem: 'Problem'
+};
+
+export function updateStatus(ctx, text, { level } = {}) {
   ctx.dom.status.textContent = text;
+  if (!level || !RAIL_STATUS_WORDS[level]) return;
+  if (ctx.state.railStatusLevel === level) return;
+  ctx.state.railStatusLevel = level;
+
+  const dot = ctx.dom.railStatusDot;
+  const word = ctx.dom.railStatusWord;
+  if (word) {
+    word.textContent = RAIL_STATUS_WORDS[level];
+  }
+  if (dot) {
+    Object.keys(RAIL_STATUS_WORDS).forEach((name) => {
+      dot.classList.toggle(`is-level-${name}`, name === level);
+    });
+  }
 }
 
 export function renderDisplay(ctx) {
@@ -135,6 +156,7 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
 
   if (next) {
     setSettingsSection(ctx, getDefaultSettingsSection(ctx));
+    renderReadyCheck(ctx);
   }
 
   if (ctx.dom.settingsPanel) {
@@ -409,6 +431,42 @@ export function syncSettingsPanel(ctx) {
 
   updateSourceButtons(ctx);
   syncServiceRegistration(ctx);
+  renderReadyCheck(ctx);
+}
+
+export function renderReadyCheck(ctx) {
+  renderReadyCheckRow(ctx.dom.readyCheckMicDot, ctx.dom.readyCheckMicFix, checkMicReady(ctx), {
+    fix: 'This browser can\'t listen. Choose OpenAI transcription or type lines manually.'
+  });
+
+  const activeSummaryProvider = ctx.state.summarizationSource === 'claude' ? 'claude' : 'openai';
+  renderReadyCheckRow(ctx.dom.readyCheckAiDot, ctx.dom.readyCheckAiFix, checkAiReady(ctx), {
+    fix: activeSummaryProvider === 'claude'
+      ? 'Claude key is missing. Add one in AI services, or switch to OpenAI.'
+      : 'OpenAI key is missing. Add one in AI services, or switch to Claude.'
+  });
+
+  renderReadyCheckRow(ctx.dom.readyCheckDisplayDot, ctx.dom.readyCheckDisplayFix, true, { fix: '' });
+}
+
+function checkMicReady(ctx) {
+  return browserSpeechAvailable() || (ctx.state.transcriptionSource === 'openai' && Boolean(ctx.state.openAiReady));
+}
+
+function checkAiReady(ctx) {
+  const activeSummaryProvider = ctx.state.summarizationSource === 'claude' ? 'claude' : 'openai';
+  return activeSummaryProvider === 'claude' ? Boolean(ctx.state.anthropicReady) : Boolean(ctx.state.openAiReady);
+}
+
+function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
+  if (dot) {
+    dot.classList?.toggle?.('is-ready', ready);
+    dot.classList?.toggle?.('is-not-ready', !ready);
+  }
+  if (fixNode) {
+    fixNode.textContent = ready ? '' : fix || '';
+    fixNode.hidden = ready;
+  }
 }
 
 function createTranscriptCard(item, active = false) {
@@ -654,7 +712,7 @@ function buildAlerts(ctx) {
   return alerts;
 }
 
-function browserSpeechAvailable() {
+export function browserSpeechAvailable() {
   return Boolean(globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition);
 }
 

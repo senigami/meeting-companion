@@ -80,6 +80,11 @@
         </div>
       </div>
 
+      <div id="railStatus" class="railStatus" role="status">
+        <span id="railStatusDot" class="railStatusDot" aria-hidden="true"></span>
+        <span id="railStatusWord" class="railStatusWord">Manual</span>
+      </div>
+
       <div class="railBody controlScrollArea">
         <section class="section railSection">
           <div class="section-label">Quick controls</div>
@@ -259,6 +264,32 @@
           </section>
 
           <section class="settingsCard settingsDiagnosticsCard" data-settings-section="tools">
+            <div class="section-label">Ready check</div>
+            <div class="readyCheck" role="group" aria-label="Ready check">
+              <div class="readyCheckRow" data-ready="mic">
+                <span id="readyCheckMicDot" class="readyCheckDot" aria-hidden="true"></span>
+                <div class="readyCheckText">
+                  <div id="readyCheckMicLabel" class="readyCheckLabel">Microphone</div>
+                  <div id="readyCheckMicFix" class="readyCheckFix"></div>
+                </div>
+              </div>
+              <div class="readyCheckRow" data-ready="ai">
+                <span id="readyCheckAiDot" class="readyCheckDot" aria-hidden="true"></span>
+                <div class="readyCheckText">
+                  <div id="readyCheckAiLabel" class="readyCheckLabel">AI summaries</div>
+                  <div id="readyCheckAiFix" class="readyCheckFix"></div>
+                </div>
+                <button id="readyCheckAiTest" type="button" class="ghost readyCheckAction">Test</button>
+              </div>
+              <div class="readyCheckRow" data-ready="display">
+                <span id="readyCheckDisplayDot" class="readyCheckDot" aria-hidden="true"></span>
+                <div class="readyCheckText">
+                  <div id="readyCheckDisplayLabel" class="readyCheckLabel">TV display</div>
+                  <div id="readyCheckDisplayFix" class="readyCheckFix"></div>
+                </div>
+                <button id="readyCheckDisplaySample" type="button" class="ghost readyCheckAction">Show sample line</button>
+              </div>
+            </div>
             <div class="section-label">Diagnostics</div>
             <div class="settingsDetailsBody">
               <section class="section">

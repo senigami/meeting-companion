@@ -173,6 +173,71 @@ html.is-resizing-rail .railResizeHandle::before {
   display: block;
 }
 
+.railStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--chrome-radius-md);
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  margin-top: -0.2rem;
+}
+
+.railStatusDot {
+  --rail-status-color: var(--chrome-text-secondary);
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--rail-status-color);
+  transition: background-color 160ms ease;
+}
+
+.railStatusDot.is-level-listening {
+  /* chrome literal: system green has no chrome-* token */
+  --rail-status-color: #34c759;
+}
+
+.railStatusDot.is-level-paused {
+  /* chrome literal: matches the pause-amber used elsewhere */
+  --rail-status-color: #ffc15c;
+}
+
+.railStatusDot.is-level-manual {
+  --rail-status-color: var(--chrome-text-secondary);
+}
+
+.railStatusDot.is-level-problem {
+  /* chrome literal: matches --clear-danger */
+  --rail-status-color: #ff453a;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .railStatusDot.is-level-listening,
+  .railStatusDot.is-level-paused,
+  .railStatusDot.is-level-manual,
+  .railStatusDot.is-level-problem {
+    animation: railStatusPulse 480ms ease-out;
+  }
+}
+
+@keyframes railStatusPulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--rail-status-color);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.railStatusWord {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chrome-text-secondary);
+}
+
 .railBody,
 .controlScrollArea,
 .panel-main {
