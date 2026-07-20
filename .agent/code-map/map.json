@@ -1,0 +1,565 @@
+{
+  "meta": {
+    "synced_commit": "a916713f45dde0f18935dcd09b84a634d409cb0b",
+    "built_by": "Claude Sonnet 5, direct file reads (Agent/subagent dispatch was unavailable this session due to a classifier outage; mechanical + semantic + flow layers were all done in-session by the orchestrator rather than fanned out)",
+    "file_hashes": {
+      "public/app.js": "f076095520c7899fca430dbdf7d3b941d1b7b32beb0fbe6e80a250a8a725810e",
+      "public/controller/app-controller.js": "c96b350201777cfc8df77512fef87717a2d26cb47a969751e80229b780c5dbfd",
+      "public/controller/start-app.js": "a4e74ee46f31e289e1589eef6f02f866c9becdc27aa199e3ee0bd5184c8e0b6a",
+      "public/controller/runtime.js": "e6604ee1b06d52dad94840bbd892b068ecfbe4e754f546b459f33f2ff955d588",
+      "public/controller/view.js": "8f84356aaca151eed7e92570f6c679c33dc237550ca193345ab929c6cb0748d0",
+      "public/controller/demo-feed.js": "5c41bb7c0f689362679547f4e26b51f1708f71b6becfd0cfdf6326bbcf13b618",
+      "public/controller/rail-collapse.js": "25f8f629e102add23076388a94dd2dfa9f41322b5bc7d83be41461d873cfd9d3",
+      "public/controller/rail-resize.js": "9f79926951d6989b289f424d6c424235936ae20eb77bb9b632cd31418b647b38",
+      "public/controller/range-slider.js": "9c3791046f0b82394ae565f79c0ca93b31b3e7f3264e729af99e007277571698",
+      "public/controller/margin-guides.js": "8ce2e76baa3d1acb8945d4c9f37f2a7436996461666cc1eed1cd817f2b02723a",
+      "public/controller/provider-availability.js": "b0d041d169aa593676ba4b06c1f1635c310e55f8a7d095df7d37747a8e03e254",
+      "public/controller/view-settings-sync.js": "56de9a27e300c412bcf7abf498ba14860ce26368be8632b1c6e918fc9a5fe082",
+      "public/services/catalog.js": "9284c6660ae741dfad78605a56c0f5a81204146b34143b03ae1bd532568e747c",
+      "public/services/registry.js": "37dcbc18b5fd1e5323f87e7c8a85cf51f3a2e7b866b1f43c892e889b7a5031ec",
+      "public/services/text.js": "6d0b3bc54a29790129e6db02c8ffa7c2246a400225e102d35c8b270eed294f6b",
+      "public/services/response.js": "3945cd589829faf822d97cea8724a181c52830ad0e77d700015cdbb9e40c07f2",
+      "public/services/fetch-timeout.js": "918de2ec5bdb43ef104481898412559349bcb29e88430e747d668608977101bc",
+      "public/services/provider-credentials.js": "7dc827939bc0bd0dab7d029d5b42003c905ef6972de04456702bbbfbccf27c8a",
+      "public/services/view-settings.js": "4c663de1bd3cc89cda23eb816fbf0160162d17a878c57c7cfe13aa88cf2f6ee7",
+      "public/services/summary-prompt.js": "6fa0d91d99c1849f7e1bc3d08dae6c21cc144a893e03270bd7a0bbb86aff2c99",
+      "public/services/transcript-display.js": "4937e8831c09bd0defdbd0efd53984a7cb934d0f4546170978ebc18d87b519d3",
+      "public/services/transcript-bucket.js": "86589f87b56decb693d0fce57a963901bb2e982ec02d0663924cf7f9b8e8380b",
+      "public/services/summarization/openai.js": "6ba59e726e013c47809798ec69dbd18a3d9df48fd1379240c63b75129c436bc9",
+      "public/services/summarization/claude.js": "d207d4e91de4eeafd260cd5f0449ff1474748d9b0b526b4f430c86085db9c14b",
+      "public/services/transcription/browser.js": "2f2aef4a9756364859af94dd999b55e9191d905f4c235be60bfaf112b859e1f6",
+      "public/services/transcription/openai.js": "f23d5a7dd792930e2b06ad7c0382ce60d20713bcd4143a0950f7c696590bb63b",
+      "public/services/transcription/prompt.js": "a44a9e522c2989d2f438dfbc026ce0864f412473735c7b11127367fb0ffad578",
+      "server.js": "aa5a0371278e551259df549c490a13736cd12152794f4755aba3acfd6f4a11e8",
+      "server/summarization.js": "c8afc9a72e645d0d304c52e282e409d191868bd15f0d471887aeb48629ca0090",
+      "summarizer.js": "92e12fa8b9e38eed85b32ffe0f610f977e22bd976b3deca72347bf55624c974c"
+    },
+    "repo_checksum": "6354b4eb83ffe6c65a8c96bf18cbc4796cfd09245ab9c15a7ef85f0fef8324ba",
+    "shards": [],
+    "edge_tool": "madge --json (v8.0.0), entry points: server.js summarizer.js public/app.js server/summarization.js",
+    "unmapped": [
+      "public/index.html (DOM ids/structure; contract already pinned by test/public/helper-panel-structure.test.js and described in docs/02, docs/03)",
+      "public/style.css, public/styles/*.css (visual tokens; pinned contract lives in test/public/style.test.js, described in docs/02 INV-9)",
+      "test/** (test tree; layout mapping already lives in docs/05-code-organization.md)",
+      "public/wiki/**, public/assets/** (static content, no logic)",
+      "scripts/verify.sh (thin npm test wrapper)"
+    ]
+  },
+  "flows": [
+    {
+      "id": "boot",
+      "path": [
+        "public/app.js",
+        "public/controller/app-controller.js#startApp",
+        "public/controller/start-app.js#startApp",
+        "public/controller/runtime.js#createRuntime",
+        "public/controller/runtime.js#loadRuntimeConfig",
+        "server.js#GET /api/config"
+      ],
+      "carries": "initial ctx.state/ctx.dom, then provider-availability data",
+      "invariant": "startApp() must render a usable manual-only UI even if /api/config fails; the catch path only sets a status warning, per INV-8-adjacent 'manual mode always works' rule."
+    },
+    {
+      "id": "browser-transcription",
+      "path": [
+        "public/controller/start-app.js#bindControlButtons (startListening click)",
+        "public/controller/runtime.js#startListening",
+        "public/services/registry.js#createTranscriptionDriver('browser')",
+        "public/services/transcription/browser.js#createBrowserTranscriptionDriver (Web Speech API)",
+        "public/controller/runtime.js#handleTranscriptEvent",
+        "public/services/transcript-bucket.js",
+        "public/controller/runtime.js#showRecentTranscript",
+        "public/controller/view.js (rail + liveTranscript textContent)"
+      ],
+      "carries": "SpeechRecognition final/partial text events -> transcriptChunks/transcriptPreview state -> rendered preview text",
+      "invariant": "INV-4: browser transcription must fail gracefully (isAvailable() false) rather than throw; non-fatal 'no-speech'/'aborted' errors must not stop listening or flip rail status to Problem (see status-pipeline flow)."
+    },
+    {
+      "id": "openai-transcription",
+      "path": [
+        "public/controller/runtime.js#startListening",
+        "public/services/registry.js#createTranscriptionDriver('openai')",
+        "public/services/transcription/openai.js#createOpenAITranscriptionDriver (MediaRecorder, ~3.5s chunks)",
+        "public/services/fetch-timeout.js#fetchWithTimeout (~12s)",
+        "POST /api/transcribe",
+        "server.js (resolveOpenAIClient -> OpenAI audio.transcriptions.create, model gpt-4o-transcribe, streamed)",
+        "public/controller/runtime.js#handleTranscriptEvent"
+      ],
+      "carries": "base64 audio chunk + mode -> server-side OpenAI call -> { text } -> same transcriptChunks pipeline as browser flow",
+      "invariant": "INV-5: OpenAI transcription must stay off (startListening rejects) when neither providerKeys.openai nor serverOpenAiReady is true. Chunks are dropped if `listening` was toggled false or `sessionId` advanced mid-flight (stale-response guard)."
+    },
+    {
+      "id": "summarize-loop",
+      "path": [
+        "public/controller/runtime.js#startLoop (setInterval, summaryIntervalSeconds)",
+        "public/controller/runtime.js#summarizeCurrentText",
+        "public/services/transcript-bucket.js#partitionBucket (sentence-boundary split, 20s settle)",
+        "public/services/registry.js#createSummarizationDriver('openai'|'claude')",
+        "POST /api/summarize",
+        "server.js -> server/summarization.js#summarizeWithSource",
+        "OpenAI chat.completions.create OR Anthropic /v1/messages",
+        "public/services/summary-prompt.js#shouldAcceptModelLine / cleanModelLine",
+        "public/controller/runtime.js#addLine",
+        "public/services/transcript-display.js#createTranscriptItems",
+        "public/controller/view.js#renderDisplay"
+      ],
+      "carries": "recent transcript text + last 5 visible lines -> provider call -> filtered single line -> new TranscriptItem(s) on the TV stack",
+      "invariant": "The bucket only marks chunks consumed (removeConsumed) after a SUCCESSFUL summarize call while unpaused; a failed or pause-interrupted call re-sends the same sentences next tick (ctx.state.lastSentText dedupe + ctx.state.summarizeInFlight guard prevents overlapping calls). 3 consecutive failures trigger escalateSummarizeFailure (doubles the interval up to 30s, shows the alert banner)."
+    },
+    {
+      "id": "manual-entry",
+      "path": [
+        "public/controller/start-app.js#bindManualEntry (#manualInput Enter / #addManual click)",
+        "public/controller/runtime.js#addLine",
+        "public/services/transcript-display.js#createTranscriptItems",
+        "public/controller/view.js#renderDisplay"
+      ],
+      "carries": "typed line -> TranscriptItem with source:'manual'",
+      "invariant": "INV-2: must work even when ctx.state.paused is true or no AI provider is configured; addLine never checks paused."
+    },
+    {
+      "id": "paste-summarize-override",
+      "path": [
+        "public/index.html#pasteTranscript + #summarizeOnce (Settings > Tools)",
+        "public/controller/start-app.js#bindTranscriptSummaries (Ctrl/Cmd+Enter or click)",
+        "public/controller/runtime.js#summarizeCurrentText(text)"
+      ],
+      "carries": "pasted text passed directly as the `text` argument, skipping partitionBucket entirely",
+      "invariant": "Undocumented-until-this-map feature (found by direct code read, not in the prior spec pass): this is the only summarize entry point that bypasses the live transcript bucket. Only structurally tested (test/public/helper-panel-structure.test.js); the Ctrl+Enter/button trigger behavior itself has no automated test."
+    },
+    {
+      "id": "clear-undo",
+      "path": [
+        "public/controller/start-app.js#bindControlButtons (#clear click, arm/confirm)",
+        "public/controller/runtime.js#clearLines / #undoLine",
+        "public/controller/view.js#flashRailNote",
+        "public/controller/view.js#updateStatus"
+      ],
+      "carries": "ctx.state.transcriptItems snapshot -> ctx.state.lastClearedItems -> restorable on Undo",
+      "invariant": "Clear requires two calls within CLEAR_ARM_TIMEOUT_MS (3s) to confirm; clearing an already-empty transcript shows 'Nothing to clear.' without destroying any existing lastClearedItems snapshot. Every Clear/Undo path also calls flashRailNote for 4s operator-visible feedback, independent of the diagnostics status line."
+    },
+    {
+      "id": "provider-registration",
+      "path": [
+        "public/index.html Settings > AI services (#serviceRegistration*)",
+        "public/controller/start-app.js#bindServiceRegistrationControls",
+        "public/controller/runtime.js#saveProviderKey / testProviderKey / deleteProviderKey",
+        "POST /api/provider/key, POST /api/provider/test, DELETE /api/provider/key",
+        "server.js (providerKeyStore, in-memory Map)",
+        "public/controller/runtime.js#applyProviderConfig",
+        "public/controller/view.js#updateSourceButtons / syncSettingsPanel"
+      ],
+      "carries": "candidate API key -> masked provider status -> promotes the source into the active selector once configured",
+      "invariant": "INV-3: a source only appears selectable once isSourceConfigured() is true; the full key is never echoed back (server responses only ever include masked status). providerKeyStore is in-memory only and is lost on server restart unless the key came from an env var."
+    },
+    {
+      "id": "rail-collapse",
+      "path": [
+        "public/controller/start-app.js#bindEvents -> bindRailCollapse",
+        "public/controller/rail-collapse.js#setRailCollapsed",
+        "html.is-rail-collapsed + localStorage('operatorRailCollapsed')",
+        "public/controller/rail-resize.js#syncRailWidth (on expand)"
+      ],
+      "carries": "collapsed boolean, persisted; on expand, restores ctx.state.operatorRailWidth rather than snapping to 64px",
+      "invariant": "Collapse never mutates ctx.state.operatorRailWidth or its storage key -- only the CSS class and the `is-rail-collapsed` html flag change, so expand always restores the pre-collapse width."
+    },
+    {
+      "id": "status-pipeline",
+      "path": [
+        "any driver onStatus(text) callback (browser.js, transcription/openai.js, runtime.js failure paths)",
+        "public/controller/runtime.js#transcriptionStatusLevel (classifier)",
+        "public/controller/view.js#updateStatus(ctx, text, { level })",
+        "Settings > Tools diagnostics line (#status) + rail status dot/word (#railStatusDot, #railStatusWord)"
+      ],
+      "carries": "raw status text -> optional level ('listening'|'paused'|'manual'|'problem') -> two DOM writes from one call",
+      "invariant": "INV-10: transcriptionStatusLevel() must return undefined (not 'problem') for text matching /^Speech recognition error:/i -- these are non-fatal blips (no-speech/aborted) that browser.js emits while still listening. Only fatal phrasing ('...stopped after...', 'Microphone stopped...') raises Problem. updateStatus is the single write point for both surfaces and no-ops on repeated identical levels."
+    }
+  ],
+  "invariants": [
+    { "id": "INV-1", "rule": "The TV display always shows a bounded stack of transcript cards (MAX_DISPLAY_ITEMS=24 in transcript-display.js); only the newest items remain in view.", "applies_to": ["public/services/transcript-display.js", "public/controller/view.js"] },
+    { "id": "INV-2", "rule": "Manual lines (addLine) must appear immediately and never wait on or check ctx.state.paused.", "applies_to": ["public/controller/runtime.js#addLine"] },
+    { "id": "INV-3", "rule": "Source ids are public contract values (catalog.js: browser/openai transcription, openai/claude summarization); a source only appears in the selector once isSourceConfigured() is true.", "applies_to": ["public/services/catalog.js", "public/controller/view.js#updateSourceButtons", "public/controller/provider-availability.js"] },
+    { "id": "INV-4", "rule": "Browser transcription must fail gracefully (isAvailable() check) when SpeechRecognition is absent, never throw uncaught.", "applies_to": ["public/services/transcription/browser.js"] },
+    { "id": "INV-5", "rule": "OpenAI transcription/summarization must stay unavailable when no OpenAI key is configured (env var or providerKeyStore).", "applies_to": ["server.js#resolveOpenAIClient", "public/controller/runtime.js#startListening"] },
+    { "id": "INV-6", "rule": "Claude summarization must stay unavailable when no Anthropic key is configured.", "applies_to": ["server/summarization.js#summarizeWithClaude"] },
+    { "id": "INV-7", "rule": "On startup, ensureSelectedSummarizationSourceExists/ensureSelectedTranscriptionSourceExists must switch away from an unconfigured selected source to one that is actually available.", "applies_to": ["public/controller/runtime.js"] },
+    { "id": "INV-8", "rule": "No audio or transcript history is persisted by default; server.js never writes received audio/text to disk, and providerKeyStore is an in-memory Map.", "applies_to": ["server.js"] },
+    { "id": "INV-9", "rule": "TV canvas tokens (--bg, --text, --panel, --accent, --muted, --font-size) stay separate from the --chrome-* tier (verified: --chrome-accent #0a84ff, radii 6/10/12px in public/styles/base.css); chrome restyles must never touch canvas tokens.", "applies_to": ["public/styles/base.css", "public/styles/controls.css"] },
+    { "id": "INV-10", "rule": "transcriptionStatusLevel() must not raise 'problem' for non-fatal '^Speech recognition error:' text; only fatal phrasing does.", "applies_to": ["public/controller/runtime.js#transcriptionStatusLevel", "public/services/transcription/browser.js"] },
+    { "id": "INV-11 (map-only, not yet in specs)", "rule": "summarizeCurrentText only drains/marks bucket chunks consumed after a SUCCESSFUL, unpaused summarize call; failures and mid-flight pauses re-send the same recent text next tick. ctx.state.summarizeInFlight prevents overlapping calls from double-consuming the bucket.", "applies_to": ["public/controller/runtime.js#summarizeCurrentText", "public/services/transcript-bucket.js"] },
+    { "id": "INV-12 (map-only, not yet in specs)", "rule": "server.js providerKeyStore is a process-local in-memory Map; keys saved via /api/provider/key are lost on server restart unless also set as an env var.", "applies_to": ["server.js#createProviderKeyStore"] }
+  ],
+  "coupling": [],
+  "coupling_note": "Git archaeology (12mo history, 11 qualifying multi-file commits) found only one co-change cluster meeting the co_changes>=5 / strength>=0.5 threshold: runtime.js<->start-app.js (6, 0.75), runtime.js<->view.js (6, 0.86), start-app.js<->view.js (6, 0.86) -- all three pairs are already fully explained by direct import edges in files.*.calls, so per the skill's rule ('if a calls edge already explains it, drop it') nothing implicit survives to record here. Re-run at next consolidation once synced_commit has advanced ~50 commits.",
+  "hotspots": [
+    { "file": "public/controller/runtime.js", "commits_12mo": 17, "note": "highest-churn file in the repo; also highest fan-in module (registry, view, margin-guides, view-settings-sync, provider-availability all called from here) -- extra review scrutiny warranted on any diff touching it." },
+    { "file": "public/controller/start-app.js", "commits_12mo": 14, "note": "wiring/bootstrap file; co-changes with runtime.js and view.js on nearly every touch (see coupling_note)." },
+    { "file": "public/controller/view.js", "commits_12mo": 13, "note": "sole DOM-rendering surface; co-changes with runtime.js and start-app.js." },
+    { "file": "server.js", "commits_12mo": 6, "note": "server entry point + provider-key store." },
+    { "file": "public/services/summarization/claude.js", "commits_12mo": 5, "note": "" },
+    { "file": "public/services/summarization/openai.js", "commits_12mo": 5, "note": "" },
+    { "file": "public/services/transcription/openai.js", "commits_12mo": 5, "note": "" }
+  ],
+  "modules": {
+    "public/controller": {
+      "purpose": "UI state machine (ctx.state/ctx.dom), DOM rendering, event binding, keyboard shortcuts.",
+      "depends_on": ["public/services"],
+      "depended_by": []
+    },
+    "public/services": {
+      "purpose": "Provider-agnostic driver registry, catalog, prompt/text utilities, transcript segmentation and bucketing.",
+      "depends_on": [],
+      "depended_by": ["public/controller", "server.js", "server/summarization.js"]
+    },
+    "public/services/transcription": {
+      "purpose": "Transcription driver implementations (browser Web Speech API, OpenAI chunked-audio upload) behind the {id,label,isAvailable,start,stop} shape.",
+      "depends_on": ["public/services"],
+      "depended_by": ["public/services/registry.js"]
+    },
+    "public/services/summarization": {
+      "purpose": "Summarization driver implementations (OpenAI, Claude) behind the {id,label,summarize} shape; both just POST /api/summarize with a different `source`.",
+      "depends_on": ["public/services"],
+      "depended_by": ["public/services/registry.js"]
+    },
+    "server (root)": {
+      "purpose": "Express app: static file serving, /api/config, provider key CRUD, /api/transcribe (OpenAI only), /api/summarize (OpenAI or Claude), /api/provider/test.",
+      "depends_on": ["public/services", "server/summarization.js"],
+      "depended_by": []
+    }
+  },
+  "files": {
+    "public/app.js": {
+      "purpose": "Browser entry point; imports and calls startApp().",
+      "exports": [],
+      "calls": ["public/controller/app-controller.js#startApp"],
+      "called_by": [],
+      "flows": ["boot"]
+    },
+    "public/controller/app-controller.js": {
+      "purpose": "Stable re-export indirection so the entry point never has to change when start-app.js moves.",
+      "exports": [{ "name": "startApp", "kind": "re-export", "contract": "re-exports public/controller/start-app.js#startApp verbatim" }],
+      "calls": ["public/controller/start-app.js#startApp"],
+      "called_by": ["public/app.js"],
+      "flows": ["boot"]
+    },
+    "public/controller/start-app.js": {
+      "purpose": "Builds ctx.state/ctx.dom, binds every DOM event listener, and kicks off initial render + config load + optional demo feed.",
+      "exports": [{ "name": "startApp", "kind": "fn", "contract": "no args; side-effects only -- constructs ctx, calls createRuntime(ctx), binds all events, triggers loadRuntimeConfig()" }],
+      "calls": [
+        "public/controller/runtime.js#createRuntime",
+        "public/controller/view.js (renderDisplay, bindTranscriptViewport, setSettingsOpen, setSettingsSection, setViewPanelOpen, syncViewerControls, updateModeButtons, updatePauseButton, updateSourceButtons)",
+        "public/controller/rail-resize.js#bindRailResize, loadRailWidth",
+        "public/controller/rail-collapse.js#bindRailCollapse, loadRailCollapsed",
+        "public/controller/range-slider.js#bindRangeSlider",
+        "public/controller/demo-feed.js#isDemoModeEnabled, startDemoFeed",
+        "public/services/view-settings.js (clamp* fns)"
+      ],
+      "called_by": ["public/controller/app-controller.js"],
+      "flows": ["boot", "browser-transcription", "manual-entry", "paste-summarize-override", "clear-undo", "provider-registration", "rail-collapse"],
+      "notes": ["Initial ctx.state is assembled here in one object literal -- this is the canonical list of every runtime state field (cross-check against docs/03-data-model.md's Runtime state table when either changes)."]
+    },
+    "public/controller/runtime.js": {
+      "purpose": "The controller's behavior layer: listening lifecycle, summarize loop with backoff, clear/undo, provider key CRUD, source switching. Returns a flat action-map consumed by start-app.js.",
+      "exports": [{ "name": "createRuntime", "kind": "fn", "contract": "(ctx, deps?) -> { addLine, undoLine, clearLines, startListening, stopListening, togglePauseAi, summarizeCurrentText, setTranscriptionSource, setSummarizationSource, saveProviderKey, testProviderKey, deleteProviderKey, loadRuntimeConfig, ...view passthroughs }" }],
+      "calls": [
+        "public/services/registry.js#createTranscriptionDriver, createSummarizationDriver",
+        "public/services/catalog.js#getDefaultSummarizationSource",
+        "public/services/transcript-bucket.js#partitionBucket, bucketText, removeConsumed, trimBucket",
+        "public/services/transcript-display.js#createTranscriptItems, appendTranscriptItems",
+        "public/services/text.js#appendUniqueChunk, normalizeText",
+        "public/services/fetch-timeout.js#fetchWithTimeout",
+        "public/services/view-settings.js#clampFontSize, clampDisplayMargin, clampSummaryIntervalSeconds",
+        "public/controller/view.js#flashRailNote, renderDisplay, updateStatus, setSettingsOpen, updateClearButton, updateModeButtons, updatePauseButton, updateSourceButtons, syncSettingsPanel, syncViewerControls, setDisplayMarginGuidesVisible, updateSummaryIntervalControl",
+        "public/controller/margin-guides.js#flashDisplayMarginGuides, clearDisplayMarginGuideTimer",
+        "public/controller/view-settings-sync.js#saveViewerSettings",
+        "public/controller/provider-availability.js#isProviderConfigured, isSourceConfigured",
+        "fetch /api/provider/key, /api/provider/test, /api/config (direct, not via a service wrapper)"
+      ],
+      "called_by": ["public/controller/start-app.js"],
+      "flows": ["boot", "browser-transcription", "openai-transcription", "summarize-loop", "manual-entry", "paste-summarize-override", "clear-undo", "provider-registration", "status-pipeline"],
+      "notes": [
+        "transcriptionStatusLevel() (line ~61) is the non-fatal-blip classifier feeding INV-10 -- comment explicitly documents why '^Speech recognition error:' must return undefined.",
+        "summarizeCurrentText's bucket-drain-only-on-success behavior is called out in an inline comment ('The bucket only drains on success while unpaused...') -- see INV-11.",
+        "escalateSummarizeFailure doubles the summarize interval up to 30s after 3 consecutive failures and shows the alert banner; resetSummarizeBackoff reverses it on the next success."
+      ]
+    },
+    "public/controller/view.js": {
+      "purpose": "All DOM writes: transcript card rendering, status/rail-note writes, Settings master-detail nav, provider/registration card sync, Ready check rows, slider visuals.",
+      "exports": [
+        { "name": "updateStatus", "kind": "fn", "contract": "(ctx, text, {level}?) -> writes diagnostics status line + (if level given and changed) rail status dot/word together" },
+        { "name": "flashRailNote", "kind": "fn", "contract": "(ctx, text, {setTimeoutFn,clearTimeoutFn}?) -> shows #railNote for 4s then hides" },
+        { "name": "renderDisplay", "kind": "fn", "contract": "(ctx) -> replaces transcriptStack children from ctx.state.transcriptItems, or shows sample text if empty + viewPanelOpen" },
+        { "name": "setSettingsOpen / setSettingsSection / setViewPanelOpen", "kind": "fn", "contract": "dialog open/close + focus management for Settings and the View drawer" },
+        { "name": "syncSettingsPanel / syncServiceRegistration / renderReadyCheck", "kind": "fn", "contract": "re-derive all Settings-panel DOM from current ctx.state (alerts, provider cards, ready-check dots)" },
+        { "name": "updateModeButtons / updateSourceButtons / updatePauseButton / updateClearButton / updateSummaryIntervalControl / syncViewerControls / applyViewerSettings", "kind": "fn", "contract": "one-shot DOM sync functions, each driven off a slice of ctx.state" },
+        { "name": "browserSpeechAvailable", "kind": "fn", "contract": "() -> boolean, checks window.SpeechRecognition/webkitSpeechRecognition" }
+      ],
+      "calls": ["public/services/view-settings.js#FONT_SIZE_MIN, FONT_SIZE_MAX, summaryIntervalSliderIndexFromSeconds"],
+      "called_by": ["public/controller/runtime.js", "public/controller/start-app.js", "public/controller/margin-guides.js", "public/controller/view-settings-sync.js"],
+      "flows": ["manual-entry", "clear-undo", "status-pipeline", "provider-registration"],
+      "notes": ["createTranscriptCard has a manual DOM-node fallback (createNode) for non-browser test environments without document.createElement."]
+    },
+    "public/controller/demo-feed.js": {
+      "purpose": "Scripted 6-step sample transcript feed for visual QA, gated behind ?demo=1.",
+      "exports": [
+        { "name": "isDemoModeEnabled", "kind": "fn", "contract": "(searchString) -> boolean, true if ?demo param present" },
+        { "name": "getDemoFeedSteps", "kind": "fn", "contract": "() -> deep copy of the 6 scripted steps" },
+        { "name": "startDemoFeed", "kind": "fn", "contract": "(runtime, {setTimeoutFn,clearTimeoutFn}?) -> schedules setMode+handleTranscriptEvent+addLine per step; returns a cancel fn" }
+      ],
+      "calls": [],
+      "called_by": ["public/controller/start-app.js"],
+      "flows": ["boot"],
+      "notes": ["Never touches the real transcription drivers -- calls runtime.addLine/handleTranscriptEvent directly, so it exercises the same render path as real transcripts."]
+    },
+    "public/controller/rail-collapse.js": {
+      "purpose": "Collapse/expand the operator rail to a 64px icon strip; persists the choice.",
+      "exports": [
+        { "name": "loadRailCollapsed", "kind": "fn", "contract": "(storage?) -> boolean from localStorage('operatorRailCollapsed')" },
+        { "name": "setRailCollapsed", "kind": "fn", "contract": "(ctx, collapsed) -> toggles html.is-rail-collapsed, persists, re-syncs rail width on expand" },
+        { "name": "bindRailCollapse", "kind": "fn", "contract": "(ctx) -> wires toggle click + resize-handle dblclick, applies initial state" },
+        { "name": "RAIL_COLLAPSED_STORAGE_KEY", "kind": "const", "contract": "'operatorRailCollapsed'" }
+      ],
+      "calls": ["public/controller/rail-resize.js#syncRailWidth"],
+      "called_by": ["public/controller/start-app.js"],
+      "flows": ["rail-collapse"],
+      "notes": ["Captures dblclick pointerdown in the capture phase (event.detail > 1) specifically so it fires before rail-resize.js's drag-start listener, without modifying rail-resize.js itself (documented exception, see inline comment)."]
+    },
+    "public/controller/rail-resize.js": {
+      "purpose": "Draggable/keyboard-resizable operator rail width, persisted and clamped to the viewport.",
+      "exports": [
+        { "name": "loadRailWidth", "kind": "fn", "contract": "(storage?) -> clamped width from localStorage('operatorRailWidth'), default 220" },
+        { "name": "syncRailWidth", "kind": "fn", "contract": "(ctx) -> writes --operator-rail-width CSS var + handle aria attrs from ctx.state.operatorRailWidth" },
+        { "name": "setRailWidth", "kind": "fn", "contract": "(ctx, width) -> clamps, persists, calls syncRailWidth" },
+        { "name": "bindRailResize", "kind": "fn", "contract": "(ctx) -> wires pointer drag + arrow/Home/End keyboard resize on the handle" },
+        { "name": "RAIL_WIDTH_STORAGE_KEY, DEFAULT_RAIL_WIDTH, MIN_RAIL_WIDTH", "kind": "const", "contract": "'operatorRailWidth', 220, 180" }
+      ],
+      "calls": [],
+      "called_by": ["public/controller/start-app.js", "public/controller/rail-collapse.js"],
+      "flows": ["rail-collapse"]
+    },
+    "public/controller/range-slider.js": {
+      "purpose": "Generic pointer-drag-to-value binding for the custom slider visuals (font size, display margin, summary interval).",
+      "exports": [
+        { "name": "valueFromPointer", "kind": "fn", "contract": "({clientX,rect,min,max,step}) -> stepped numeric value from pointer position" },
+        { "name": "bindRangeSlider", "kind": "fn", "contract": "(input, onChange, {onDragStart,onDragEnd}?) -> wires pointer/touch/keyboard-escape drag lifecycle on input's slider wrapper" }
+      ],
+      "calls": [],
+      "called_by": ["public/controller/start-app.js"],
+      "flows": []
+    },
+    "public/controller/margin-guides.js": {
+      "purpose": "Timed show/hide of the red display-margin guide lines after a non-drag margin change.",
+      "exports": [
+        { "name": "flashDisplayMarginGuides", "kind": "fn", "contract": "(ctx, {setTimeoutFn,clearTimeoutFn}?) -> shows guides, hides after 600ms; per-ctx timer via WeakMap" },
+        { "name": "clearDisplayMarginGuideTimer", "kind": "fn", "contract": "(ctx, {clearTimeoutFn}?) -> cancels the pending hide timer" }
+      ],
+      "calls": ["public/controller/view.js#setDisplayMarginGuidesVisible"],
+      "called_by": ["public/controller/runtime.js"],
+      "flows": []
+    },
+    "public/controller/provider-availability.js": {
+      "purpose": "Small predicate helpers for whether a transcription/summarization source is currently usable.",
+      "exports": [
+        { "name": "browserSpeechAvailable", "kind": "fn", "contract": "() -> boolean (duplicate of view.js's copy -- same logic, not re-exported from one place)" },
+        { "name": "isProviderConfigured", "kind": "fn", "contract": "(ctx, 'openai'|'claude') -> boolean from providerKeys or the ready flags" },
+        { "name": "isSourceConfigured", "kind": "fn", "contract": "(ctx, kind, source) -> browser special-case or isProviderConfigured" }
+      ],
+      "calls": [],
+      "called_by": ["public/controller/runtime.js"],
+      "flows": ["provider-registration"],
+      "notes": ["browserSpeechAvailable is duplicated verbatim here and in view.js -- not a bug, just an un-consolidated helper; flag if either copy drifts."]
+    },
+    "public/controller/view-settings-sync.js": {
+      "purpose": "Persists font size / display margin to localStorage and applies them as CSS vars in one call.",
+      "exports": [{ "name": "saveViewerSettings", "kind": "fn", "contract": "(ctx) -> applyViewerSettings(ctx) then writes fontSize/displayMargin to localStorage" }],
+      "calls": ["public/controller/view.js#applyViewerSettings"],
+      "called_by": ["public/controller/runtime.js"],
+      "flows": []
+    },
+    "public/services/catalog.js": {
+      "purpose": "The stable source-id catalog: what transcription/summarization sources exist and which is default.",
+      "exports": [
+        { "name": "listAvailableTranscriptionSources", "kind": "fn", "contract": "() -> [{id:'browser',...}, {id:'openai',...}]" },
+        { "name": "listAvailableSummarizationSources", "kind": "fn", "contract": "() -> [{id:'openai',...}, {id:'claude',...}]" },
+        { "name": "getDefaultTranscriptionSource", "kind": "fn", "contract": "() -> 'browser'" },
+        { "name": "getDefaultSummarizationSource", "kind": "fn", "contract": "() -> 'openai'" }
+      ],
+      "calls": [],
+      "called_by": ["public/services/registry.js", "public/controller/runtime.js", "server.js (transitively via registry.js#listAvailableSources)"],
+      "flows": [],
+      "notes": ["INV-3's 'source ids are a public contract' anchors here -- adding a source means adding it here AND in registry.js."]
+    },
+    "public/services/registry.js": {
+      "purpose": "Instantiates the concrete driver for a given source id; the modular boundary INV-3 refers to.",
+      "exports": [
+        { "name": "createTranscriptionDriver", "kind": "fn", "contract": "(source, deps) -> {id,label,isAvailable,start,stop}; throws on unknown source" },
+        { "name": "createSummarizationDriver", "kind": "fn", "contract": "(source, deps) -> {id,label,summarize}; throws on unknown source" },
+        { "name": "listAvailableSources", "kind": "fn", "contract": "() -> {transcription:[...], summarization:[...]} from catalog.js, used by GET /api/config" }
+      ],
+      "calls": ["public/services/catalog.js", "public/services/transcription/browser.js", "public/services/transcription/openai.js", "public/services/summarization/openai.js", "public/services/summarization/claude.js"],
+      "called_by": ["public/controller/runtime.js", "server.js"],
+      "flows": ["browser-transcription", "openai-transcription", "summarize-loop"]
+    },
+    "public/services/text.js": {
+      "purpose": "Shared string-normalization and dedupe-on-append helpers used across client and server.",
+      "exports": [
+        { "name": "normalizeText", "kind": "fn", "contract": "(text) -> collapsed-whitespace trimmed string" },
+        { "name": "toLowerKey", "kind": "fn", "contract": "(text) -> lowercase alnum-only key for dedupe comparisons" },
+        { "name": "appendUniqueText", "kind": "fn", "contract": "(list, text) -> list with text appended unless it matches the last entry's key" },
+        { "name": "appendUniqueChunk", "kind": "fn", "contract": "(chunks, text, at?) -> chunks with {text,at} appended unless it matches the last chunk's key" }
+      ],
+      "calls": [],
+      "called_by": ["public/services/transcript-bucket.js", "public/services/transcript-display.js", "public/services/response.js", "public/services/transcription/browser.js", "public/services/transcription/openai.js", "public/controller/runtime.js", "server.js"],
+      "flows": []
+    },
+    "public/services/response.js": {
+      "purpose": "Safe JSON-body reading and error-message extraction from fetch Responses, tolerant of non-JSON bodies.",
+      "exports": [
+        { "name": "readResponseJson", "kind": "fn", "contract": "(response) -> parsed JSON, or {raw: text} if not JSON, or {} if empty/absent" },
+        { "name": "responseErrorMessage", "kind": "fn", "contract": "(data, fallback?) -> data.error || data.raw || fallback" }
+      ],
+      "calls": ["public/services/text.js#normalizeText"],
+      "called_by": ["public/services/transcription/openai.js", "public/services/summarization/openai.js", "public/services/summarization/claude.js", "server/summarization.js"],
+      "flows": []
+    },
+    "public/services/fetch-timeout.js": {
+      "purpose": "AbortController-based fetch timeout wrapper shared by every network call site.",
+      "exports": [{ "name": "fetchWithTimeout", "kind": "fn", "contract": "(fetchImpl, url, options, {timeoutMs=12000,...}?) -> Promise<Response>; rejects with 'Request timed out' on timeout, respects an external options.signal too" }],
+      "calls": [],
+      "called_by": ["public/services/transcription/openai.js", "public/services/summarization/openai.js", "public/services/summarization/claude.js", "public/controller/runtime.js"],
+      "flows": ["openai-transcription", "summarize-loop", "provider-registration"]
+    },
+    "public/services/provider-credentials.js": {
+      "purpose": "Masking and status-derivation for a provider key, used identically by client display logic and server responses.",
+      "exports": [
+        { "name": "maskProviderKey", "kind": "fn", "contract": "(value) -> '***'-masked string, full mask if <=8 chars" },
+        { "name": "getProviderKeyState", "kind": "fn", "contract": "({serverReady,localKey}) -> {configured,origin:'local'|'server'|'missing',label,masked}" }
+      ],
+      "calls": [],
+      "called_by": ["server.js#describeProviderKeys"],
+      "flows": ["provider-registration"]
+    },
+    "public/services/view-settings.js": {
+      "purpose": "Clamping/stepping rules for font size, display margin, and the discrete summary-interval slider.",
+      "exports": [
+        { "name": "clampFontSize", "kind": "fn", "contract": "(value, fallback) -> stepped to 4px within [24,144]" },
+        { "name": "clampDisplayMargin", "kind": "fn", "contract": "(value, fallback) -> stepped to 0.5 within [0,40]" },
+        { "name": "clampSummaryIntervalSeconds / summaryIntervalSliderIndexFromSeconds / summaryIntervalSecondsFromSliderIndex", "kind": "fn", "contract": "snap to nearest of [2,5,10,15] seconds and convert to/from a 0-3 slider index" },
+        { "name": "FONT_SIZE_MIN, FONT_SIZE_MAX, DISPLAY_MARGIN_MIN, DISPLAY_MARGIN_MAX, summaryIntervalOptions, summaryIntervalSliderMax", "kind": "const", "contract": "24, 144, 0, 40, [2,5,10,15], 3" }
+      ],
+      "calls": [],
+      "called_by": ["public/controller/runtime.js", "public/controller/start-app.js", "public/controller/view.js"],
+      "flows": []
+    },
+    "public/services/summary-prompt.js": {
+      "purpose": "The single centralized summarize prompt builder and model-line acceptance filter (INV in docs/04: prompt policy must stay centralized here).",
+      "exports": [
+        { "name": "modeInstruction", "kind": "fn", "contract": "(mode) -> per-mode instruction sentence for speaker/information/song/prayer" },
+        { "name": "cleanModelLine", "kind": "fn", "contract": "(line) -> trims bullet markers/quotes/whitespace" },
+        { "name": "shouldAcceptModelLine", "kind": "fn", "contract": "(line, visibleLines) -> false if empty, vague (regex denylist), or a duplicate of an already-visible line" },
+        { "name": "buildSummarizePrompt", "kind": "fn", "contract": "({mode,recentTranscript,visibleLines}) -> full prompt string sent to OpenAI/Claude" }
+      ],
+      "calls": [],
+      "called_by": ["public/services/summarization/openai.js", "public/services/summarization/claude.js", "server/summarization.js", "summarizer.js (re-export)"],
+      "flows": ["summarize-loop"]
+    },
+    "public/services/transcript-display.js": {
+      "purpose": "Splits raw text into display-sized transcript-card segments and appends them to the bounded on-screen stack.",
+      "exports": [
+        { "name": "segmentTranscriptText", "kind": "fn", "contract": "(text, {maxChars=120}) -> array of thought/sentence-split, length-capped segments" },
+        { "name": "createTranscriptItems", "kind": "fn", "contract": "({text,mode,source,createdAt,maxChars}) -> array of {id,mode,text,createdAt,source} TranscriptItem" },
+        { "name": "appendTranscriptItems", "kind": "fn", "contract": "(items, nextItems) -> items with nextItems appended (skipping consecutive dupes), capped to MAX_DISPLAY_ITEMS=24" },
+        { "name": "isTranscriptNearBottom", "kind": "fn", "contract": "(viewport, threshold=96) -> boolean, used to decide auto-scroll-to-bottom" }
+      ],
+      "calls": ["public/services/text.js#normalizeText"],
+      "called_by": ["public/controller/runtime.js"],
+      "flows": ["summarize-loop", "manual-entry"],
+      "notes": ["nextTranscriptItemId is a module-level mutable counter -- never reset except in test setup; two calls in the same tick still get unique ids."]
+    },
+    "public/services/transcript-bucket.js": {
+      "purpose": "Sentence-aware partitioning of the live transcript preview: only chunks ending at a sentence boundary (or settled 20s unpunctuated) are 'consumable'.",
+      "exports": [
+        { "name": "BUCKET_SETTLE_MS, BUCKET_MAX_CHARS, BUCKET_SEND_MAX_CHARS", "kind": "const", "contract": "20000, 1600, 1000" },
+        { "name": "splitAtLastTerminator", "kind": "fn", "contract": "(text) -> {complete, tail} split at the last sentence-terminal punctuation" },
+        { "name": "partitionBucket", "kind": "fn", "contract": "(chunks, {now,settleMs}?) -> {consumable, remainder}; only the newest chunk can be split, older chunks are always fully consumable" },
+        { "name": "removeConsumed", "kind": "fn", "contract": "(chunks, consumed) -> chunks with consumed text stripped from the front of matching entries, empty results dropped" },
+        { "name": "bucketText", "kind": "fn", "contract": "(chunks, preview, {maxChars}?) -> joined display string, tail-truncated to maxChars" },
+        { "name": "trimBucket", "kind": "fn", "contract": "(chunks, {maxChars}?) -> drops oldest chunks until total length <= maxChars (always keeps at least 1)" }
+      ],
+      "calls": ["public/services/text.js#normalizeText"],
+      "called_by": ["public/controller/runtime.js"],
+      "flows": ["summarize-loop"],
+      "notes": ["Added in commit a916713 to replace a fixed rolling-window preview; TERMINAL_END regex and the settle-timeout are the whole sentence-boundary contract."]
+    },
+    "public/services/summarization/openai.js": {
+      "purpose": "OpenAI summarization driver: POSTs /api/summarize, filters/cleans the returned line client-side too.",
+      "exports": [{ "name": "createOpenAISummarizer", "kind": "fn", "contract": "(deps) -> {id:'openai',label:'OpenAI',summarize({mode,recentTranscript,visibleLines}) -> {line, prompt?}}" }],
+      "calls": ["public/services/summary-prompt.js", "public/services/response.js", "public/services/fetch-timeout.js"],
+      "called_by": ["public/services/registry.js"],
+      "flows": ["summarize-loop"]
+    },
+    "public/services/summarization/claude.js": {
+      "purpose": "Claude summarization driver: identical shape to the OpenAI one, POSTs the same endpoint with source:'claude'.",
+      "exports": [{ "name": "createClaudeSummarizer", "kind": "fn", "contract": "(deps) -> {id:'claude',label:'Claude',summarize(...) -> {line, prompt?}}" }],
+      "calls": ["public/services/summary-prompt.js", "public/services/response.js", "public/services/fetch-timeout.js"],
+      "called_by": ["public/services/registry.js"],
+      "flows": ["summarize-loop"]
+    },
+    "public/services/transcription/browser.js": {
+      "purpose": "Web Speech API driver with auto-restart-on-end and a non-fatal-vs-fatal error split.",
+      "exports": [{ "name": "createBrowserTranscriptionDriver", "kind": "fn", "contract": "({onEvent,onStatus,language}) -> {id:'browser',label:'Browser',isAvailable(),start(),stop()}" }],
+      "calls": ["public/services/text.js#normalizeText"],
+      "called_by": ["public/services/registry.js"],
+      "flows": ["browser-transcription"],
+      "notes": ["isFatalSpeechRecognitionError() treats only 'no-speech'/'aborted' as non-fatal -- this is the source-of-truth list that runtime.js#transcriptionStatusLevel's regex must stay compatible with (INV-10). onend auto-restarts up to MAX_RESTART_FAILURES=2 before giving up."]
+    },
+    "public/services/transcription/openai.js": {
+      "purpose": "MediaRecorder-based chunked audio capture and upload driver, ~3.5s chunks, one in-flight request queue.",
+      "exports": [{ "name": "createOpenAITranscriptionDriver", "kind": "fn", "contract": "({onEvent,onStatus,fetchImpl,chunkMs=3500,...}) -> {id:'openai',label:'OpenAI',isAvailable(),setMode(),start({currentMode}),stop()}" }],
+      "calls": ["public/services/text.js", "public/services/response.js", "public/services/transcription/prompt.js", "public/services/fetch-timeout.js"],
+      "called_by": ["public/services/registry.js"],
+      "flows": ["openai-transcription"],
+      "notes": ["sessionId increments on every start()/stop(); sendChunk/response handling both re-check `currentSession !== sessionId` so stale chunks from a superseded session are silently dropped -- this is the cancellation contract docs/02 refers to for OpenAI driver cancellation."]
+    },
+    "public/services/transcription/prompt.js": {
+      "purpose": "Per-mode system prompt fed to the server-side OpenAI transcription call (not the summarize prompt).",
+      "exports": [{ "name": "buildTranscriptionPrompt", "kind": "fn", "contract": "(mode) -> short mode-specific transcription instruction string" }],
+      "calls": [],
+      "called_by": ["public/services/transcription/openai.js (imported but not actually sent by the client -- the client driver doesn't call this)", "server.js (actual call site, passed to client.audio.transcriptions.create)"],
+      "flows": ["openai-transcription"]
+    },
+    "server.js": {
+      "purpose": "Express app factory + route handlers: config, provider key CRUD, transcribe, summarize, provider test. Static-serves public/.",
+      "exports": [{ "name": "createApp", "kind": "fn", "contract": "(deps?) -> Express app; deps allow injecting openaiClient/providerKeyStore/etc for tests" }],
+      "routes": [
+        { "method": "GET", "path": "/api/config", "behavior": "returns {hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys}" },
+        { "method": "POST", "path": "/api/provider/key", "behavior": "validates provider+apiKey, stores in providerKeyStore, returns masked providerKeys" },
+        { "method": "DELETE", "path": "/api/provider/key", "behavior": "removes provider key, returns masked providerKeys" },
+        { "method": "POST", "path": "/api/transcribe", "behavior": "base64 audio -> OpenAI audio.transcriptions.create (model gpt-4o-transcribe, streamed) -> {text}" },
+        { "method": "POST", "path": "/api/summarize", "behavior": "delegates to server/summarization.js#summarizeWithSource" },
+        { "method": "POST", "path": "/api/provider/test", "behavior": "openai: client.models.list(); claude: a real summarize call with 'Provider test' text" }
+      ],
+      "env_vars": ["OPENAI_API_KEY", "OPENAI_MODEL (default gpt-4o-mini)", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL (default claude-3-5-sonnet-latest)", "PORT (default 3000)", "HOST (default 127.0.0.1)", "ALLOW_REMOTE_HOST"],
+      "calls": ["public/services/provider-credentials.js", "public/services/transcription/prompt.js", "public/services/registry.js", "public/services/text.js", "server/summarization.js"],
+      "called_by": [],
+      "flows": ["boot", "openai-transcription", "summarize-loop", "provider-registration"],
+      "notes": ["resolveHost() refuses to bind non-loopback unless ALLOW_REMOTE_HOST=true, falling back to 127.0.0.1 with a console.warn -- this is the whole LAN-access guard."]
+    },
+    "server/summarization.js": {
+      "purpose": "Server-side provider switch for summarization: builds the shared prompt, calls OpenAI chat.completions or the raw Anthropic messages API over fetch.",
+      "exports": [{ "name": "summarizeWithSource", "kind": "fn", "contract": "({source,mode,recentTranscript,visibleLines,openaiClient,anthropicApiKey,anthropicModel,fetchImpl}) -> {line, reason?}; throws on unsupported source" }],
+      "calls": ["public/services/summary-prompt.js", "public/services/response.js"],
+      "called_by": ["server.js"],
+      "flows": ["summarize-loop"],
+      "notes": ["Lines from either provider are hard-truncated to 140 chars with '...' -- a second length guard beyond the prompt's own 'Maximum 14 words' instruction."]
+    },
+    "summarizer.js": {
+      "purpose": "Top-level compatibility re-export of summary-prompt.js, kept for external/legacy import paths.",
+      "exports": [{ "name": "*", "kind": "re-export", "contract": "export * from './public/services/summary-prompt.js'" }],
+      "calls": ["public/services/summary-prompt.js"],
+      "called_by": [],
+      "flows": [],
+      "notes": ["No internal code imports this file and it has no dedicated test (docs/05-code-organization.md was corrected this session to stop claiming a test/summarizer.test.js that doesn't exist). Candidate for removal if no external consumer needs it -- not acted on here since this skill doesn't edit/delete code."]
+    }
+  }
+}
