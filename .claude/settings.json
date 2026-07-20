@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mapped=$(git status --porcelain -- server.js summarizer.js server/summarization.js public/ 2>/dev/null | awk '{print $2}'); if [ -n \"$mapped\" ]; then queue_entries=$(find .agent/code-map/queue -maxdepth 1 -name '*.json' 2>/dev/null); if [ -z \"$queue_entries\" ]; then files=$(echo \"$mapped\" | tr '\\n' ' '); reason=\"Mapped files changed with no code-map queue entry: ${files}Append a JSON entry to .agent/code-map/queue/ describing the change (see the map-code skill) before finishing.\"; jq -n --arg reason \"$reason\" '{decision:\"block\", reason:$reason}'; exit 0; fi; fi; exit 0",
+            "command": "mapped=$(git status --porcelain -- server.js summarizer.js server/summarization.js public/ 2>/dev/null | awk '{print $2}' | grep -E '\\.js$'); if [ -n \"$mapped\" ]; then queue_entries=$(find .agent/code-map/queue -maxdepth 1 -name '*.json' 2>/dev/null); if [ -z \"$queue_entries\" ]; then files=$(echo \"$mapped\" | tr '\\n' ' '); reason=\"Mapped files changed with no code-map queue entry: ${files}Append a JSON entry to .agent/code-map/queue/ describing the change (see the map-code skill) before finishing.\"; jq -n --arg reason \"$reason\" '{decision:\"block\", reason:$reason}'; exit 0; fi; fi; exit 0",
             "timeout": 10
           }
         ]
