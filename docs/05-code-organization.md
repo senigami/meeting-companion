@@ -53,7 +53,7 @@ Mirror the source tree under `test/`:
 
 | Source | Test path |
 | --- | --- |
-| `summarizer.js` | `test/summarizer.test.js` |
+| `summarizer.js` | No dedicated test; it is a trivial re-export covered indirectly through `test/public/services/summary-prompt.test.js`. |
 | `public/app.js` | `test/public/app-bootstrap.test.js` |
 | `public/controller/start-app.js` | `test/public/app-bootstrap.test.js` |
 | `public/controller/runtime.js` | `test/public/app-bootstrap.test.js` |
@@ -65,6 +65,7 @@ Mirror the source tree under `test/`:
 | `public/services/view-settings.js` | `test/public/services/view-settings.test.js` |
 | `public/services/summarization/claude.js` | `test/public/services/summarization/claude.test.js` |
 | `public/services/fetch-timeout.js` | `test/public/services/fetch-timeout.test.js` |
+| `public/services/transcript-bucket.js` | `test/public/services/transcript-bucket.test.js` |
 | `public/controller/rail-collapse.js` | `test/public/controller/rail-collapse.test.js` |
 | `public/controller/rail-resize.js` | `test/public/controller/rail-resize.test.js` |
 | `public/controller/view.js` | `test/public/controller/view.test.js` |

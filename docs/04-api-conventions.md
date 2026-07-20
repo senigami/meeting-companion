@@ -12,7 +12,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 
 | Route | Method | Purpose | Response shape |
 | --- | --- | --- | --- |
-| `/api/config` | `GET` | Report provider availability and source metadata. | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
+| `/api/config` | `GET` | Report provider availability and source metadata. | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `/api/provider/key` | `POST` | Save a provider key in the local server session. | `{ ok: true, provider, providerKeys }` |
 | `/api/provider/key` | `DELETE` | Delete a provider key from the local server session. | `{ ok: true, provider, providerKeys }` |
 | `/api/transcribe` | `POST` | Transcribe a short audio chunk with OpenAI. | `{ text }` or `{ error }` |

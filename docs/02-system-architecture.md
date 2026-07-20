@@ -8,6 +8,8 @@ The architecture has three layers: the server, the client controller, and the so
 
 The client owns the UI state, keyboard shortcuts, and rendering of the transcript-card display. It loads source metadata from the registry, shows only configured services in the source selectors, and uses a separate registration flow to add provider keys before a source appears in the available list. The Settings surface (`<dialog id="settingsPanel">`) is a master-detail layout: a `.settingsNav` list of plain-language sections (Alerts, Timing, Transcription, Summaries, AI services, Tools) selects which single `.settingsDetail` section is visible, mirroring macOS System Settings rather than one long scrolling panel.
 
+Settings > Tools also exposes a manual override: a paste textarea (`#pasteTranscript`) and a "Summarize once" button (`#summarizeOnce`) call `summarizeCurrentText(text)` directly with the pasted text, bypassing the live transcript bucket entirely — useful for testing prompts or catching up on missed audio without waiting on the mic.
+
 Source modules are the modular boundary. Browser transcription and OpenAI transcription are both transcription drivers. OpenAI and Claude are summarization drivers. Adding a new provider should mean adding a new module and registering it, not changing the display logic.
 
 The UI uses Lucide-backed SVG symbols for generic controls like settings, alerts, undo, fullscreen, trash, pause, stop, and microphone. Church-specific icons such as speaker, information, song, prayer, and manual stay as custom SVGs when the hand-tuned symbol is a better semantic fit.
@@ -71,6 +73,7 @@ graph TD
 | P8 | P1 | `#railCollapseToggle` sets `html.is-rail-collapsed` and writes `--operator-rail-width` | Collapsing must genuinely narrow the grid track so the TV display widens; the collapsed choice persists in `localStorage` (`operatorRailCollapsed`) and defaults to expanded; it is a desktop-only feature (inert at narrow viewport widths). |
 | P4, P5, P5b | P9 | Transcribe/summarize/provider-test fetches | Each of the three network call sites (`/api/transcribe`, `/api/summarize`, `/api/provider/test`) is wrapped with a ~12 second timeout so a stalled request surfaces as a failure instead of hanging. |
 | P10 | P1 | `updateStatus(ctx, text, { level })` | Remains the single write point for status; it must keep updating both the Settings > Tools diagnostics line and the rail status indicator (dot + word: Listening/Paused/Manual/Problem) together. |
+| P1 | P1 | `flashRailNote(ctx, text)` | Shows transient Clear/Undo feedback in `#railNote` for 4s, independent of `updateStatus`; hidden while the rail is collapsed. |
 
 ## Invariants & things to keep in mind
 
@@ -83,6 +86,7 @@ graph TD
 - **INV-7** - On startup, the runtime must switch summarization to a configured provider when the selected source is unavailable or stale.
 - **INV-8** - The app does not persist audio or transcript history by default.
 - **INV-9** - The TV canvas tokens (`--bg`, `--text`, `--panel`, `--accent`, `--muted`, `--font-size`) stay separate from the `--chrome-*` tier; operator chrome restyling must never require changing TV canvas rules.
+- **INV-10** - Transient non-fatal browser transcription blips (phrased "Speech recognition error: ..." while listening keeps running) must not raise the rail status to Problem; only fatal phrasing raises it.
 
 ## Risks & open questions
 

@@ -19,7 +19,10 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Claude summarization wrapper and server-side provider routing.
 - Express route behavior for `/api/config`, malformed JSON, and oversized payloads.
 - View-setting clamping for text size, margins, and the summary interval slider.
-- Percentage-based display-margin guides and the small operator-rail raw transcript preview.
+- Percentage-based display-margin guides and the small operator-rail transcript preview.
+- The sentence-aware transcript bucket (`transcript-bucket.js`): sentence-boundary partitioning, the 20s unpunctuated settle timeout, and consumed-chunk removal.
+- The rail note (`#railNote`) Clear/Undo feedback text and its 4s auto-hide.
+- The non-fatal "Speech recognition error:" status classifier not raising a false Problem state.
 - Helper panel structure tests that keep Settings, Diagnostics, and View options separate from the main control surface.
 - Server API behavior for `/api/transcribe` and `/api/summarize` route contracts.
 - Rail collapse/expand behavior, its localStorage persistence, and its interplay with rail resizing.
@@ -39,6 +42,7 @@ The browser UI still needs manual verification because the TV display, helper pa
 - The collapsible rail: collapse/expand via the toggle button and via double-click on the resize divider, and that state survives a reload.
 - The rail status indicator (dot + word) reflecting Listening/Paused/Manual/Problem states, alongside the same status in Settings > Tools.
 - The Ready check rows in Settings > Tools (microphone, AI summaries with its Test button, TV display with its Show-sample-line button).
+- The paste-transcript override in Settings > Tools (`#pasteTranscript` + `#summarizeOnce`): pasting text and pressing Ctrl+Enter or clicking "Summarize once" triggers one summarize pass immediately, bypassing the live transcript bucket. Only its structural presence is automated today; the trigger behavior itself is manual-only.
 - Browser transcription fallback and OpenAI disabled state when `OPENAI_API_KEY` is missing.
 - Summarization fallback to Claude when OpenAI is unavailable but Anthropic is configured.
 - The warning banner when OpenAI is unavailable.

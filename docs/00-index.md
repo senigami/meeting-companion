@@ -38,7 +38,9 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 - Summary source ids are stable contract values and currently `openai` and `claude`.
 - The visible display renders a scrollable stack of digestible transcript cards, with new items appearing at the bottom and older items moving up.
 - Settings is a master-detail dialog with plain-language sections: Alerts, Timing, Transcription, Summaries, AI services, and Tools. Transcription/Summaries hold the source controls, AI services holds the service-registration card, and Tools holds diagnostics plus the Ready check.
-- The live transcript preview in the operator rail shows the raw stream tail and can be collapsed.
+- The live transcript preview in the operator rail is sentence-aware: it only drains chunks once they end at a sentence boundary or settle unpunctuated for 20s, so partial thoughts stay visible; the preview can be collapsed.
+- A transient rail note (`#railNote`) shows Clear/Undo feedback ("Cleared N lines...", "Removed: ...", "Restored N lines.") for 4s, independent of the diagnostics status line.
+- Transient non-fatal browser transcription blips ("Speech recognition error: ..." while listening keeps running) must not raise the rail status to Problem; only fatal phrasing ("...stopped after...", "Microphone stopped...") does.
 - The operator rail itself can be collapsed to a narrow icon-only strip (desktop only); the choice persists locally and defaults to expanded.
 - A rail status indicator (dot + word: Listening/Paused/Manual/Problem) is always visible in the rail, in addition to the status line in Settings > Tools.
 - View options contains text size, margins, and update interval controls.
@@ -50,4 +52,4 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 
 ## Open compliance items
 
-None at the moment. The current code and the specs in this set are aligned.
+None at the moment. The current code and the specs in this set are aligned. (Reconciled 2026-07-02: updated wording for the sentence-aware transcript preview, the rail note feedback surface, and the non-fatal status classifier; corrected a stale test-file reference in [docs/05-code-organization.md](05-code-organization.md). No code was changed.)

@@ -18,7 +18,8 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 - An always-visible rail status indicator (dot + word) alongside the same status detail inside Settings > Tools.
 - Settings for transcription source, summarization source, service registration, alerts, and diagnostics, presented as a macOS System Settings-style master-detail with plain-language section names.
 - A lean Ready check in Settings > Tools that shows microphone, AI summary, and TV display readiness with a way to test each one.
-- Safe clearing of the transcript: a two-stage confirm before anything is cleared, and a one-step Undo that restores everything that was cleared.
+- A manual paste-and-summarize override in Settings > Tools: paste spoken text into a textarea and press Ctrl+Enter or click "Summarize once" to force one summary pass immediately, bypassing the live transcript bucket.
+- Safe clearing of the transcript: a two-stage confirm before anything is cleared, and a one-step Undo that restores everything that was cleared, with a transient rail note confirming what happened.
 - Browser transcription when the browser supports it.
 - OpenAI transcription and OpenAI or Claude summarization when the relevant API key is configured on the local server or saved through Settings.
 - A two-tier visual design: the TV display keeps its own established look, while all operator chrome (rail, Settings, manual bar) shares a separate dark, flat, macOS-desktop-app design language.

@@ -10,7 +10,7 @@ The server keeps no durable business data. It only receives JSON payloads for co
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
-The helper surface also keeps a compact raw transcript preview in the operator rail so the operator can see the incoming stream without scrolling the TV display.
+The helper surface also keeps a compact sentence-aware transcript preview in the operator rail so the operator can see the incoming stream without scrolling the TV display. `public/services/transcript-bucket.js` only marks a chunk consumable once it ends at a sentence boundary or settles unpunctuated for 20s, so partial thoughts stay visible instead of vanishing mid-sentence.
 
 Provider keys are treated as server-managed configuration when the helper saves them in Settings. The app stores them in the running local server process, never echoes the full secret in diagnostics, and only returns masked status to the browser.
 
@@ -26,6 +26,8 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | `operatorRailWidth` | `number` | Preferred width of the helper rail in pixels, persisted in browser storage and clamped to the current viewport. |
 | `transcriptChunks` | `{ text: string, at: number }[]` | Recent final transcript chunks used to build summary context. |
 | `transcriptPreview` | `string` | The latest partial transcription text shown in the helper panel. |
+| `summarizeInFlight` | `boolean` | Guards against overlapping summarize calls; a chunk is only marked consumed after its summarize call resolves. |
+| `railNoteTimer` | `TimerHandle \| null` | Handle for the transient `#railNote` Clear/Undo feedback message, auto-hidden after 4s. |
 | `listening` | `boolean` | Whether transcription is active. |
 | `transcriptionSource` | `browser` \| `openai` | Which transcription driver is active. |
 | `summarizationSource` | `openai` \| `claude` | Which summarization driver is active. The runtime falls back to an available provider when the selected one is not configured. |
@@ -67,7 +69,7 @@ The server accepts and returns these JSON shapes:
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
 | `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
-| `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources }` |
+| `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |
 | `POST /api/provider/test` | `{ provider, apiKey }` | `{ ok: true }` or `{ error }` |
