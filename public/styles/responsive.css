@@ -13,9 +13,20 @@
 }
 
 @media (max-width: 900px) {
+  /*
+   * #root is also .meetingShell (same element) and carries an ID selector
+   * in base.css (`html, body, #root { height: 100%; ... }`) that outranks
+   * any class-selector override below on specificity alone, regardless of
+   * source order. Overriding height/min-height here too, on the identical
+   * selector list, is what actually lets the page grow past one viewport
+   * and scroll naturally instead of #root silently staying pinned to
+   * 100dvh and becoming its own separate, fought-over scroll container.
+   */
   html,
   body,
   #root {
+    height: auto;
+    min-height: 100%;
     overflow: auto;
   }
 
@@ -31,35 +42,27 @@
     overflow: visible;
   }
 
+  /*
+   * Below the display/rail breakpoint the rail stops being a fixed-height
+   * side panel and becomes part of one continuously scrolling page (see
+   * html/body/#root overflow:auto and .meetingShell's auto rail row,
+   * above). Keep it a single vertical column here — the old row layout
+   * with overflow-x:auto turned the rail into a sideways-scrolling strip
+   * that hid Quick Controls, Mode, and the transcript preview off-screen
+   * from each other, which is exactly what made this unusable on a phone.
+   */
   .operatorRail {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    align-items: stretch;
+    height: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .railResizeHandle {
     display: none;
   }
 
-  .railTop {
-    min-width: max-content;
-  }
-
   .railBody {
-    flex: 1 1 auto;
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .railSection {
-    min-width: 15rem;
-    flex: 0 0 auto;
-  }
-
-  .railTranscriptDisclosure {
-    min-width: 15rem;
+    overflow: visible;
   }
 
   .manualBarInner {

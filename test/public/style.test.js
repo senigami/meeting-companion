@@ -112,14 +112,23 @@ test('layout stacks and scrolls on narrower screens', async () => {
   const css = await readSplitCss();
 
   assert.match(css, /@media \(max-width: 900px\)/);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*html,\s*body,\s*#root\s*\{\s*overflow:\s*auto;/s);
+  // html/body/#root must override height (not just overflow) — #root is
+  // also .meetingShell, and its ID selector in base.css otherwise outranks
+  // any class-selector override, silently pinning the page to 100dvh and
+  // forcing a nested scroll container instead of one continuously
+  // scrolling page.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*html,\s*body,\s*#root\s*\{\s*height:\s*auto;\s*min-height:\s*100%;\s*overflow:\s*auto;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-columns:\s*1fr;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-rows:\s*minmax\(0, 1fr\) auto auto;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[\s\S]*flex-direction:\s*row;/s);
+  // The rail must stay a single vertical column on phone-width screens — a
+  // row layout with overflow-x:auto turns Quick Controls, Mode, and the
+  // transcript preview into a sideways-scrolling strip that hides them
+  // from each other, which is what made this unusable on a phone.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[\s\S]*height:\s*auto;\s*max-height:\s*none;\s*overflow:\s*visible;/s);
+  assert.doesNotMatch(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[^}]*flex-direction:\s*row;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railResizeHandle[\s\S]*display:\s*none;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.manualBarInner[\s\S]*grid-template-columns:\s*1fr auto;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsModal[\s\S]*width:\s*100%;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railTranscriptDisclosure[\s\S]*min-width:/s);
 });
 
 test('very narrow screens collapse the rail header and quick controls', async () => {
