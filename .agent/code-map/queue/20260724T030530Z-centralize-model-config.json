@@ -1,0 +1,27 @@
+{
+  "at": "2026-07-24T03:05:30Z",
+  "commit": "uncommitted",
+  "task": "Centralize OpenAI/Anthropic default model constants into server/model-config.js",
+  "files": {
+    "server/model-config.js": {
+      "change": "added",
+      "contract_changed": true,
+      "summary": "New module exporting DEFAULT_OPENAI_MODEL and DEFAULT_ANTHROPIC_MODEL, each sourced from env with a hardcoded fallback"
+    },
+    "server.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "DEFAULT_OPENAI_MODEL/DEFAULT_ANTHROPIC_MODEL now imported from server/model-config.js instead of being declared locally",
+      "calls_added": ["server/model-config.js"],
+      "calls_removed": []
+    },
+    "server/summarization.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "DEFAULT_ANTHROPIC_MODEL imported from model-config.js; inline process.env.OPENAI_MODEL fallback in summarizeWithOpenAI replaced with DEFAULT_OPENAI_MODEL import",
+      "calls_added": ["server/model-config.js"],
+      "calls_removed": []
+    }
+  },
+  "flow_impact": "none"
+}

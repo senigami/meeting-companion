@@ -8,9 +8,8 @@ import { buildTranscriptionPrompt } from './public/services/transcription/prompt
 import { listAvailableSources } from './public/services/registry.js';
 import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
 
-const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const DEFAULT_ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
 const MAIN_FILE = fileURLToPath(import.meta.url);
 
 export function createApp({

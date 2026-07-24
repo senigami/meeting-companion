@@ -1,9 +1,9 @@
 import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../public/services/summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './model-config.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
-const DEFAULT_ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
 
 export async function summarizeWithSource({
   source = 'openai',
@@ -47,7 +47,7 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLine
 
   const prompt = buildSummarizePrompt({ mode, recentTranscript, visibleLines });
   const completion = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,
     messages: [
       { role: 'system', content: 'Return only the line text or an empty string. No quotes. No markdown.' },
