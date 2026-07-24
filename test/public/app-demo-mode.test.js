@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 function createElement(initial = {}) {
+  const styleProps = {};
   return {
     textContent: initial.textContent || '',
     hidden: Boolean(initial.hidden),
@@ -10,6 +11,14 @@ function createElement(initial = {}) {
     dataset: initial.dataset || {},
     attributes: initial.attributes || {},
     children: initial.children || [],
+    style: {
+      setProperty(name, value) {
+        styleProps[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return styleProps[name] || '';
+      }
+    },
     classList: {
       toggle() {}
     },

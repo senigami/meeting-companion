@@ -94,7 +94,7 @@ test('display margin visual thumb maps across the full forty percent range', asy
   await withRuntimeHarness({}, async ({ elements, runtime }) => {
     runtime.setDisplayMargin(20);
 
-    assert.equal(elements.displayMarginInput.parentElement?.style?.getPropertyValue('--slider-value'), '50');
+    assert.equal(elements.displayMarginInput.style.getPropertyValue('--slider-fill'), '50%');
   });
 });
 

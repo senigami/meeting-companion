@@ -112,24 +112,28 @@ test('display text stays centered and viewport-safe', async () => {
   assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*var\(--font-size\);/s);
 });
 
-test('layout stacks and scrolls on narrower screens', async () => {
+test('mobile is a full-screen home: display fills the screen, Mode and manual bar are pinned chrome', async () => {
   const css = await readSplitCss();
 
   assert.match(css, /@media \(max-width: 900px\)/);
-  // html/body/#root must override height (not just overflow) — #root is
-  // also .meetingShell, and its ID selector in base.css otherwise outranks
-  // any class-selector override, silently pinning the page to 100dvh and
-  // forcing a nested scroll container instead of one continuously
-  // scrolling page.
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*html,\s*body,\s*#root\s*\{\s*height:\s*auto;\s*min-height:\s*100%;\s*overflow:\s*auto;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-columns:\s*1fr;/s);
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell[\s\S]*grid-template-rows:\s*minmax\(0, 1fr\) auto auto;/s);
-  // The rail must stay a single vertical column on phone-width screens — a
-  // row layout with overflow-x:auto turns Quick Controls, Mode, and the
-  // transcript preview into a sideways-scrolling strip that hides them
-  // from each other, which is what made this unusable on a phone.
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[\s\S]*height:\s*auto;\s*max-height:\s*none;\s*overflow:\s*visible;/s);
-  assert.doesNotMatch(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail[^}]*flex-direction:\s*row;/s);
+  // A fixed-height (100dvh), non-scrolling page -- the display panel is
+  // the only thing that grows; everything else is fixed-size chrome
+  // stacked around it via flex `order`, not position:fixed/page-scroll.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*html,\s*body,\s*#root\s*\{\s*height:\s*100dvh;\s*min-height:\s*100dvh;\s*overflow:\s*hidden;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.meetingShell\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.displayPanel\s*\{\s*order:\s*2;\s*flex:\s*1 1 auto;/s);
+  // .operatorRail/.railBody go `display:contents` on mobile so their
+  // children (.railTopBar, .modeBar, .drawerContent) become independent
+  // flex items of .meetingShell instead of one fixed-height side rail.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.operatorRail,\s*\n\s*\.railBody\s*\{\s*display:\s*contents;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railTopBar\s*\{[^}]*order:\s*1;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.modeBar\s*\{[^}]*order:\s*3;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*#manualBar\s*\{[^}]*order:\s*4;/s);
+  // The Quick Controls/transcript drawer is a bottom sheet overlay,
+  // shown via .is-open, taken out of the flex flow entirely via
+  // position:fixed so it doesn't consume a flex slot.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\s*\{[^}]*position:\s*fixed;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\.is-open\s*\{\s*transform:\s*translateY\(0\);/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railResizeHandle[\s\S]*display:\s*none;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.manualBarInner[\s\S]*grid-template-columns:\s*1fr auto;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsModal[\s\S]*width:\s*100%;/s);
@@ -170,17 +174,18 @@ test('short windows compress the rail chrome without touching the TV canvas', as
   );
 });
 
-test('range sliders use discrete Apple-style tick marks', async () => {
+test('range sliders are native inputs with a big custom-styled thumb', async () => {
   const css = await readSplitCss();
 
-  assert.match(css, /#fontSize\s*\{\s*--slider-points:\s*31;/);
-  assert.match(css, /#displayMargin\s*\{\s*--slider-points:\s*21;/);
-  assert.match(css, /#summaryInterval\s*\{\s*--slider-points:\s*4;/);
-  assert.match(css, /\.sliderVisual/);
-  assert.match(css, /\.sliderTrack/);
-  assert.match(css, /\.sliderThumb/);
-  assert.match(css, /radial-gradient\(circle at left center, var\(--slider-dot\)/);
-  assert.match(css, /radial-gradient\(circle at right center, var\(--slider-dot\)/);
+  // Native <input type="range">, heavily styled -- not a hand-rolled
+  // JS slider -- so touch drag, tap-to-jump, and keyboard support all
+  // come from the browser for free.
+  assert.match(css, /\.sliderInput\s*\{[^}]*appearance:\s*none;/s);
+  assert.match(css, /\.sliderInput\s*\{[^}]*background:\s*linear-gradient\(/s);
+  assert.match(css, /\.sliderInput\s*\{[^}]*var\(--slider-fill, 50%\)/s);
+  assert.match(css, /\.sliderInput::-webkit-slider-thumb\s*\{[^}]*width:\s*2rem;/s);
+  assert.match(css, /\.sliderInput::-moz-range-thumb\s*\{[^}]*width:\s*2rem;/s);
+  assert.match(css, /\.sliderInput:focus-visible\s*\{[^}]*outline:/s);
 });
 
 test('collapsed rail narrows the grid track and hides labels', async () => {

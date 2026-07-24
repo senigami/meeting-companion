@@ -34,6 +34,7 @@
         aria-valuenow="220"
         aria-valuetext="220 pixels wide"
       ></div>
+      <div class="railTopBar">
       <div class="railTop controlHeader">
         <div class="railBrand">
           <div class="eyebrow">Meeting</div>
@@ -47,6 +48,18 @@
             aria-pressed="false"
             title="Hide labels"
             aria-label="Collapse the control rail"
+          >
+            <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-panel-right"></use></svg>
+          </button>
+          <button
+            id="quickPanelToggle"
+            type="button"
+            class="iconButton"
+            aria-label="Open quick controls"
+            aria-controls="quickPanel"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            title="Quick controls"
           >
             <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-panel-right"></use></svg>
           </button>
@@ -86,39 +99,10 @@
       </div>
 
       <div id="railNote" class="railNote" hidden></div>
+      </div>
 
       <div class="railBody controlScrollArea">
-        <section class="section railSection">
-          <div class="section-label">Quick controls</div>
-          <div class="button-grid quickControlsGrid" role="group" aria-label="Quick controls">
-            <button id="startListening" type="button" class="railButton" aria-label="Start listening" title="Start listening">
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
-              <span class="buttonLabel">Start</span>
-            </button>
-            <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" title="Stop listening" disabled>
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
-              <span class="buttonLabel">Stop</span>
-            </button>
-            <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI (P)" aria-keyshortcuts="p" aria-pressed="false">
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
-              <span id="pauseAiLabel" class="buttonLabel">Pause</span>
-            </button>
-            <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line (U)" aria-keyshortcuts="u">
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
-              <span class="buttonLabel">Undo</span>
-            </button>
-            <button id="clear" type="button" class="railButton" aria-label="Clear all lines" title="Clear all lines">
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
-              <span id="clearLabel" class="buttonLabel">Clear</span>
-            </button>
-            <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen" title="Enter fullscreen">
-              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
-              <span class="buttonLabel">Full</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="section railSection">
+        <section class="section railSection modeBar" id="modeBar">
           <div class="section-label">Mode</div>
           <div class="modeGrid" role="group" aria-label="Mode selection">
             <button type="button" data-mode="speaker" class="mode railButton active" aria-pressed="true" aria-label="Speaker mode" title="Speaker mode (1)" aria-keyshortcuts="1">
@@ -140,12 +124,52 @@
           </div>
         </section>
 
-        <details class="helper-disclosure railSection railTranscriptDisclosure" open>
-          <summary class="helper-disclosure-summary section-label">Live transcript</summary>
-          <div class="helper-disclosure-body">
-            <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
+        <div class="drawerContent" id="quickPanel" aria-label="Quick controls" aria-hidden="false">
+          <div class="quickPanelHeader">
+            <div>
+              <div class="eyebrow">Meeting Companion</div>
+              <h2>Quick controls</h2>
+            </div>
+            <button id="closeQuickPanel" type="button" class="ghost">Close</button>
           </div>
-        </details>
+
+          <section class="section railSection quickControlsSection">
+            <div class="section-label">Quick controls</div>
+            <div class="button-grid quickControlsGrid" role="group" aria-label="Quick controls">
+              <button id="startListening" type="button" class="railButton" aria-label="Start listening" title="Start listening">
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
+                <span class="buttonLabel">Start</span>
+              </button>
+              <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" title="Stop listening" disabled>
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
+                <span class="buttonLabel">Stop</span>
+              </button>
+              <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI (P)" aria-keyshortcuts="p" aria-pressed="false">
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
+                <span id="pauseAiLabel" class="buttonLabel">Pause</span>
+              </button>
+              <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line (U)" aria-keyshortcuts="u">
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
+                <span class="buttonLabel">Undo</span>
+              </button>
+              <button id="clear" type="button" class="railButton" aria-label="Clear all lines" title="Clear all lines">
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
+                <span id="clearLabel" class="buttonLabel">Clear</span>
+              </button>
+              <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen" title="Enter fullscreen">
+                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
+                <span class="buttonLabel">Full</span>
+              </button>
+            </div>
+          </section>
+
+          <details class="helper-disclosure railSection railTranscriptDisclosure" open>
+            <summary class="helper-disclosure-summary section-label">Live transcript</summary>
+            <div class="helper-disclosure-body">
+              <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
+            </div>
+          </details>
+        </div>
       </div>
     </aside>
 
@@ -187,12 +211,12 @@
           <section class="settingsCard settingsViewCard" data-settings-section="timing">
             <div class="section-label">Update interval</div>
             <div class="settingsStack">
-              <div class="range-field">
+              <div class="range-field" id="summaryIntervalField">
                 <div class="range-head">
                   <label for="summaryInterval">Update interval</label>
                   <output id="summaryIntervalValue" for="summaryInterval"></output>
                 </div>
-                <input id="summaryInterval" type="range" min="0" max="3" step="1" />
+                <input id="summaryInterval" class="sliderInput" type="range" min="0" max="3" step="1" />
                 <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
               </div>
             </div>
@@ -325,27 +349,19 @@
         <div class="viewDrawerBody">
           <div class="section-label">View options</div>
           <div class="settingsStack">
-            <div class="range-field">
+            <div class="range-field" id="fontSizeField">
               <div class="range-head">
                 <label for="fontSize">Text size</label>
                 <output id="fontSizeValue" for="fontSize"></output>
               </div>
-              <div class="sliderVisual" aria-hidden="true">
-                <div class="sliderTrack"></div>
-                <input id="fontSize" class="sliderInput" type="range" min="24" max="144" step="4" />
-                <div id="fontSizeVisualThumb" class="sliderThumb"></div>
-              </div>
+              <input id="fontSize" class="sliderInput" type="range" min="24" max="144" step="4" />
             </div>
-            <div class="range-field">
+            <div class="range-field" id="displayMarginField">
               <div class="range-head">
                 <label for="displayMargin">Margins</label>
                 <output id="displayMarginValue" for="displayMargin"></output>
               </div>
-              <div class="sliderVisual" aria-hidden="true">
-                <div class="sliderTrack"></div>
-                <input id="displayMargin" class="sliderInput" type="range" min="0" max="40" step="0.5" />
-                <div id="displayMarginVisualThumb" class="sliderThumb"></div>
-              </div>
+              <input id="displayMargin" class="sliderInput" type="range" min="0" max="40" step="0.5" />
             </div>
           </div>
         </div>
@@ -353,6 +369,7 @@
     </aside>
 
     <div id="settingsBackdrop" class="settingsBackdrop" hidden></div>
+    <div id="quickPanelBackdrop" class="settingsBackdrop quickPanelBackdrop" hidden></div>
   </div>
 
   <svg aria-hidden="true" class="iconSprite" width="0" height="0" focusable="false">

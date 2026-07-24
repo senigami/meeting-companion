@@ -14,55 +14,76 @@
 
 @media (max-width: 900px) {
   /*
-   * #root is also .meetingShell (same element) and carries an ID selector
-   * in base.css (`html, body, #root { height: 100%; ... }`) that outranks
-   * any class-selector override below on specificity alone, regardless of
-   * source order. Overriding height/min-height here too, on the identical
-   * selector list, is what actually lets the page grow past one viewport
-   * and scroll naturally instead of #root silently staying pinned to
-   * 100dvh and becoming its own separate, fought-over scroll container.
+   * Full-screen mobile home: one fixed-height (100dvh) flex column, not a
+   * scrolling page. The display panel is the only thing that grows to
+   * fill remaining space; the top bar (brand + settings/quick-controls/
+   * display-control icons), Mode, and the manual-line bar are fixed-size
+   * chrome stacked around it via `order`, not position:fixed -- since
+   * nothing here scrolls the page itself, plain flow does the "pinned to
+   * top/bottom" job without the fragility of hardcoded fixed offsets.
+   * (The quick-controls/transcript drawer is the one piece that still
+   * needs position:fixed, since it's an overlay shown on demand rather
+   * than permanent chrome -- see .drawerContent below.)
    */
   html,
   body,
   #root {
-    height: auto;
-    min-height: 100%;
-    overflow: auto;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
   }
 
   .meetingShell {
-    height: auto;
-    max-height: none;
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      "display"
-      "rail"
-      "manual";
-    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .displayPanel {
+    order: 2;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /*
-   * Below the display/rail breakpoint the rail stops being a fixed-height
-   * side panel and becomes part of one continuously scrolling page (see
-   * html/body/#root overflow:auto and .meetingShell's auto rail row,
-   * above). Keep it a single vertical column here — the old row layout
-   * with overflow-x:auto turned the rail into a sideways-scrolling strip
-   * that hid Quick Controls, Mode, and the transcript preview off-screen
-   * from each other, which is exactly what made this unusable on a phone.
+   * .operatorRail and .railBody stop being real boxes on mobile -- they
+   * exist only to keep desktop's DOM/CSS (order values, flex column)
+   * working unchanged. `display:contents` promotes their children
+   * (.railTopBar, .modeBar, .drawerContent) to be direct flex items of
+   * .meetingShell instead, each independently ordered below.
    */
-  .operatorRail {
-    height: auto;
-    max-height: none;
-    overflow: visible;
+  .operatorRail,
+  .railBody {
+    display: contents;
+  }
+
+  .railTopBar {
+    display: flex;
+    flex-direction: column;
+    order: 1;
+    flex: 0 0 auto;
+    padding: 0.7rem;
+    background: var(--chrome-bg);
+    border-bottom: 1px solid var(--chrome-separator);
+  }
+
+  .modeBar {
+    order: 3;
+    flex: 0 0 auto;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
   }
 
   .railResizeHandle {
     display: none;
   }
 
-  .railBody {
-    overflow: visible;
+  #manualBar {
+    order: 4;
+    flex: 0 0 auto;
   }
 
   .manualBarInner {
@@ -71,6 +92,44 @@
 
   .manualLabel {
     display: none;
+  }
+
+  /*
+   * The quick-controls/transcript drawer: a bottom sheet overlay, off by
+   * default (translateY(100%)), shown via .is-open. Position:fixed takes
+   * it out of .meetingShell's flex flow entirely, so it doesn't consume a
+   * flex slot despite living inside the now-`display:contents` railBody.
+   */
+  .drawerContent {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: var(--chrome-bg-elevated);
+    padding: 1rem;
+    gap: 1rem;
+    overflow-y: auto;
+    transform: translateY(100%);
+    transition: transform 220ms ease;
+  }
+
+  .drawerContent.is-open {
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawerContent {
+      transition: none;
+    }
+  }
+
+  .quickPanelHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--chrome-separator);
   }
 
   .settingsOverlay.settingsModal {

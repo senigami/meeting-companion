@@ -2,6 +2,7 @@ import { createRuntime } from '../../../public/controller/runtime.js';
 
 export function createElement(initial = {}) {
   const classes = new Set(initial.classes || []);
+  const styleProps = {};
   return {
     textContent: initial.textContent || '',
     hidden: Boolean(initial.hidden),
@@ -10,6 +11,14 @@ export function createElement(initial = {}) {
     dataset: initial.dataset || {},
     attributes: initial.attributes || {},
     children: initial.children || [],
+    style: {
+      setProperty(name, value) {
+        styleProps[name] = String(value);
+      },
+      getPropertyValue(name) {
+        return styleProps[name] || '';
+      }
+    },
     classList: {
       toggle(name, force) {
         const shouldAdd = force === undefined ? !classes.has(name) : Boolean(force);
@@ -47,29 +56,12 @@ export function createElement(initial = {}) {
 }
 
 function createDefaultElements() {
-  const makeRangeHost = () => ({
-    style: {
-      setProperty(name, value) {
-        this[name] = String(value);
-      },
-      getPropertyValue(name) {
-        return this[name] || '';
-      }
-    },
-    querySelector(selector) {
-      return this._thumb || null;
-    }
-  });
-  const fontSizeHost = makeRangeHost();
-  const displayMarginHost = makeRangeHost();
-  const summaryIntervalHost = makeRangeHost();
-
-  const fontSizeInput = createElement({ value: '84', parentElement: fontSizeHost });
-  const displayMarginInput = createElement({ value: '4.5', parentElement: displayMarginHost });
-  const summaryIntervalInput = createElement({ value: '1', parentElement: summaryIntervalHost });
-  fontSizeHost._thumb = createElement({ className: 'sliderThumb' });
-  displayMarginHost._thumb = createElement({ className: 'sliderThumb' });
-  summaryIntervalHost._thumb = createElement({ className: 'sliderThumb' });
+  // Native range inputs carry their own --slider-fill directly on
+  // .style (see updateSliderFill in controller/view.js) -- no separate
+  // host/thumb wrapper needed now that there's no hand-rolled slider.
+  const fontSizeInput = createElement({ value: '84', min: '24', max: '144' });
+  const displayMarginInput = createElement({ value: '4.5', min: '0', max: '40' });
+  const summaryIntervalInput = createElement({ value: '1', min: '0', max: '3' });
 
   return {
     apiWarning: createElement({ hidden: true }),

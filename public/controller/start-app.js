@@ -4,7 +4,6 @@ import {
   clampSummaryIntervalSeconds,
   summaryIntervalSecondsFromSliderIndex
 } from '../services/view-settings.js';
-import { bindRangeSlider } from './range-slider.js';
 import {
   bindRailResize,
   loadRailWidth
@@ -19,6 +18,7 @@ import {
   setSettingsOpen,
   setSettingsSection,
   setViewPanelOpen,
+  setQuickPanelOpen,
   syncViewerControls,
   updateModeButtons,
   updatePauseButton,
@@ -60,6 +60,8 @@ export function startApp() {
       settingsOpen: false,
       viewPanelOpen: false,
       viewPanelCloseHandle: null,
+      quickPanelOpen: false,
+      quickPanelCloseHandle: null,
       panelOpen: false,
       pendingProviderSelection: null,
       registrationProvider: 'openai',
@@ -97,13 +99,20 @@ export function startApp() {
       readyCheckDisplaySample: $('readyCheckDisplaySample'),
       fontSizeInput: $('fontSize'),
       fontSizeValue: $('fontSizeValue'),
+      fontSizeField: $('fontSizeField'),
       displayMarginInput: $('displayMargin'),
       displayMarginValue: $('displayMarginValue'),
+      displayMarginField: $('displayMarginField'),
       summaryIntervalInput: $('summaryInterval'),
       summaryIntervalValue: $('summaryIntervalValue'),
+      summaryIntervalField: $('summaryIntervalField'),
       viewPanel: $('viewPanel'),
       viewButton: $('viewButton'),
       closeViewPanel: $('closeViewPanel'),
+      quickPanel: $('quickPanel'),
+      quickPanelToggle: $('quickPanelToggle'),
+      closeQuickPanel: $('closeQuickPanel'),
+      quickPanelBackdrop: $('quickPanelBackdrop'),
       settingsPanel: $('settingsPanel'),
       settingsBackdrop: $('settingsBackdrop'),
       settingsBody: $('settingsBody'),
@@ -182,6 +191,7 @@ export function startApp() {
   const ticker = setInterval(runtime.showRecentTranscript, 1000);
   ticker.unref?.();
   setViewPanelOpen(ctx, false);
+  setQuickPanelOpen(ctx, false);
 }
 
 function bindManualEntry(ctx, runtime) {
@@ -240,6 +250,9 @@ function bindControlButtons(ctx, runtime) {
   syncFullscreenButton();
   ctx.dom.viewButton.addEventListener('click', () => setViewPanelOpen(ctx, !ctx.state.viewPanelOpen, { focusReturn: false }));
   ctx.dom.closeViewPanel.addEventListener('click', () => setViewPanelOpen(ctx, false, { focusReturn: true }));
+  ctx.dom.quickPanelToggle?.addEventListener('click', () => setQuickPanelOpen(ctx, !ctx.state.quickPanelOpen, { focusReturn: false }));
+  ctx.dom.closeQuickPanel?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
+  ctx.dom.quickPanelBackdrop?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
   ctx.dom.settingsPanel?.addEventListener('close', () => runtime.setSettingsOpen(false, { focusReturn: true }));
@@ -249,14 +262,48 @@ function bindControlButtons(ctx, runtime) {
   });
 }
 
+function beginSliderAdjustment(fieldEl) {
+  fieldEl?.closest?.('.viewDrawerBody, .settingsCard, .settingsDetail')?.classList.add('is-adjusting-slider');
+  fieldEl?.classList.add('is-active-slider-field');
+}
+
+function endSliderAdjustment(fieldEl) {
+  fieldEl?.closest?.('.viewDrawerBody, .settingsCard, .settingsDetail')?.classList.remove('is-adjusting-slider');
+  fieldEl?.classList.remove('is-active-slider-field');
+}
+
+function bindDragFade(input, fieldEl, { onDragStart = () => {}, onDragEnd = () => {} } = {}) {
+  if (!input) return;
+  const start = () => {
+    beginSliderAdjustment(fieldEl);
+    onDragStart();
+  };
+  const end = () => {
+    endSliderAdjustment(fieldEl);
+    onDragEnd();
+  };
+  input.addEventListener('pointerdown', start);
+  input.addEventListener('pointerup', end);
+  input.addEventListener('pointercancel', end);
+  input.addEventListener('blur', end);
+  input.addEventListener('keydown', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+      start();
+      globalThis.requestAnimationFrame?.(end) ?? end();
+    }
+  });
+}
+
 function bindViewerControls(ctx, runtime) {
   ctx.dom.fontSizeInput.addEventListener('input', (e) => runtime.setFontSize(e.target.value));
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(summaryIntervalSecondsFromSliderIndex(e.target.value, ctx.state.summaryIntervalSeconds));
   });
-  bindRangeSlider(ctx.dom.fontSizeInput, (value) => runtime.setFontSize(value));
-  bindRangeSlider(ctx.dom.displayMarginInput, (value) => runtime.setDisplayMargin(value), {
+
+  bindDragFade(ctx.dom.fontSizeInput, ctx.dom.fontSizeField);
+
+  bindDragFade(ctx.dom.displayMarginInput, ctx.dom.displayMarginField, {
     onDragStart: () => {
       document.documentElement.classList.add('is-adjusting-display-margin');
       runtime.beginDisplayMarginAdjustment();
@@ -266,6 +313,8 @@ function bindViewerControls(ctx, runtime) {
       runtime.endDisplayMarginAdjustment();
     }
   });
+
+  bindDragFade(ctx.dom.summaryIntervalInput, ctx.dom.summaryIntervalField);
 }
 
 function bindModeAndSourceButtons(ctx, runtime) {
@@ -378,6 +427,11 @@ function bindKeyboardShortcuts(ctx, runtime) {
       if (ctx.state.viewPanelOpen) {
         e.preventDefault();
         setViewPanelOpen(ctx, false, { focusReturn: true });
+        return;
+      }
+      if (ctx.state.quickPanelOpen) {
+        e.preventDefault();
+        setQuickPanelOpen(ctx, false, { focusReturn: true });
         return;
       }
       if (ctx.state.settingsOpen) {

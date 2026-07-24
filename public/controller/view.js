@@ -1,8 +1,4 @@
-import {
-  FONT_SIZE_MIN,
-  FONT_SIZE_MAX,
-  summaryIntervalSliderIndexFromSeconds
-} from '../services/view-settings.js';
+import { summaryIntervalSliderIndexFromSeconds } from '../services/view-settings.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -257,6 +253,43 @@ export function setViewPanelOpen(ctx, open, { focusReturn = false } = {}) {
   }
 }
 
+export function setQuickPanelOpen(ctx, open, { focusReturn = false } = {}) {
+  const next = Boolean(open);
+  ctx.state.quickPanelOpen = next;
+
+  if (ctx.state.quickPanelCloseHandle) {
+    clearTimeout(ctx.state.quickPanelCloseHandle);
+    ctx.state.quickPanelCloseHandle = null;
+  }
+
+  if (ctx.dom.quickPanel) {
+    ctx.dom.quickPanel.setAttribute('aria-hidden', String(!next));
+    if (next) {
+      ctx.dom.quickPanel.classList?.add?.('is-open');
+    } else {
+      ctx.dom.quickPanel.classList?.remove?.('is-open');
+    }
+  }
+
+  if (ctx.dom.quickPanelBackdrop) {
+    ctx.dom.quickPanelBackdrop.hidden = !next;
+  }
+
+  if (ctx.dom.quickPanelToggle) {
+    ctx.dom.quickPanelToggle.setAttribute('aria-expanded', String(next));
+    ctx.dom.quickPanelToggle.setAttribute('aria-pressed', String(next));
+    const label = next ? 'Close quick controls' : 'Open quick controls';
+    ctx.dom.quickPanelToggle.setAttribute('aria-label', label);
+    ctx.dom.quickPanelToggle.title = label;
+  }
+
+  if (next) {
+    globalThis.requestAnimationFrame?.(() => ctx.dom.closeQuickPanel?.focus?.());
+  } else if (focusReturn) {
+    globalThis.requestAnimationFrame?.(() => ctx.dom.quickPanelToggle?.focus?.());
+  }
+}
+
 export function bindTranscriptViewport(ctx) {
   if (!ctx.dom.transcriptViewport) return;
   ctx.dom.transcriptViewport.addEventListener('scroll', () => {
@@ -382,22 +415,30 @@ export function updateClearButton(ctx) {
   button.classList?.toggle?.('is-armed', armed);
 }
 
+function updateSliderFill(input) {
+  if (!input) return;
+  const min = Number(input.min) || 0;
+  const max = Number(input.max) || 100;
+  const percent = ((Number(input.value) - min) / Math.max(1, max - min)) * 100;
+  input.style.setProperty('--slider-fill', `${Math.min(100, Math.max(0, percent))}%`);
+}
+
 export function updateSummaryIntervalControl(ctx) {
   if (!ctx.dom.summaryIntervalInput || !ctx.dom.summaryIntervalValue) return;
-  ctx.dom.summaryIntervalInput.value = String(
-    summaryIntervalSliderIndexFromSeconds(ctx.state.summaryIntervalSeconds)
-  );
+  const index = summaryIntervalSliderIndexFromSeconds(ctx.state.summaryIntervalSeconds);
+  ctx.dom.summaryIntervalInput.value = String(index);
   ctx.dom.summaryIntervalInput.setAttribute('aria-valuetext', `${ctx.state.summaryIntervalSeconds}s`);
   ctx.dom.summaryIntervalValue.textContent = `${ctx.state.summaryIntervalSeconds}s`;
+  updateSliderFill(ctx.dom.summaryIntervalInput);
 }
 
 export function syncViewerControls(ctx) {
   ctx.dom.fontSizeInput.value = String(ctx.state.fontSize);
   ctx.dom.fontSizeValue.textContent = `${ctx.state.fontSize}px`;
-  syncSliderVisual(ctx.dom.fontSizeInput, ctx.state.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX);
+  updateSliderFill(ctx.dom.fontSizeInput);
   ctx.dom.displayMarginInput.value = String(ctx.state.displayMargin);
   ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}%`;
-  syncSliderVisual(ctx.dom.displayMarginInput, ctx.state.displayMargin, 0, 40);
+  updateSliderFill(ctx.dom.displayMarginInput);
   updateSummaryIntervalControl(ctx);
   updateDisplayMarginGuides(ctx);
 }
@@ -411,13 +452,6 @@ export function applyViewerSettings(ctx) {
 export function setDisplayMarginGuidesVisible(ctx, visible) {
   ctx.state.displayMarginGuidesVisible = Boolean(visible);
   updateDisplayMarginGuides(ctx);
-}
-
-function syncSliderVisual(input, value, min, max) {
-  if (!input?.parentElement) return;
-  const range = Math.max(1, max - min);
-  const percent = ((Number(value) - min) / range) * 100;
-  input.parentElement.style.setProperty('--slider-value', String(Math.min(100, Math.max(0, percent))));
 }
 
 export function syncSettingsPanel(ctx) {

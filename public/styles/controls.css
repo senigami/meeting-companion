@@ -405,6 +405,37 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
   color: var(--chrome-text-secondary, currentColor);
 }
 
+/*
+ * .drawerContent wraps Quick Controls + Live Transcript so they can become
+ * one contiguous mobile drawer sheet (see responsive.css); .modeBar sits
+ * outside it so it can be pinned as its own fixed bottom bar on mobile
+ * without being trapped inside the drawer's slide transform. On desktop
+ * .drawerContent stays `display:contents` (invisible for layout) so its
+ * children act as ordinary .railBody flex items again -- the explicit
+ * `order` values below are what puts Quick Controls, Mode, and the
+ * transcript preview back in their original visual order regardless of
+ * this DOM reshuffle.
+ */
+.drawerContent {
+  display: contents;
+}
+
+.quickControlsSection {
+  order: 1;
+}
+
+.modeBar {
+  order: 2;
+}
+
+.railTranscriptDisclosure {
+  order: 3;
+}
+
+.quickPanelHeader {
+  display: none;
+}
+
 .modeGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));

@@ -397,10 +397,6 @@ button.providerOption.active .providerStatus {
 }
 
 .range-field {
-  --slider-points: 2;
-  --slider-track: var(--chrome-bg-control);
-  --slider-dot: var(--chrome-text-secondary);
-  --slider-thumb: var(--chrome-text);
   display: grid;
   gap: 0.55rem;
   padding: 0.85rem 0.85rem 0.95rem;
@@ -437,64 +433,100 @@ button.providerOption.active .providerStatus {
   font-variant-numeric: tabular-nums;
 }
 
-.sliderVisual {
-  position: relative;
-  height: 1.75rem;
-  margin: 0.15rem 0 0;
-}
-
-.sliderTrack {
-  position: absolute;
-  inset: 50% 0 auto;
-  height: 1rem;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at right center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
-      right center / 100% 100% no-repeat,
-    radial-gradient(circle at left center, var(--slider-dot) 0 0.22rem, transparent 0.24rem)
-      left center / calc(100% / (var(--slider-points) - 1)) 100% repeat-x,
-    var(--slider-track);
-  border: 1px solid var(--chrome-separator);
-}
-
-.sliderThumb {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--slider-value, 0) * 1%);
-  width: 1.75rem;
-  height: 1.75rem;
-  transform: translate(-50%, -50%);
-  border: 1px solid var(--chrome-separator);
-  border-radius: 50%;
-  background: var(--slider-thumb);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-#fontSize {
-  --slider-points: 31;
-}
-
-#displayMargin {
-  --slider-points: 21;
-}
-
-#summaryInterval {
-  --slider-points: 4;
-}
-
+/*
+ * Native <input type="range">, heavily styled -- not a JS-recreated
+ * slider. Touch drag, tap-to-jump, keyboard arrows, and screen-reader
+ * support all come from the browser for free and are already correct;
+ * a hand-rolled slider (this app's previous custom implementation, and
+ * briefly a vendored noUiSlider) only recreates that behavior worse.
+ * CSS gets the big-thumb, filled-track, Apple-style look the rest of
+ * the way there.
+ */
 .sliderInput {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  border: 0;
-  outline: none;
-  -webkit-appearance: none;
   appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 0.5rem;
+  margin: 1.25rem 0 0.75rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--chrome-accent) 0%,
+    var(--chrome-accent) var(--slider-fill, 50%),
+    var(--chrome-bg-control) var(--slider-fill, 50%),
+    var(--chrome-bg-control) 100%
+  );
+  border: 1px solid var(--chrome-separator);
+  outline: none;
+}
+
+.sliderInput::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--chrome-text);
+  border: 1px solid var(--chrome-separator);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+
+.sliderInput::-moz-range-thumb {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--chrome-text);
+  border: 1px solid var(--chrome-separator);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+
+.sliderInput::-moz-range-track {
   background: transparent;
-  opacity: 0;
-  cursor: pointer;
+  border: 0;
+}
+
+.sliderInput:active::-webkit-slider-thumb,
+.sliderInput:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+.sliderInput:focus-visible {
+  outline: var(--chrome-focus-ring-width) solid var(--chrome-accent);
+  outline-offset: var(--chrome-focus-ring-offset);
+}
+
+/*
+ * "Vanish while dragging" -- while any slider in this drawer/settings card
+ * is being dragged, everything except the active slider's range-field
+ * fades to near-transparent, so the viewing area behind the sheet (the TV
+ * canvas for the display drawer, or the rest of the settings card) is easy
+ * to read to judge the value, then everything returns on release. Applies
+ * regardless of prefers-reduced-motion (it's a visibility aid, not
+ * decorative motion) but the fade itself still respects the reduced-motion
+ * media query for its transition timing.
+ */
+.viewDrawerBody.is-adjusting-slider > *:not(.is-active-slider-field),
+.settingsCard.is-adjusting-slider > *:not(.is-active-slider-field),
+.settingsDetail.is-adjusting-slider > *:not(.is-active-slider-field) {
+  opacity: 0.1;
   pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.range-field.is-active-slider-field {
+  background: rgba(30, 30, 30, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewDrawerBody.is-adjusting-slider > *:not(.is-active-slider-field),
+  .settingsCard.is-adjusting-slider > *:not(.is-active-slider-field),
+  .settingsDetail.is-adjusting-slider > *:not(.is-active-slider-field) {
+    transition: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -528,8 +560,3 @@ button.providerOption.active .providerStatus {
   }
 }
 
-.sliderInput:focus-visible + .sliderThumb,
-.sliderInput:active + .sliderThumb {
-  outline: 2px solid var(--chrome-accent);
-  outline-offset: 1px;
-}
