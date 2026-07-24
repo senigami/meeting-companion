@@ -88,7 +88,11 @@ test('display text stays centered and viewport-safe', async () => {
   assert.match(css, /\.quickControlsGrid[\s\S]*grid-auto-flow:\s*row dense;/s);
   assert.match(css, /\.quickControlsGrid button[\s\S]*grid-template-rows:\s*24px auto;/s);
   assert.match(css, /\.railButton[\s\S]*min-height:\s*48px;/s);
-  assert.match(css, /\.modeGrid[\s\S]*grid-template-columns:\s*1fr;/s);
+  // Mode buttons are a compact icon grid (square-ish, sit next to each
+  // other) rather than a single-column list of full-width rows.
+  assert.match(css, /\.modeGrid[\s\S]*grid-template-columns:\s*repeat\(auto-fit, minmax\(4\.75rem, 1fr\)\);/s);
+  assert.match(css, /\.modeGrid \.mode[\s\S]*grid-template-rows:\s*24px auto;/s);
+  assert.match(css, /\.modeGrid \.mode[\s\S]*min-height:\s*clamp\(44px, 5\.5vh, 58px\);/s);
   assert.match(css, /\.settingsOverlay\.settingsModal[\s\S]*width:\s*min\(960px, calc\(100vw - 2rem\)\);/s);
   assert.match(css, /\.settingsCard[\s\S]*display:\s*grid;/s);
   assert.match(css, /\.settingsBody[\s\S]*grid-template-columns:\s*180px minmax\(0, 1fr\);/s);
@@ -137,7 +141,10 @@ test('very narrow screens collapse the rail header and quick controls', async ()
   assert.match(css, /@media \(max-width: 640px\)/);
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.railTop[\s\S]*flex-direction:\s*column;/s);
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.railActions[\s\S]*flex-wrap:\s*wrap;/s);
-  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.quickControlsGrid[\s\S]*grid-template-columns:\s*1fr;/s);
+  // Quick Controls stays a compact multi-column icon grid at this width
+  // too (sits next to Mode's grid, same compact treatment) rather than
+  // being forced back to one full-width button per row.
+  assert.doesNotMatch(css, /@media \(max-width: 640px\)[\s\S]*\.quickControlsGrid[^}]*grid-template-columns:\s*1fr;/s);
 });
 
 test('short windows compress the rail chrome without touching the TV canvas', async () => {

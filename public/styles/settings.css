@@ -501,6 +501,17 @@ button.providerOption.active .providerStatus {
   .settingsBody {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
+    /*
+     * align-items:start (set above for the desktop two-column layout, so
+     * the nav column doesn't stretch to match a taller detail column) has
+     * the opposite effect once this becomes a two-*row* stack: it stops
+     * .settingsDetail from stretching to fill its minmax(0,1fr) row, so it
+     * grows to its content's natural height instead of being capped —
+     * which means its own overflow-y:auto never actually has anything to
+     * clip, and the AI services panel (or any tab with enough content)
+     * can't be scrolled to see everything in it.
+     */
+    align-items: stretch;
   }
 
   .settingsNav {

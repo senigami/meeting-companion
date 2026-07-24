@@ -199,10 +199,6 @@
     min-width: 0;
   }
 
-  .quickControlsGrid {
-    grid-template-columns: 1fr;
-  }
-
   .railSection {
     min-width: 0;
   }
