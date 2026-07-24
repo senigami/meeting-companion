@@ -264,11 +264,17 @@ function bindControlButtons(ctx, runtime) {
 
 function beginSliderAdjustment(fieldEl) {
   fieldEl?.closest?.('.viewDrawerBody, .settingsCard, .settingsDetail')?.classList.add('is-adjusting-slider');
+  // The viewer drawer (Text size / Margins) sits directly over the TV
+  // canvas -- while dragging either of those, fade the drawer's own
+  // shell (not just its sibling fields) so the canvas underneath is
+  // fully visible, with only the active slider still showing clearly.
+  fieldEl?.closest?.('.viewDrawerShell')?.classList.add('is-adjusting-slider-shell');
   fieldEl?.classList.add('is-active-slider-field');
 }
 
 function endSliderAdjustment(fieldEl) {
   fieldEl?.closest?.('.viewDrawerBody, .settingsCard, .settingsDetail')?.classList.remove('is-adjusting-slider');
+  fieldEl?.closest?.('.viewDrawerShell')?.classList.remove('is-adjusting-slider-shell');
   fieldEl?.classList.remove('is-active-slider-field');
 }
 

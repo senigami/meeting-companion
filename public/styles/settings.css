@@ -76,9 +76,27 @@ dialog.settingsOverlay[hidden] {
   opacity: 1;
 }
 
-html.is-adjusting-display-margin .viewDrawer.is-open .viewDrawerShell {
-  opacity: 0.5;
-  pointer-events: none;
+/*
+ * While dragging Text size or Margins, the drawer's own chrome
+ * (background/border/shadow -- not `opacity`, which would also dim the
+ * active slider since opacity applies to the whole element and its
+ * descendants as one unit) goes fully transparent so the TV canvas
+ * underneath is completely visible. The active slider's own field stays
+ * clearly visible (see .is-active-slider-field below) floating over the
+ * now-transparent shell; every other field in the drawer fades out too
+ * (see .is-adjusting-slider below).
+ */
+.viewDrawerShell.is-adjusting-slider-shell {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewDrawerShell.is-adjusting-slider-shell {
+    transition: none;
+  }
 }
 
 .viewDrawerHeader {
@@ -500,25 +518,30 @@ button.providerOption.active .providerStatus {
 /*
  * "Vanish while dragging" -- while any slider in this drawer/settings card
  * is being dragged, everything except the active slider's range-field
- * fades to near-transparent, so the viewing area behind the sheet (the TV
- * canvas for the display drawer, or the rest of the settings card) is easy
- * to read to judge the value, then everything returns on release. Applies
- * regardless of prefers-reduced-motion (it's a visibility aid, not
- * decorative motion) but the fade itself still respects the reduced-motion
- * media query for its transition timing.
+ * disappears completely (opacity 0), so the viewing area behind the sheet
+ * (the TV canvas for the display drawer, or the rest of the settings card)
+ * is fully visible. The active field itself stays at 80% opacity, not
+ * 100% or fully transparent -- clearly visible and still operable, but
+ * letting enough of what's behind it show through that it reads as "the
+ * control floating over the view," not "a card blocking the view."
+ * Applies regardless of prefers-reduced-motion (it's a visibility aid,
+ * not decorative motion) but the fade itself still respects the
+ * reduced-motion media query for its transition timing.
  */
 .viewDrawerBody.is-adjusting-slider > *:not(.is-active-slider-field),
 .settingsCard.is-adjusting-slider > *:not(.is-active-slider-field),
 .settingsDetail.is-adjusting-slider > *:not(.is-active-slider-field) {
-  opacity: 0.1;
+  opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease;
 }
 
 .range-field.is-active-slider-field {
+  opacity: 0.8;
   background: rgba(30, 30, 30, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  transition: opacity 160ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -102,8 +102,15 @@ test('display text stays centered and viewport-safe', async () => {
   assert.match(css, /\.displayPanel::before[\s\S]*\.displayPanel::after\s*\{/s);
   assert.match(css, /\.displayPanel\[data-margin-guides='true'\]::before[\s\S]*opacity:\s*0\.9;/s);
   assert.match(css, /html\.is-adjusting-display-margin \.displayPanel[\s\S]*opacity:\s*0\.5;/s);
-  assert.match(css, /html\.is-adjusting-display-margin \.viewDrawer\.is-open \.viewDrawerShell[\s\S]*opacity:\s*0\.5;/s);
-  assert.match(css, /html\.is-adjusting-display-margin \.viewDrawer\.is-open \.viewDrawerShell[\s\S]*pointer-events:\s*none;/s);
+  // While dragging Text size or Margins, the drawer's own chrome (not
+  // its whole-element opacity, which would also dim the active slider)
+  // goes fully transparent so the TV canvas underneath is fully visible.
+  assert.match(css, /\.viewDrawerShell\.is-adjusting-slider-shell\s*\{[^}]*background:\s*transparent;/s);
+  // Every field except the one being dragged disappears completely
+  // (opacity 0); the active field stays at 80% opacity -- clearly
+  // visible and operable without fully blocking the view behind it.
+  assert.match(css, /\.viewDrawerBody\.is-adjusting-slider > \*:not\(\.is-active-slider-field\)[\s\S]*opacity:\s*0;/s);
+  assert.match(css, /\.range-field\.is-active-slider-field\s*\{[^}]*opacity:\s*0\.8;/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*overflow-y:\s*auto;/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*padding-inline:\s*var\(--display-margin\);/s);
   assert.match(css, /\.transcript-stack\s*\{[^}]*width:\s*100%;/s);
