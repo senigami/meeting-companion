@@ -209,6 +209,11 @@ test('quick controls panel is an iOS-style sheet with a drag handle, not a full-
   // space -- the primary 44px open/close target is the icon in the top
   // bar; this is a supplementary drag/tap affordance.
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*height:\s*24px;/s);
+  // base.css's shared `button` rule sets min-height:48px, which silently
+  // wins over height:24px unless explicitly zeroed here -- that was
+  // doubling the handle's real height and leaving a dead gap above
+  // Quick Controls.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*min-height:\s*0;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*align-items:\s*flex-start;/s);
   // Thinner than the textbook 36x5pt spec -- a flat CSS rectangle at the
   // exact spec size reads chunkier on the web than the native grabber's

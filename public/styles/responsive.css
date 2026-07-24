@@ -179,6 +179,13 @@
     justify-content: center;
     width: 100%;
     height: 24px;
+    /*
+     * base.css's shared `button` rule sets min-height:48px, which wins
+     * over this height:24px whenever a min/height conflict exists --
+     * silently doubling the handle's real height and creating the
+     * "lot of space before Quick Controls" gap. Must override it here.
+     */
+    min-height: 0;
     padding-top: 8px;
     margin: 0;
     border: 0;

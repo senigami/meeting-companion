@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-24T15:19:31Z",
+  "commit": "uncommitted",
+  "task": "Fix real bug: the drag handle was silently 48px tall (base.css's shared button min-height:48px overriding height:24px), leaving a dead gap above Quick Controls",
+  "files": {
+    "public/styles/responsive.css": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "Added min-height:0 to .quickPanelHandle -- base.css's shared 'button { min-height: 48px }' rule wins over a smaller height whenever both apply, so the handle was actually rendering at 48px despite height:24px, doubling its real height and creating a visible gap before the Quick Controls card. Confirmed via getBoundingClientRect before/after (48px -> 24px)."
+    },
+    "test/public/style.test.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Added an assertion for the min-height:0 override."
+    }
+  },
+  "flow_impact": "none"
+}
