@@ -93,8 +93,24 @@ dialog.settingsOverlay[hidden] {
   transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
+/*
+ * The header ("Display" title + Close button) is a sibling of
+ * .viewDrawerBody, not an ancestor of the active field, so fading it
+ * to 0 here carries no opacity-compounding risk (see the note above
+ * .viewDrawerBody.is-adjusting-slider below).
+ */
+.viewDrawerShell.is-adjusting-slider-shell .viewDrawerHeader {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .viewDrawerShell.is-adjusting-slider-shell {
+    transition: none;
+  }
+
+  .viewDrawerShell.is-adjusting-slider-shell .viewDrawerHeader {
     transition: none;
   }
 }

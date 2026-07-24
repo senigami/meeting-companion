@@ -106,6 +106,10 @@ test('display text stays centered and viewport-safe', async () => {
   // its whole-element opacity, which would also dim the active slider)
   // goes fully transparent so the TV canvas underneath is fully visible.
   assert.match(css, /\.viewDrawerShell\.is-adjusting-slider-shell\s*\{[^}]*background:\s*transparent;/s);
+  // The header (title + Close button) fades out too -- it's a sibling
+  // of .viewDrawerBody, not an ancestor of the active field, so this
+  // carries no opacity-compounding risk.
+  assert.match(css, /\.viewDrawerShell\.is-adjusting-slider-shell \.viewDrawerHeader\s*\{[^}]*opacity:\s*0;/s);
   // Every field except the one being dragged disappears completely
   // (opacity 0); the active field stays at 80% opacity -- clearly
   // visible and operable without fully blocking the view behind it.
