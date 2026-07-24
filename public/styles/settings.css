@@ -432,8 +432,8 @@ button.providerOption.active .providerStatus {
 
 .range-field {
   display: grid;
-  gap: 0.55rem;
-  padding: 0.85rem 0.85rem 0.95rem;
+  gap: 0.3rem;
+  padding: 0.65rem 0.65rem 0.55rem;
   border-radius: var(--chrome-radius-md);
   background: var(--chrome-bg-control);
   border: 1px solid var(--chrome-separator);
@@ -444,7 +444,7 @@ button.providerOption.active .providerStatus {
 }
 
 .viewDrawer .settingsStack {
-  gap: 0.9rem;
+  gap: 0.55rem;
 }
 
 .range-head {
@@ -452,7 +452,6 @@ button.providerOption.active .providerStatus {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 0.55rem;
   font-size: 13px;
   font-weight: 700;
 }
@@ -481,7 +480,14 @@ button.providerOption.active .providerStatus {
   -webkit-appearance: none;
   width: 100%;
   height: 0.5rem;
-  margin: 1.25rem 0 0.75rem;
+  /*
+   * The thumb (2rem) overflows the track (0.5rem) by 0.75rem on each
+   * side -- that's the minimum top margin that keeps it clear of the
+   * label row above; the old 1.25rem/0.75rem was well past what the
+   * thumb actually needs and was most of the "too much space" between
+   * the label and the slider.
+   */
+  margin: 0.75rem 0 0.4rem;
   border-radius: 999px;
   background: linear-gradient(
     to right,

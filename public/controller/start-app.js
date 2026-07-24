@@ -2,7 +2,8 @@ import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds,
-  summaryIntervalSecondsFromSliderIndex
+  summaryIntervalSecondsFromSliderIndex,
+  fontSizeFromSliderPosition
 } from '../services/view-settings.js';
 import {
   bindRailResize,
@@ -301,7 +302,9 @@ function bindDragFade(input, fieldEl, { onDragStart = () => {}, onDragEnd = () =
 }
 
 function bindViewerControls(ctx, runtime) {
-  ctx.dom.fontSizeInput.addEventListener('input', (e) => runtime.setFontSize(e.target.value));
+  ctx.dom.fontSizeInput.addEventListener('input', (e) => {
+    runtime.setFontSize(fontSizeFromSliderPosition(e.target.value, ctx.state.fontSize));
+  });
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(summaryIntervalSecondsFromSliderIndex(e.target.value, ctx.state.summaryIntervalSeconds));

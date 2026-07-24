@@ -1,4 +1,7 @@
-import { summaryIntervalSliderIndexFromSeconds } from '../services/view-settings.js';
+import {
+  summaryIntervalSliderIndexFromSeconds,
+  sliderPositionFromFontSize
+} from '../services/view-settings.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -433,7 +436,8 @@ export function updateSummaryIntervalControl(ctx) {
 }
 
 export function syncViewerControls(ctx) {
-  ctx.dom.fontSizeInput.value = String(ctx.state.fontSize);
+  ctx.dom.fontSizeInput.value = String(sliderPositionFromFontSize(ctx.state.fontSize));
+  ctx.dom.fontSizeInput.setAttribute('aria-valuetext', `${ctx.state.fontSize}px`);
   ctx.dom.fontSizeValue.textContent = `${ctx.state.fontSize}px`;
   updateSliderFill(ctx.dom.fontSizeInput);
   ctx.dom.displayMarginInput.value = String(ctx.state.displayMargin);
