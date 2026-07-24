@@ -51,7 +51,7 @@ Create a `.env` file in the project root:
 ```text
 OPENAI_API_KEY=your_api_key_here
 ANTHROPIC_API_KEY=your_anthropic_key_here
-ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 PORT=3000
 ```
 
