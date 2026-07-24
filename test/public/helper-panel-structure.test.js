@@ -100,7 +100,7 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(rail, /class=(?:"[^"]*\brailActions\b[^"]*"|'[^']*\brailActions\b[^']*')/, '.railActions');
   assertContains(rail, /id=(?:"railResizeHandle"|'railResizeHandle')/, '#railResizeHandle');
   assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
-  assertContains(rail, /class=(?:"[^"]*\brailTranscriptDisclosure\b[^"]*"|'[^']*\brailTranscriptDisclosure\b[^']*')/, '.railTranscriptDisclosure');
+  assertContains(rail, /class=(?:"[^"]*\brailTranscriptSection\b[^"]*"|'[^']*\brailTranscriptSection\b[^']*')/, '.railTranscriptSection');
   assertNotContains(rail, /<h1\b/i, 'large Controls heading');
   assertNotContains(rail, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 

@@ -191,8 +191,28 @@ test('short windows compress the rail chrome without touching the TV canvas', as
   );
   assert.match(
     css,
-    /@media \(max-height: 600px\) and \(min-width: 901px\)[\s\S]*\.railTranscriptDisclosure \.railTranscript[\s\S]*max-height:\s*3\.5rem;/s
+    /@media \(max-height: 600px\) and \(min-width: 901px\)[\s\S]*\.railTranscriptSection \.railTranscript[\s\S]*max-height:\s*3\.5rem;/s
   );
+});
+
+test('quick controls panel is an iOS-style sheet with a drag handle, not a full-screen panel', async () => {
+  const css = await readSplitCss();
+
+  // No more full-screen inset -- the sheet's height is JS-driven (see
+  // quick-panel-sheet.js) between two measured snap points.
+  assert.doesNotMatch(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent[^}]*inset:\s*0;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\s*\{[^}]*border-radius:\s*1\.1rem 1\.1rem 0 0;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\.is-dragging\s*\{\s*transition:\s*none;/s);
+  // The handle is a small centered pill, not a header with a title/close
+  // button.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*height:\s*28px;/s);
+  assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*border-radius:\s*999px;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelScroll\s*\{[^}]*overflow-y:\s*auto;/s);
+  // The header/close-button markup and the transcript's old collapsible
+  // <details> disclosure are both gone -- confirm no CSS still targets
+  // either dead class.
+  assert.doesNotMatch(css, /\.quickPanelHeader\b/);
+  assert.doesNotMatch(css, /\.helper-disclosure\b/);
 });
 
 test('range sliders are native inputs with a big custom-styled thumb', async () => {

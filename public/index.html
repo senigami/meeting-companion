@@ -126,50 +126,46 @@
         </section>
 
         <div class="drawerContent" id="quickPanel" aria-label="Quick controls" aria-hidden="false">
-          <div class="quickPanelHeader">
-            <div>
-              <div class="eyebrow">Meeting Companion</div>
-              <h2>Quick controls</h2>
-            </div>
-            <button id="closeQuickPanel" type="button" class="ghost">Close</button>
-          </div>
+          <button type="button" id="quickPanelHandle" class="quickPanelHandle" aria-label="Resize quick controls panel" aria-expanded="false">
+            <span class="quickPanelHandleGrip" aria-hidden="true"></span>
+          </button>
 
-          <section class="section railSection quickControlsSection">
-            <div class="section-label">Quick controls</div>
-            <div class="button-grid quickControlsGrid" role="group" aria-label="Quick controls">
-              <button id="startListening" type="button" class="railButton" aria-label="Start listening" title="Start listening">
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
-                <span class="buttonLabel">Start</span>
-              </button>
-              <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" title="Stop listening" disabled>
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
-                <span class="buttonLabel">Stop</span>
-              </button>
-              <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI (P)" aria-keyshortcuts="p" aria-pressed="false">
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
-                <span id="pauseAiLabel" class="buttonLabel">Pause</span>
-              </button>
-              <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line (U)" aria-keyshortcuts="u">
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
-                <span class="buttonLabel">Undo</span>
-              </button>
-              <button id="clear" type="button" class="railButton" aria-label="Clear all lines" title="Clear all lines">
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
-                <span id="clearLabel" class="buttonLabel">Clear</span>
-              </button>
-              <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen" title="Enter fullscreen">
-                <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
-                <span class="buttonLabel">Full</span>
-              </button>
-            </div>
-          </section>
+          <div class="quickPanelScroll" id="quickPanelScroll">
+            <section class="section railSection quickControlsSection" id="quickControlsSection">
+              <div class="section-label">Quick controls</div>
+              <div class="button-grid quickControlsGrid" role="group" aria-label="Quick controls">
+                <button id="startListening" type="button" class="railButton" aria-label="Start listening" title="Start listening">
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-mic"></use></svg>
+                  <span class="buttonLabel">Start</span>
+                </button>
+                <button id="stopListening" type="button" class="railButton" aria-label="Stop listening" title="Stop listening" disabled>
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-stop"></use></svg>
+                  <span class="buttonLabel">Stop</span>
+                </button>
+                <button id="pauseAi" type="button" class="railButton" aria-label="Pause AI" title="Pause AI (P)" aria-keyshortcuts="p" aria-pressed="false">
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pause"></use></svg>
+                  <span id="pauseAiLabel" class="buttonLabel">Pause</span>
+                </button>
+                <button id="undo" type="button" class="railButton" aria-label="Undo last line" title="Undo last line (U)" aria-keyshortcuts="u">
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"></use></svg>
+                  <span class="buttonLabel">Undo</span>
+                </button>
+                <button id="clear" type="button" class="railButton" aria-label="Clear all lines" title="Clear all lines">
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"></use></svg>
+                  <span id="clearLabel" class="buttonLabel">Clear</span>
+                </button>
+                <button id="fullscreen" type="button" class="railButton" aria-label="Enter fullscreen" title="Enter fullscreen">
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-fullscreen"></use></svg>
+                  <span class="buttonLabel">Full</span>
+                </button>
+              </div>
+            </section>
 
-          <details class="helper-disclosure railSection railTranscriptDisclosure" open>
-            <summary class="helper-disclosure-summary section-label">Live transcript</summary>
-            <div class="helper-disclosure-body">
+            <section class="railSection railTranscriptSection" id="railTranscriptSection">
+              <div class="section-label">Live transcript</div>
               <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
-            </div>
-          </details>
+            </section>
+          </div>
         </div>
       </div>
     </aside>

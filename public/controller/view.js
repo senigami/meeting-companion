@@ -2,6 +2,7 @@ import {
   summaryIntervalSliderIndexFromSeconds,
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
+import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -266,6 +267,12 @@ export function setQuickPanelOpen(ctx, open, { focusReturn = false } = {}) {
   }
 
   if (ctx.dom.quickPanel) {
+    if (next) {
+      // Apply the last-used (or persisted) snap height before sliding
+      // up, without animating the height itself -- only the slide
+      // transform should visibly animate on open.
+      applyQuickPanelSnap(ctx, ctx.state.quickPanelSnap || loadQuickPanelSnap(), { animate: false });
+    }
     ctx.dom.quickPanel.setAttribute('aria-hidden', String(!next));
     if (next) {
       ctx.dom.quickPanel.classList?.add?.('is-open');
@@ -287,7 +294,7 @@ export function setQuickPanelOpen(ctx, open, { focusReturn = false } = {}) {
   }
 
   if (next) {
-    globalThis.requestAnimationFrame?.(() => ctx.dom.closeQuickPanel?.focus?.());
+    globalThis.requestAnimationFrame?.(() => ctx.dom.quickPanelHandle?.focus?.());
   } else if (focusReturn) {
     globalThis.requestAnimationFrame?.(() => ctx.dom.quickPanelToggle?.focus?.());
   }

@@ -410,13 +410,14 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
  * one contiguous mobile drawer sheet (see responsive.css); .modeBar sits
  * outside it so it can be pinned as its own fixed bottom bar on mobile
  * without being trapped inside the drawer's slide transform. On desktop
- * .drawerContent stays `display:contents` (invisible for layout) so its
- * children act as ordinary .railBody flex items again -- the explicit
- * `order` values below are what puts Quick Controls, Mode, and the
- * transcript preview back in their original visual order regardless of
- * this DOM reshuffle.
+ * .drawerContent AND .quickPanelScroll stay `display:contents` (invisible
+ * for layout) so their descendants act as ordinary .railBody flex items
+ * again -- the explicit `order` values below are what puts Quick
+ * Controls, Mode, and the transcript preview back in their original
+ * visual order regardless of this DOM reshuffle.
  */
-.drawerContent {
+.drawerContent,
+.quickPanelScroll {
   display: contents;
 }
 
@@ -428,11 +429,11 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
   order: 2;
 }
 
-.railTranscriptDisclosure {
+.railTranscriptSection {
   order: 3;
 }
 
-.quickPanelHeader {
+.quickPanelHandle {
   display: none;
 }
 
@@ -614,72 +615,6 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
   bottom: 0;
   margin-top: 0.75rem;
   background: var(--chrome-bg);
-}
-
-.helper-disclosure {
-  margin: 0;
-  border-radius: var(--chrome-radius-lg);
-  border: 1px solid var(--chrome-separator);
-  background: var(--chrome-bg-control);
-  overflow: clip;
-}
-
-details.helper-disclosure[open] {
-  background: var(--chrome-bg-control-hover);
-  border-color: var(--chrome-accent);
-}
-
-summary.helper-disclosure-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.9rem 1rem;
-  cursor: pointer;
-  list-style: none;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 650;
-  transition: background-color 160ms ease, color 160ms ease;
-}
-
-summary.helper-disclosure-summary::-webkit-details-marker {
-  display: none;
-}
-
-summary.helper-disclosure-summary::after {
-  content: "";
-  width: 0.7rem;
-  height: 0.7rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg) translateY(-1px);
-  transform-origin: center;
-  transition: transform 160ms ease, color 160ms ease;
-}
-
-summary.helper-disclosure-summary:hover {
-  background: var(--chrome-bg-control-hover);
-  color: var(--text);
-}
-
-details.helper-disclosure[open] > summary.helper-disclosure-summary {
-  color: var(--accent-strong);
-  border-bottom: 1px solid var(--chrome-separator);
-}
-
-details.helper-disclosure[open] > summary.helper-disclosure-summary::after {
-  transform: rotate(225deg) translateY(1px);
-}
-
-.helper-disclosure-body {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0.85rem 0.9rem 0.9rem;
-}
-
-.helper-disclosure-body .section {
-  margin-bottom: 0;
 }
 
 .helper-diagnostics .status {

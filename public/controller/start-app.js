@@ -13,6 +13,7 @@ import {
   bindRailCollapse,
   loadRailCollapsed
 } from './rail-collapse.js';
+import { bindQuickPanelSheet, loadQuickPanelSnap } from './quick-panel-sheet.js';
 import {
   renderDisplay,
   bindTranscriptViewport,
@@ -63,6 +64,7 @@ export function startApp() {
       viewPanelCloseHandle: null,
       quickPanelOpen: false,
       quickPanelCloseHandle: null,
+      quickPanelSnap: loadQuickPanelSnap(),
       panelOpen: false,
       pendingProviderSelection: null,
       registrationProvider: 'openai',
@@ -112,8 +114,11 @@ export function startApp() {
       closeViewPanel: $('closeViewPanel'),
       quickPanel: $('quickPanel'),
       quickPanelToggle: $('quickPanelToggle'),
-      closeQuickPanel: $('closeQuickPanel'),
       quickPanelBackdrop: $('quickPanelBackdrop'),
+      quickPanelHandle: $('quickPanelHandle'),
+      quickPanelScroll: $('quickPanelScroll'),
+      quickControlsSection: $('quickControlsSection'),
+      railTranscriptSection: $('railTranscriptSection'),
       settingsPanel: $('settingsPanel'),
       settingsBackdrop: $('settingsBackdrop'),
       settingsBody: $('settingsBody'),
@@ -167,6 +172,7 @@ export function startApp() {
     bindViewerControls(ctx, runtime);
     bindRailResize(ctx);
     bindRailCollapse(ctx);
+    bindQuickPanelSheet(ctx);
     bindModeAndSourceButtons(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
     bindSettingsNav(ctx);
@@ -252,7 +258,6 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.viewButton.addEventListener('click', () => setViewPanelOpen(ctx, !ctx.state.viewPanelOpen, { focusReturn: false }));
   ctx.dom.closeViewPanel.addEventListener('click', () => setViewPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.quickPanelToggle?.addEventListener('click', () => setQuickPanelOpen(ctx, !ctx.state.quickPanelOpen, { focusReturn: false }));
-  ctx.dom.closeQuickPanel?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.quickPanelBackdrop?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));

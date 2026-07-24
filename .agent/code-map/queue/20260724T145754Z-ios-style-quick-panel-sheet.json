@@ -1,0 +1,48 @@
+{
+  "at": "2026-07-24T14:57:54Z",
+  "commit": "uncommitted",
+  "task": "Rebuild the quick-controls drawer as an iOS-style bottom sheet: small drag-handle pill instead of a full-screen header+close button, two measured snap heights (compact = Quick Controls only, expanded = also reveals Live Transcript), draggable via the handle, snap position persisted across opens",
+  "files": {
+    "public/index.html": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "#quickPanel's header (title + #closeQuickPanel) replaced with a #quickPanelHandle drag-handle button (a centered pill). Quick Controls and Live Transcript wrapped in a new #quickPanelScroll scroll container. Live Transcript's old <details class=railTranscriptDisclosure> collapsible disclosure replaced with a plain always-rendered <section class=railTranscriptSection> -- the sheet's own snap state now controls whether it's visible, so the transcript itself no longer needs its own collapse."
+    },
+    "public/controller/quick-panel-sheet.js": {
+      "change": "added",
+      "contract_changed": true,
+      "summary": "New module: measureSnapHeights (reads actual rendered heights of the handle/Quick Controls/transcript sections rather than hardcoding px values, so it stays correct if that content changes), applyQuickPanelSnap (sets the sheet's height + persists to localStorage under 'quickPanelSnap'), bindQuickPanelSheet (pointer-drag tracking on the handle with a tap-vs-drag threshold -- a tap toggles snaps for keyboard/switch-control access, a real drag snaps to whichever of the two heights is closer on release), loadQuickPanelSnap."
+    },
+    "public/controller/start-app.js": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "Wires bindQuickPanelSheet(ctx) during setup; ctx.state.quickPanelSnap initialized from loadQuickPanelSnap(); added DOM refs for quickPanelHandle/quickPanelScroll/quickControlsSection/railTranscriptSection; removed the deleted #closeQuickPanel DOM ref and its click binding."
+    },
+    "public/controller/view.js": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "setQuickPanelOpen now applies the persisted/current snap height (animate:false) immediately before sliding the sheet open, so only the slide transform animates on open, not the height. Focus-on-open target changed from the removed #closeQuickPanel to #quickPanelHandle."
+    },
+    "public/styles/controls.css": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "Added .quickPanelScroll to the display:contents desktop-safety rule alongside .drawerContent (both need to stay transparent for layout on desktop). Renamed .railTranscriptDisclosure's order rule to .railTranscriptSection. Removed .quickPanelHeader (dead, element deleted) and the entire dead .helper-disclosure/summary/.helper-disclosure-body CSS block (only consumer was the deleted <details> markup)."
+    },
+    "public/styles/responsive.css": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "Rewrote the mobile .drawerContent block: no more full-screen inset:0 -- it's left/right/bottom-anchored with a JS-driven height, rounded top corners, and an .is-dragging class that suspends the height transition during a live drag. Added .quickPanelHandle/.quickPanelHandleGrip/.quickPanelScroll styles. Renamed remaining .railTranscriptDisclosure references to .railTranscriptSection."
+    },
+    "test/public/helper-panel-structure.test.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Updated the class-name assertion from .railTranscriptDisclosure to .railTranscriptSection."
+    },
+    "test/public/style.test.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Updated the renamed .railTranscriptSection selector assertion; added a new test asserting the sheet is no longer full-screen (no inset:0), has the rounded-top-corner sheet styling, the is-dragging no-transition rule, the handle/grip/scroll styles, and that the dead .quickPanelHeader/.helper-disclosure classes are gone from the CSS entirely."
+    }
+  },
+  "flow_impact": "none"
+}
