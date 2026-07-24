@@ -207,6 +207,16 @@
     min-width: 0;
   }
 
+  /*
+   * The base auto-fit minmax(4.75rem,1fr) only fits 3 columns at typical
+   * phone widths (a 4th button would need to shrink below that minimum),
+   * so it wraps Prayer to its own row. Force exactly 4 equal columns here
+   * so all four mode buttons sit in one row on a phone.
+   */
+  .modeGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
   .apiKeyActions {
     grid-template-columns: 1fr;
   }

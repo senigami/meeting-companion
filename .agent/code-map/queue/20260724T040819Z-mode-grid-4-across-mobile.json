@@ -1,0 +1,13 @@
+{
+  "at": "2026-07-24T04:08:19Z",
+  "commit": "uncommitted",
+  "task": "Force Mode buttons (Speaker/Info/Song/Prayer) to 4 equal columns on mobile so they fit in one row",
+  "files": {
+    "public/styles/responsive.css": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Added .modeGrid { grid-template-columns: repeat(4, 1fr); } inside the existing <=900px block -- the base auto-fit minmax(4.75rem,1fr) only fit 3 columns at typical phone widths, wrapping Prayer to its own row."
+    }
+  },
+  "flow_impact": "none"
+}
