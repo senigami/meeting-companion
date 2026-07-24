@@ -137,14 +137,20 @@ test('mobile is a full-screen home: display fills the screen, Mode and manual ba
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railResizeHandle[\s\S]*display:\s*none;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.manualBarInner[\s\S]*grid-template-columns:\s*1fr auto;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.settingsModal[\s\S]*width:\s*100%;/s);
+  // The "Manual"/listening status pill sits inline in the brand row as a
+  // compact badge (not a stretched full-width row of its own) so it
+  // doesn't cost the display panel a whole extra line.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railTop\s*\{[^}]*flex-direction:\s*row;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.railStatus\s*\{[^}]*flex:\s*0 0 auto;/s);
+  // Mode sits directly above the manual-line bar with a tightened gap,
+  // not the wider spacing used between the other chrome pieces.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.modeBar\s*\{[^}]*margin-bottom:\s*-0\.4rem;/s);
 });
 
 test('very narrow screens collapse the rail header and quick controls', async () => {
   const css = await readSplitCss();
 
   assert.match(css, /@media \(max-width: 640px\)/);
-  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.railTop[\s\S]*flex-direction:\s*column;/s);
-  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.railActions[\s\S]*flex-wrap:\s*wrap;/s);
   // Quick Controls stays a compact multi-column icon grid at this width
   // too (sits next to Mode's grid, same compact treatment) rather than
   // being forced back to one full-width button per row.

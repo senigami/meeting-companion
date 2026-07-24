@@ -69,12 +69,37 @@
     border-bottom: 1px solid var(--chrome-separator);
   }
 
+  /*
+   * "Manual"/listening status used to be its own full-width row below
+   * the brand+icons row -- on a phone that's a whole line spent on a
+   * small pill. Put it inline in the same row as the brand instead (a
+   * compact badge, not stretched to fill the row), freeing that space
+   * for the display panel.
+   */
+  .railTop {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-height: 0;
+    padding-bottom: 0.5rem;
+  }
+
+  .railStatus {
+    flex: 0 0 auto;
+    margin-top: 0;
+  }
+
   .modeBar {
     order: 3;
     flex: 0 0 auto;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
+    /* Tighten the gap to the manual-line bar right below it -- the
+       shared .meetingShell gap (used between every chrome piece) is
+       wider than this specific pair needs. */
+    margin-bottom: -0.4rem;
   }
 
   .railResizeHandle {
@@ -233,17 +258,6 @@
   .meetingShell {
     padding: 0.5rem;
     gap: 0.6rem;
-  }
-
-  .railTop {
-    flex-direction: column;
-    align-items: stretch;
-    min-height: 6.5rem;
-  }
-
-  .railActions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
   }
 
   .iconButton,
