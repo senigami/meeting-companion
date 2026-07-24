@@ -217,6 +217,13 @@ test('quick controls panel is an iOS-style sheet with a drag handle, not a full-
   assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*width:\s*34px;/s);
   assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*height:\s*3px;/s);
   assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*border-radius:\s*999px;/s);
+  // The base `button` rule paints a light fill on :hover/:active -- that
+  // would otherwise show through here too, turning the whole 24px strip
+  // into a visible bar on hover/press. Must stay transparent explicitly.
+  assert.match(
+    css,
+    /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle:hover,\s*\n\s*\.quickPanelHandle:active,\s*\n\s*\.quickPanelHandle:focus-visible\s*\{\s*background:\s*transparent;/s
+  );
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelScroll\s*\{[^}]*overflow-y:\s*auto;/s);
   // The header/close-button markup and the transcript's old collapsible
   // <details> disclosure are both gone -- confirm no CSS still targets

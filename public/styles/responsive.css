@@ -187,6 +187,19 @@
     cursor: grab;
   }
 
+  /*
+   * The base `button` rule (base.css) paints a light fill on :hover and
+   * would otherwise paint it here too -- a full-width, 24px-tall highlight
+   * on hover/press is exactly the "chunky bar" look this handle is meant
+   * to avoid. Only the grip itself (see .quickPanelHandle:hover
+   * .quickPanelHandleGrip above) should visibly react.
+   */
+  .quickPanelHandle:hover,
+  .quickPanelHandle:active,
+  .quickPanelHandle:focus-visible {
+    background: transparent;
+  }
+
   .quickPanelHandle:active {
     cursor: grabbing;
   }

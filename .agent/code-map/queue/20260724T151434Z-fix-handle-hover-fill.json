@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-24T15:14:34Z",
+  "commit": "uncommitted",
+  "task": "Fix a real bug: the sheet drag handle showed a full-width grey fill on hover/press because the base button:hover rule wasn't overridden for the handle's interactive states",
+  "files": {
+    "public/styles/responsive.css": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "Added .quickPanelHandle:hover/:active/:focus-visible { background: transparent } -- base.css's global button:hover rule (background: rgba(255,255,255,0.11)) was painting the whole 24px-tall, full-width handle on hover/press, which is exactly the chunky-bar look the handle redesign was meant to avoid. Only the grip's own opacity should visibly react to interaction, not the surrounding strip."
+    },
+    "test/public/style.test.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Added an assertion for the new hover/active/focus-visible transparent-background override."
+    }
+  },
+  "flow_impact": "none"
+}
