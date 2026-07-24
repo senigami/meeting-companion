@@ -162,20 +162,24 @@
   }
 
   /*
-   * The drag handle: a small centered pill, tall enough on its own to be
-   * a comfortable touch target (44px) without needing to look that tall.
-   * A tap (no meaningful drag distance) toggles between the two snaps --
-   * see quick-panel-sheet.js -- so this is keyboard/switch-control
-   * operable too, not just draggable.
+   * The drag handle follows Apple's actual sheet-grabber proportions: a
+   * short ~24px flat strip at the top of the sheet (not a tall padded
+   * bar) with a thin capsule sitting close to the top edge. Real iOS
+   * sheets get their bigger drag/tap hit area via invisible hit-testing
+   * insets, not by visually reserving 44px of blank space -- and the
+   * primary, unambiguous 44px open/close target is already the icon in
+   * the top bar, so this supplementary handle doesn't need to carry
+   * that weight on its own. A tap (no meaningful drag distance) toggles
+   * between the two snaps -- see quick-panel-sheet.js.
    */
   .quickPanelHandle {
     display: flex;
     flex: 0 0 auto;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     width: 100%;
-    height: 28px;
-    padding: 0;
+    height: 24px;
+    padding-top: 8px;
     margin: 0;
     border: 0;
     background: transparent;
@@ -188,16 +192,23 @@
   }
 
   .quickPanelHandleGrip {
-    width: 2.5rem;
-    height: 4px;
+    /*
+     * Textbook Apple spec is 36x5pt, but a flat CSS rectangle at that
+     * exact size reads chunkier on the web than the native grabber --
+     * real iOS renders it with subtler anti-aliasing a solid div can't
+     * replicate. Thinner and fainter here is closer to how the native
+     * one actually looks, not just how it measures.
+     */
+    width: 34px;
+    height: 3px;
     border-radius: 999px;
     background: var(--chrome-text-secondary);
-    opacity: 0.6;
+    opacity: 0.32;
   }
 
   .quickPanelHandle:hover .quickPanelHandleGrip,
   .quickPanelHandle:focus-visible .quickPanelHandleGrip {
-    opacity: 0.9;
+    opacity: 0.55;
   }
 
   .quickPanelHandle:focus-visible {

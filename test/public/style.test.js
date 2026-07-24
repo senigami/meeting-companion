@@ -204,8 +204,18 @@ test('quick controls panel is an iOS-style sheet with a drag handle, not a full-
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\s*\{[^}]*border-radius:\s*1\.1rem 1\.1rem 0 0;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.drawerContent\.is-dragging\s*\{\s*transition:\s*none;/s);
   // The handle is a small centered pill, not a header with a title/close
-  // button.
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*height:\s*28px;/s);
+  // button. It's a short ~24px flat strip (Apple's real sheet-grabber
+  // proportion), not a tall padded bar reserving 44px of blank visual
+  // space -- the primary 44px open/close target is the icon in the top
+  // bar; this is a supplementary drag/tap affordance.
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*height:\s*24px;/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelHandle\s*\{[^}]*align-items:\s*flex-start;/s);
+  // Thinner than the textbook 36x5pt spec -- a flat CSS rectangle at the
+  // exact spec size reads chunkier on the web than the native grabber's
+  // subtler anti-aliasing, so this leans thinner/fainter to match how it
+  // actually looks rather than just how it measures.
+  assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*width:\s*34px;/s);
+  assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*height:\s*3px;/s);
   assert.match(css, /\.quickPanelHandleGrip\s*\{[^}]*border-radius:\s*999px;/s);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.quickPanelScroll\s*\{[^}]*overflow-y:\s*auto;/s);
   // The header/close-button markup and the transcript's old collapsible
