@@ -528,9 +528,19 @@ button.providerOption.active .providerStatus {
  * not decorative motion) but the fade itself still respects the
  * reduced-motion media query for its transition timing.
  */
-.viewDrawerBody.is-adjusting-slider > *:not(.is-active-slider-field),
-.settingsCard.is-adjusting-slider > *:not(.is-active-slider-field),
-.settingsDetail.is-adjusting-slider > *:not(.is-active-slider-field) {
+/*
+ * Target the actual sibling elements (.range-field, .section-label)
+ * directly -- NOT a shared wrapping container like .settingsStack.
+ * Opacity compounds down the tree: if a *parent* of the active field
+ * were faded to 0, the active field's own opacity:0.8 below would be
+ * multiplied against it and vanish too, regardless of its own value.
+ * The active field must never have a faded ancestor.
+ */
+.viewDrawerBody.is-adjusting-slider .range-field:not(.is-active-slider-field),
+.viewDrawerBody.is-adjusting-slider > .section-label,
+.settingsCard.is-adjusting-slider .range-field:not(.is-active-slider-field),
+.settingsCard.is-adjusting-slider > .section-label,
+.settingsDetail.is-adjusting-slider > .settingsCard:not(:has(.is-active-slider-field)) {
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease;
@@ -545,9 +555,11 @@ button.providerOption.active .providerStatus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .viewDrawerBody.is-adjusting-slider > *:not(.is-active-slider-field),
-  .settingsCard.is-adjusting-slider > *:not(.is-active-slider-field),
-  .settingsDetail.is-adjusting-slider > *:not(.is-active-slider-field) {
+  .viewDrawerBody.is-adjusting-slider .range-field:not(.is-active-slider-field),
+  .viewDrawerBody.is-adjusting-slider > .section-label,
+  .settingsCard.is-adjusting-slider .range-field:not(.is-active-slider-field),
+  .settingsCard.is-adjusting-slider > .section-label,
+  .settingsDetail.is-adjusting-slider > .settingsCard:not(:has(.is-active-slider-field)) {
     transition: none;
   }
 }

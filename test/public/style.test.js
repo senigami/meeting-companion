@@ -109,7 +109,11 @@ test('display text stays centered and viewport-safe', async () => {
   // Every field except the one being dragged disappears completely
   // (opacity 0); the active field stays at 80% opacity -- clearly
   // visible and operable without fully blocking the view behind it.
-  assert.match(css, /\.viewDrawerBody\.is-adjusting-slider > \*:not\(\.is-active-slider-field\)[\s\S]*opacity:\s*0;/s);
+  // The fade targets .range-field directly (not a shared wrapping
+  // container like .settingsStack) -- opacity compounds down the tree,
+  // so fading an ancestor of the active field would silently drag its
+  // 0.8 down with it.
+  assert.match(css, /\.viewDrawerBody\.is-adjusting-slider \.range-field:not\(\.is-active-slider-field\)[\s\S]*opacity:\s*0;/s);
   assert.match(css, /\.range-field\.is-active-slider-field\s*\{[^}]*opacity:\s*0\.8;/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*overflow-y:\s*auto;/s);
   assert.match(css, /\.transcript-viewport\s*\{[^}]*padding-inline:\s*var\(--display-margin\);/s);

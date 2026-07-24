@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-24T05:21:53Z",
+  "commit": "uncommitted",
+  "task": "Fix the vanish-while-dragging fade so the active slider's 80% opacity actually shows -- it was being multiplied by a faded ancestor's opacity:0 down to invisible",
+  "files": {
+    "public/styles/settings.css": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "The fade selector previously hid direct children of .viewDrawerBody/.settingsCard (e.g. '.settingsStack'), which is a wrapping ancestor of the actual .range-field elements, not a sibling of them. CSS opacity compounds down the render tree, so fading that wrapper to 0 silently multiplied the active field's own opacity:0.8 down to ~0 too, even though the active field's own rule correctly declared 0.8. Changed the selector to target .range-field:not(.is-active-slider-field) and .section-label directly (never a shared ancestor of the active field), so the active field never has a faded element between it and the drawer body."
+    },
+    "test/public/style.test.js": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "Updated the fade-selector assertion to match the corrected .range-field-targeted selector instead of the old wrapper-targeted one."
+    }
+  },
+  "flow_impact": "none"
+}
