@@ -1,6 +1,10 @@
 import { normalizeText } from './text.js';
 
 const DEFAULT_MAX_CHARS = 120;
+// A 14-word line runs to roughly 90 characters, so this only ever catches a summarizer that
+// ignored its own limit -- not the ordinary long-but-complete sentence that the 120-char default
+// was splitting into two cards ("...clear the gutters" / "before winter.").
+const AI_LINE_SAFETY_MAX_CHARS = 240;
 const MAX_DISPLAY_ITEMS = 24;
 let nextTranscriptItemId = 0;
 
@@ -13,10 +17,26 @@ function splitByThought(text) {
   return chunks.length ? chunks : [];
 }
 
+// Titles and initials end in a period without ending a sentence. Splitting on the bare period put
+// a card on the wall reading only "Bro." and moved the rest to the next one -- and "Bro.", "Sis."
+// and "Pres." are everyday words in this room, not edge cases.
+const ABBREVIATION_END = /(?:^|\s)(?:bro|sis|pres|dr|mr|mrs|ms|st|jr|sr|vs|no|approx|dept|vol|ch|fig|e\.g|i\.e|[a-z])\.$/i;
+
 function splitBySentence(text) {
   const sentenceMatches = String(text || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g);
   if (!sentenceMatches) return [];
-  return sentenceMatches.map((part) => normalizeText(part)).filter(Boolean);
+
+  const merged = [];
+  sentenceMatches.forEach((part) => {
+    const previous = merged[merged.length - 1];
+    if (previous && ABBREVIATION_END.test(previous.trimEnd())) {
+      merged[merged.length - 1] = `${previous}${part}`;
+      return;
+    }
+    merged.push(part);
+  });
+
+  return merged.map((part) => normalizeText(part)).filter(Boolean);
 }
 
 function splitLongChunk(text, maxChars) {
@@ -64,7 +84,19 @@ export function createTranscriptItems({
   createdAt = Date.now(),
   maxChars = DEFAULT_MAX_CHARS
 } = {}) {
-  return segmentTranscriptText(text, { maxChars }).map((segment, index) => ({
+  // An AI line arrives already bounded by the summarizers' shared word limit, so re-splitting it
+  // here can only do harm: a single grammatically complete sentence with no internal punctuation
+  // (a long announcement, say) was being word-wrapped at 120 characters into two cards, which put
+  // "...clear the gutters" on one card and "before winter." on the next. Segmenting is for raw or
+  // manually-typed text, where a wall of characters genuinely does need breaking up.
+  // The exemption is not unconditional: a model can disobey its 14-word instruction, and one
+  // 60-word card is worse to read from the back of a hall than two. So AI lines keep a generous
+  // safety bound well above any obedient line, and only a runaway one gets wrapped.
+  const segments = source === 'ai'
+    ? segmentTranscriptText(text, { maxChars: Math.max(maxChars, AI_LINE_SAFETY_MAX_CHARS) })
+    : segmentTranscriptText(text, { maxChars });
+
+  return segments.map((segment, index) => ({
     id: `transcript-${createdAt}-${nextTranscriptItemId + index}`,
     mode,
     text: segment,

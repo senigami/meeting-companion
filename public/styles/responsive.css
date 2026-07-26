@@ -116,6 +116,20 @@
     display: none;
   }
 
+  /*
+   * This box lives inside the quick-controls bottom sheet here, and the
+   * sheet's snap heights are measured from its actual rendered height
+   * (measureSnapHeights in quick-panel-sheet.js). Desktop's native resize
+   * sets an inline height on the element itself -- `!important` is needed
+   * to win over that inline style so a leftover desktop height can never
+   * leak into the sheet's snap maths. resize:none also removes the handle,
+   * since there's nothing to drag inside a sheet that's sized by content.
+   */
+  .railTranscriptSection .railTranscript {
+    resize: none;
+    height: auto !important;
+  }
+
   #manualBar {
     order: 4;
     flex: 0 0 auto;

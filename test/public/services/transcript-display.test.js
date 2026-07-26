@@ -35,3 +35,23 @@ test('creates transcript items with mode and source metadata', () => {
   assert.match(items[0].id, /^transcript-/);
   assert.equal(items[1].text, 'Please sit down.');
 });
+
+test('a title or initial does not end a sentence, so no card ever reads just "Bro."', () => {
+  assert.deepEqual(
+    segmentTranscriptText('Bro. Smith will speak on service this morning at eleven.'),
+    ['Bro. Smith will speak on service this morning at eleven.']
+  );
+  assert.deepEqual(
+    segmentTranscriptText('Sis. Jones and Pres. Lee will conduct.'),
+    ['Sis. Jones and Pres. Lee will conduct.']
+  );
+  assert.deepEqual(
+    segmentTranscriptText('J. Reuben Clark said it plainly.'),
+    ['J. Reuben Clark said it plainly.']
+  );
+  // A real sentence break still splits.
+  assert.deepEqual(
+    segmentTranscriptText('We began with a hymn. Then the bishop spoke.'),
+    ['We began with a hymn.', 'Then the bishop spoke.']
+  );
+});

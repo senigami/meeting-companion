@@ -5,7 +5,12 @@ import { normalizeText } from './text.js';
 // started after it, or when it has settled for long enough that the speaker
 // clearly moved on. The newest fresh unpunctuated chunk is the "partial" the
 // operator is still reading; only its leading complete sentences may go.
-const TERMINAL_END = /[.!?…]["')\]]*$/;
+// The single definition of "this sentence has ended". Exported because it was previously duplicated
+// with three slightly different spellings across the bucket, the demo summarizer's eligibility check
+// and its trailing-punctuation trim -- two of which accepted a closing quote or bracket and one of
+// which did not, so a sentence ending `gutters."` was permanently ineligible and the demo went mute
+// on it.
+export const TERMINAL_END = /[.!?…]["')\]]*$/;
 
 export const BUCKET_SETTLE_MS = 20000;
 export const BUCKET_MAX_CHARS = 1600;
@@ -40,6 +45,28 @@ export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCK
   });
 
   return { consumable, remainder };
+}
+
+// The oldest run of consumable chunks that fits inside the send cap, so "what was sent" and "what
+// gets consumed" are the same set. bucketText slices to the LAST maxChars, so handing it the whole
+// consumable set and then removing all of it silently destroyed the head of a large backlog -- speech
+// that was never sent to a summarizer and never reached the wall. Oldest-first also keeps the display
+// marching in the order things were said; whatever does not fit stays in the bucket for the next tick.
+// Always returns at least one chunk, so a single over-long chunk can still make progress.
+export function takeSendableChunks(consumable = [], maxChars = BUCKET_SEND_MAX_CHARS) {
+  const list = (Array.isArray(consumable) ? consumable : []).filter((chunk) => chunk && normalizeText(chunk.text));
+  if (!list.length) return [];
+
+  const taken = [];
+  let total = 0;
+  for (const chunk of list) {
+    const length = normalizeText(chunk.text).length + (taken.length ? 1 : 0);
+    if (taken.length && total + length > maxChars) break;
+    taken.push(chunk);
+    total += length;
+  }
+
+  return taken;
 }
 
 export function removeConsumed(chunks = [], consumed = []) {

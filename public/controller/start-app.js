@@ -14,6 +14,7 @@ import {
   loadRailCollapsed
 } from './rail-collapse.js';
 import { bindQuickPanelSheet, loadQuickPanelSnap } from './quick-panel-sheet.js';
+import { applyPersistedTranscriptHeight, bindTranscriptResize } from './transcript-resize.js';
 import {
   renderDisplay,
   bindTranscriptViewport,
@@ -162,6 +163,8 @@ export function startApp() {
     }
   };
 
+  applyPersistedTranscriptHeight(ctx);
+
   const runtime = createRuntime(ctx);
 
   function bindEvents() {
@@ -173,6 +176,7 @@ export function startApp() {
     bindRailResize(ctx);
     bindRailCollapse(ctx);
     bindQuickPanelSheet(ctx);
+    bindTranscriptResize(ctx);
     bindModeAndSourceButtons(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
     bindSettingsNav(ctx);

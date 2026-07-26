@@ -349,3 +349,24 @@ test('ready check rows expose a dot, label, and optional fix/action for the tool
   assert.match(css, /\.readyCheckDot\.is-ready[\s\S]*\{/);
   assert.match(css, /\.readyCheckDot\.is-not-ready[\s\S]*\{/);
 });
+
+test('live transcript box is natively resizable on desktop and locked down on mobile', async () => {
+  const css = await readSplitCss();
+
+  assert.match(
+    css,
+    /\.railTranscript\s*\{[^}]*resize:\s*vertical;[^}]*\}/s
+  );
+  assert.match(
+    css,
+    /\.railTranscript\s*\{[^}]*min-height:\s*4\.5rem;[^}]*\}/s
+  );
+  assert.doesNotMatch(
+    css,
+    /\.railTranscript\s*\{[^}]*max-height:\s*10rem;[^}]*\}/s
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 900px\)[\s\S]*\.railTranscriptSection \.railTranscript\s*\{\s*resize:\s*none;\s*height:\s*auto !important;\s*\}/s
+  );
+});

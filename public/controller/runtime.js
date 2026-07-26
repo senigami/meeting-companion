@@ -33,6 +33,7 @@ import {
   bucketText,
   partitionBucket,
   removeConsumed,
+  takeSendableChunks,
   trimBucket
 } from '../services/transcript-bucket.js';
 import { clearDisplayMarginGuideTimer, flashDisplayMarginGuides } from './margin-guides.js';
@@ -385,9 +386,22 @@ export function createRuntime(ctx, deps = {}) {
     if (text) {
       recent = normalizeText(text);
     } else {
-      const { consumable, remainder } = partitionBucket(ctx.state.transcriptChunks);
-      consumedChunks = consumable;
-      recent = bucketText([...consumable, ...remainder], ctx.state.transcriptPreview, {
+      const { consumable } = partitionBucket(ctx.state.transcriptChunks);
+      // Only the oldest chunks that fit the send cap, and those exact chunks are what gets consumed
+      // below. Handing bucketText the whole set let it slice to the last 1000 characters while
+      // removeConsumed still removed all of them, so the head of a backlog was consumed without ever
+      // being sent -- speech that never reached the wall at all.
+      consumedChunks = takeSendableChunks(consumable, BUCKET_SEND_MAX_CHARS);
+      // Send only the text that will actually be consumed below. The bucket's
+      // remainder (an unfinished trailing sentence) and the live preview are
+      // intentionally excluded: sending them let the model summarize a
+      // fragment, splitting one sentence across two display cards, and the
+      // fragment's tail came back around next tick and got summarized again
+      // on its own. buildSummarizePrompt has no reliable way to mark "context,
+      // do not summarize" — it's one flat transcript field — so rather than
+      // depend on the model obeying an instruction, keep what's sent and what's
+      // consumed the same set.
+      recent = bucketText(consumedChunks, '', {
         maxChars: BUCKET_SEND_MAX_CHARS
       });
     }

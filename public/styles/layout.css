@@ -121,8 +121,15 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .railTranscript {
   min-height: 4.5rem;
-  max-height: 10rem;
+  /* Ceiling raised well past the old 10rem so the native resize handle
+     below actually has room to accomplish something; expressed in
+     viewport terms (capped at 28rem) so it still fits a shorter window. */
+  max-height: min(28rem, 60vh);
   overflow-y: auto;
+  /* Vertical only: horizontal is already handled by .railResizeHandle,
+     which drags the whole rail's width -- letting this box resize
+     horizontally too would fight that. */
+  resize: vertical;
   white-space: normal;
   color: var(--chrome-text-secondary);
   font-size: 0.78rem;

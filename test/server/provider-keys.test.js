@@ -96,6 +96,12 @@ test('provider keys stay on the server and surface through config/status routes'
   let anthropicKeys = [];
 
   const app = createApp({
+    // Explicitly key-less: createApp defaults openaiClient/anthropicApiKey from process.env, so
+    // without these two the test asserts different things depending on whether the developer
+    // running it happens to have a real key in .env -- which is exactly what broke it the morning
+    // a key was first added. The whole point here is the LOCAL, in-memory key store.
+    openaiClient: null,
+    anthropicApiKey: '',
     createOpenAIClientFn: (apiKey) => {
       openaiClientKeys.push(apiKey);
       return {

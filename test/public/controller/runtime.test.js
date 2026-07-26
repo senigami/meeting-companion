@@ -596,10 +596,82 @@ test('a summarize success consumes complete sentences from the bucket and keeps 
     await runtime.summarizeCurrentText();
 
     assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['And then the bishop']);
+    // The rail preview still shows the in-flight partial (unaffected by the payload change).
     assert.equal(elements.railTranscript.textContent, 'And then the bishop');
+    // The unfinished trailing sentence ("And then the bishop") must NOT be part of
+    // what was sent to the summarizer -- only what was actually consumed.
     assert.equal(
       ctx.state.lastSentText,
-      'welcome everyone to the meeting We sang hymn 152. And then the bishop'
+      'welcome everyone to the meeting We sang hymn 152.'
+    );
+  });
+});
+
+test('the summarize payload excludes an unfinished trailing sentence', async () => {
+  let sentText = null;
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'There is a working bee at the hall this coming Saturday morning from nine, to tidy the garden beds and clear the gutters', at: now - 1000 }
+      ],
+      transcriptPreview: 'before winter'
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    // Nothing was complete (no terminal punctuation, not settled), so nothing
+    // should have been sent at all -- not the fragment, and not the live preview.
+    assert.equal(sentText, null);
+  });
+});
+
+test('a tail survives in the bucket and is sent once it completes', async () => {
+  let sentTexts = [];
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentTexts.push(recentTranscript);
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'There is a working bee at the hall this coming Saturday morning from nine, to tidy the garden beds and clear the gutters before winter', at: now - 1000 }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    // First tick: the chunk has no terminal punctuation and hasn't settled, so
+    // nothing is sent and the whole thing stays in the bucket.
+    await runtime.summarizeCurrentText();
+    assert.equal(sentTexts.length, 0);
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+
+    // The speaker finishes the sentence in a later chunk; now the whole thing
+    // is consumable and sent as one complete unit -- never split.
+    ctx.state.transcriptChunks[0] = {
+      ...ctx.state.transcriptChunks[0],
+      text: `${ctx.state.transcriptChunks[0].text}.`
+    };
+    ctx.state.transcriptChunks.push({ text: 'Next topic starts here', at: now });
+    await runtime.summarizeCurrentText();
+
+    assert.equal(
+      sentTexts[0],
+      'There is a working bee at the hall this coming Saturday morning from nine, to tidy the garden beds and clear the gutters before winter.'
     );
   });
 });

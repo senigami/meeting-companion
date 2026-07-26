@@ -5,6 +5,7 @@ import {
   partitionBucket,
   removeConsumed,
   splitAtLastTerminator,
+  takeSendableChunks,
   trimBucket
 } from '../../../public/services/transcript-bucket.js';
 
@@ -99,4 +100,25 @@ test('trimBucket drops the oldest whole chunks beyond the cap but never the newe
   assert.deepEqual(trimmed.map((chunk) => chunk.text[0]), ['b', 'c']);
   const single = trimBucket([{ text: 'z'.repeat(500), at: 1 }], { maxChars: 100 });
   assert.equal(single.length, 1);
+});
+
+test('takeSendableChunks keeps the oldest chunks that fit, leaving the rest for the next tick', () => {
+  const chunks = [
+    { at: NOW, text: 'A'.repeat(40) },
+    { at: NOW + 1, text: 'B'.repeat(40) },
+    { at: NOW + 2, text: 'C'.repeat(40) }
+  ];
+
+  const taken = takeSendableChunks(chunks, 85);
+
+  // Oldest-first, so the display marches in the order things were said, and nothing is consumed
+  // that was not also sent -- the head of a backlog used to be removed without ever being summarized.
+  assert.deepEqual(taken.map((chunk) => chunk.text[0]), ['A', 'B']);
+});
+
+test('takeSendableChunks always returns at least one chunk so an over-long chunk still makes progress', () => {
+  const chunks = [{ at: NOW, text: 'D'.repeat(400) }];
+
+  assert.equal(takeSendableChunks(chunks, 100).length, 1);
+  assert.deepEqual(takeSendableChunks([], 100), []);
 });

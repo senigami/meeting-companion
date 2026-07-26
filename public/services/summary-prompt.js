@@ -1,3 +1,9 @@
+// The display contract, in one place: a card is at most this many words, because it is read at a
+// distance in one glance by someone who may be hard of hearing. Exported so every summarizer honours
+// the same number -- the demo summarizer used its own character budget and put lines on the wall
+// twice this long, and nothing caught it because the limit only existed as prose inside the prompt.
+export const SUMMARY_MAX_WORDS = 14;
+
 export function modeInstruction(mode = 'speaker') {
   switch (mode) {
     case 'information':
@@ -69,7 +75,7 @@ Do not use labels such as "main point," "speaker," "summary," or "announcement."
 Do not say "still talking about."
 Use plain, specific language.
 Preserve names, dates, times, hymn numbers, scripture references, assignments, and places.
-Maximum 14 words.
+Maximum ${SUMMARY_MAX_WORDS} words.
 Do not add information.
 If nothing new or useful was communicated, return an empty string.
 
