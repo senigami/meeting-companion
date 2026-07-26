@@ -33,10 +33,61 @@ export function createOpenAITranscriptionDriver({
   let mode = 'speaker';
   let activeRequestController = null;
 
+  // Recovery state for repeated /api/transcribe failures. A sustained outage
+  // must not turn into a tight failure loop firing every ~chunkMs, so after
+  // FAILURE_THRESHOLD consecutive failures we stop attempting sends entirely
+  // for a cooldown that itself grows (doubling, capped) the longer the
+  // outage persists — the same escalate-then-back-off shape runtime.js uses
+  // for summarize failures, applied here to the transcribe call.
+  const FAILURE_THRESHOLD = 3;
+  const BASE_BACKOFF_MS = chunkMs * 2;
+  const MAX_BACKOFF_MS = 60000;
+  let consecutiveFailures = 0;
+  let backoffEscalations = 0;
+  let inBackoff = false;
+  let backoffTimer = null;
+
+  // Bound on how far the send queue may trail live speech. Each queued
+  // chunk represents ~chunkMs of audio, so 3 pending chunks caps the lag at
+  // roughly 3 * chunkMs (~10.5s at the default interval) before we start
+  // shedding the oldest audio instead of letting captions silently drift
+  // minutes behind what is actually being said right now.
+  const MAX_PENDING_CHUNKS = 3;
+  let pendingCount = 0;
+  let droppedForBacklog = 0;
+
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
     if (!clean) return;
     onEvent({ source: 'openai', type, text: clean, ...extra });
+  }
+
+  function clearBackoffTimer() {
+    if (backoffTimer !== null) {
+      clearTimeoutFn(backoffTimer);
+      backoffTimer = null;
+    }
+  }
+
+  function enterBackoff() {
+    inBackoff = true;
+    const delay = Math.min(BASE_BACKOFF_MS * 2 ** backoffEscalations, MAX_BACKOFF_MS);
+    backoffEscalations += 1;
+    onStatus(
+      `OpenAI transcription is having trouble reaching the server. Pausing sends for ${Math.round(delay / 1000)}s and will keep retrying — captured audio is not being sent to the transcript during this pause.`
+    );
+    clearBackoffTimer();
+    backoffTimer = setTimeoutFn(() => {
+      backoffTimer = null;
+      inBackoff = false;
+    }, delay);
+  }
+
+  function resetFailureBackoff() {
+    consecutiveFailures = 0;
+    backoffEscalations = 0;
+    clearBackoffTimer();
+    inBackoff = false;
   }
 
   async function sendChunk(blob, currentSession) {
@@ -61,6 +112,7 @@ export function createOpenAITranscriptionDriver({
       const data = await readResponseJson(response);
       if (!response.ok) throw new Error(responseErrorMessage(data, `Transcription failed with ${response.status}`));
       if (currentSession !== sessionId) return;
+      resetFailureBackoff();
       if (data.text) emit('final', data.text, { source: 'openai' });
     } finally {
       if (activeRequestController === requestController) activeRequestController = null;
@@ -100,15 +152,49 @@ export function createOpenAITranscriptionDriver({
       recorder = new MediaRecorder(stream);
       listening = true;
       queued = Promise.resolve();
+      resetFailureBackoff();
+      pendingCount = 0;
+      droppedForBacklog = 0;
 
       recorder.ondataavailable = (event) => {
         const blob = event.data;
         if (!blob || blob.size === 0) return;
+
+        if (inBackoff) {
+          // Backing off after repeated failures — never queue behind a
+          // known-failing call, and never present this dropped audio as
+          // captured; the operator is told once per backoff entry, not
+          // spammed per dropped chunk.
+          droppedForBacklog += 1;
+          return;
+        }
+
+        if (pendingCount >= MAX_PENDING_CHUNKS) {
+          // The queue is already as far behind live speech as we allow.
+          // Shedding the newest chunk (rather than growing the queue
+          // further) keeps the lag bounded; recovering stale minutes-old
+          // captions presented as live would be worse than an honest gap.
+          droppedForBacklog += 1;
+          // State the level explicitly: dropping captured speech is a real problem, and the
+          // runtime's prose classifier would not have caught this wording.
+          onStatus(
+            'Falling behind live speech — skipping audio to catch back up. Some speech will be missing from the transcript.',
+            { level: 'problem' }
+          );
+          return;
+        }
+
+        pendingCount += 1;
         queued = queued
           .then(() => sendChunk(blob, currentSession))
           .catch((error) => {
             if (error?.name === 'AbortError') return;
+            consecutiveFailures += 1;
             onStatus(`OpenAI transcription error: ${error.message}`);
+            if (consecutiveFailures >= FAILURE_THRESHOLD) enterBackoff();
+          })
+          .finally(() => {
+            pendingCount = Math.max(0, pendingCount - 1);
           });
       };
 
@@ -119,6 +205,8 @@ export function createOpenAITranscriptionDriver({
     async stop() {
       listening = false;
       sessionId += 1;
+      resetFailureBackoff();
+      pendingCount = 0;
       await stopTracks();
       onStatus('OpenAI transcription stopped.');
     }

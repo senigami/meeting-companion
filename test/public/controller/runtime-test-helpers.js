@@ -69,7 +69,9 @@ function createDefaultElements() {
     railStatus: createElement(),
     railStatusDot: createElement(),
     railStatusWord: createElement({ textContent: '' }),
-    railNote: createElement({ hidden: true }),
+    // #railNote is a live region mounted in the a11y tree from page load (not `hidden`-toggled);
+    // visibility when empty is a CSS :empty concern, not a JS/DOM one. See view.js.
+    railNote: createElement(),
     display: createElement(),
     panel: createElement(),
     manualInput: createElement(),
@@ -119,6 +121,8 @@ export function createRuntimeHarness({
   createSummarizationDriverFn,
   setTimeoutFn,
   clearTimeoutFn,
+  nowFn,
+  documentImpl,
   localStorageValues = {},
   stateOverrides = {},
   elementOverrides = {},
@@ -235,7 +239,9 @@ export function createRuntimeHarness({
     ...(createTranscriptionDriverFn ? { createTranscriptionDriverFn } : {}),
     ...(createSummarizationDriverFn ? { createSummarizationDriverFn } : {}),
     ...(setTimeoutFn ? { setTimeoutFn } : {}),
-    ...(clearTimeoutFn ? { clearTimeoutFn } : {})
+    ...(clearTimeoutFn ? { clearTimeoutFn } : {}),
+    ...(nowFn ? { nowFn } : {}),
+    ...(typeof documentImpl !== 'undefined' ? { documentImpl } : {})
   });
 
   return {

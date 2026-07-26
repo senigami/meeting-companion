@@ -3,6 +3,7 @@ import {
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
+import { autoExpandRailForCondition, resetRailAutoExpand } from './rail-collapse.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -25,12 +26,60 @@ const RAIL_STATUS_WORDS = {
   listening: 'Listening',
   paused: 'Paused',
   manual: 'Manual',
-  problem: 'Problem'
+  problem: 'Problem',
+  // "Check mic" rather than "Problem": prolonged silence while listening is genuinely ambiguous --
+  // it is exactly as consistent with a long prayer or reflective pause (normal in this room) as
+  // with a dead microphone. Treating it as a confirmed "Problem" would be crying wolf during a
+  // moment of silence that deserves quiet, not an alarm; saying nothing at all is the failure this
+  // whole watchdog exists to prevent. A fourth, gentler level is the honest middle: visible and
+  // persistent (loud enough to notice), but not styled or announced as urgently as a confirmed
+  // fatal error (not loud enough to panic over).
+  silence: 'Check mic'
 };
 
-export function updateStatus(ctx, text, { level } = {}) {
+// Levels serious enough that their rail-note explanation must stay up (no auto-hide) until the
+// condition clears, rather than flashing briefly like a Clear/Undo note. 'problem' is a confirmed
+// fatal condition (INV-10); 'silence' is not confirmed fatal, only prolonged and unexplained --
+// see showRailPersistentNote for how the two are still styled and announced differently.
+const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'silence']);
+
+// Ordered severity for the two persistent levels: 'problem' (a confirmed fatal condition, INV-10)
+// must never be silently replaced by 'silence' (an unconfirmed, gentler watchdog alarm) just
+// because the silence check happens to fire while a problem is already active -- e.g. a
+// summarize-failure escalation followed by 45s of no transcript events precisely because the
+// server path is backed off. Recovery still works: it comes from the condition itself clearing to
+// a non-persistent level (e.g. 'listening'), never from a lower-ranked persistent level elbowing
+// in on a higher one.
+const LEVEL_RANK = { problem: 2, silence: 1 };
+
+export function updateStatus(ctx, text, { level, clearTimeoutFn = clearTimeout } = {}) {
+  if (level && RAIL_STATUS_WORDS[level]) {
+    const currentLevel = ctx.state.railStatusLevel;
+    if (
+      PERSISTENT_STATUS_LEVELS.has(currentLevel) &&
+      PERSISTENT_STATUS_LEVELS.has(level) &&
+      (LEVEL_RANK[level] || 0) < (LEVEL_RANK[currentLevel] || 0)
+    ) {
+      return;
+    }
+  }
+
   ctx.dom.status.textContent = text;
   if (!level || !RAIL_STATUS_WORDS[level]) return;
+
+  // #status lives inside the closed settings dialog, so a problem/silence message written only
+  // there is unreadable. Mirror it into the rail note, and keep it up (no auto-hide) until the
+  // level clears.
+  if (PERSISTENT_STATUS_LEVELS.has(level)) {
+    showRailPersistentNote(ctx, text, { clearTimeoutFn, isProblem: level === 'problem' });
+  } else if (ctx.state.railProblemNote || ctx.state.railPersistentNoteText) {
+    // Deliberately NOT gated on railProblemNote alone: flashRailNote clears that flag while its
+    // overlay is up, so a recovery landing inside the 4s flash window would skip the cleanup
+    // entirely and leak the auto-expand latch plus a stale remembered note. The screen would look
+    // right and the next genuinely new condition would silently fail to expand a collapsed rail.
+    clearRailProblem(ctx);
+  }
+
   if (ctx.state.railStatusLevel === level) return;
   ctx.state.railStatusLevel = level;
 
@@ -48,15 +97,97 @@ export function updateStatus(ctx, text, { level } = {}) {
 
 const RAIL_NOTE_DURATION_MS = 4000;
 
+// #railNote stays mounted in the a11y tree at all times (see index.html) so switching its
+// role/aria-live and filling its text is a single mutation on an already-registered live region --
+// not "appear + speak" in the same tick, which AT frequently drops. A genuinely fatal problem
+// (INV-10: this function only ever receives text already filtered to the fatal case) interrupts
+// immediately (role="alert"/assertive); the benign Clear/Undo flashes stay role="status"/polite so
+// they don't also start crying wolf.
+function setRailNoteUrgency(note, isProblem) {
+  note.setAttribute('role', isProblem ? 'alert' : 'status');
+  note.setAttribute('aria-live', isProblem ? 'assertive' : 'polite');
+}
+
+// Non-text-based problem cue (WCAG 1.4.1: colour is not the only channel -- the red text colour
+// alone must not be the only thing distinguishing a problem note from a benign Clear/Undo one).
+// A plain Unicode prefix, not a separate aria-hidden node: this module has no DOM/document
+// dependency today (renderDisplay's document.createElement only runs where a caller has stubbed
+// `document`), so keep it that way rather than introducing one just for a decorative glyph.
+const RAIL_PROBLEM_PREFIX = '⚠ ';
+// A different glyph for the "silence" level: it is a time-based, unconfirmed signal, not the same
+// claim as a confirmed fatal error, so it gets its own shape-based cue rather than reusing ⚠.
+const RAIL_SILENCE_PREFIX = '⏱ ';
+
+function showRailPersistentNote(ctx, text, { clearTimeoutFn = clearTimeout, isProblem = true } = {}) {
+  const note = ctx.dom.railNote;
+  if (!note) return;
+  clearTimeoutFn(ctx.state.railNoteTimer);
+  ctx.state.railNoteTimer = null;
+  ctx.state.railProblemNote = true;
+  note.classList.toggle('is-problem', isProblem);
+  note.classList.toggle('is-silence', !isProblem);
+  // Only a confirmed fatal condition interrupts assertively (role="alert"). The silence watchdog
+  // has not confirmed anything is actually broken -- it stays role="status"/polite so it doesn't
+  // also start crying wolf during what might just be a long prayer.
+  setRailNoteUrgency(note, isProblem);
+  const fullText = (isProblem ? RAIL_PROBLEM_PREFIX : RAIL_SILENCE_PREFIX) + text;
+  note.textContent = fullText;
+  // Remembered so a later flashRailNote (Clear/Undo) can hand the note back exactly as it was --
+  // text, class, and urgency -- once its own timer expires, rather than leaving the condition's
+  // note permanently blank while the condition itself is still active.
+  ctx.state.railPersistentNoteText = fullText;
+  ctx.state.railPersistentNoteIsProblem = isProblem;
+  // Both persistent levels auto-expand, not just a confirmed problem. Verified live: with the rail
+  // collapsed the watchdog fired correctly and the operator saw nothing but an unchanged dot,
+  // because the 64px rail hides #railNote -- which would leave the watchdog doing no work in
+  // exactly the unattended case it exists for. The note's whole value is that it says what to DO
+  // next. Keyed by level: see autoExpandRailForCondition for why a shared latch was wrong.
+  autoExpandRailForCondition(ctx, isProblem ? 'problem' : 'silence');
+}
+
+function clearRailProblem(ctx) {
+  ctx.state.railProblemNote = false;
+  ctx.state.railPersistentNoteText = null;
+  ctx.state.railPersistentNoteIsProblem = null;
+  // The rail has returned to a normal status -- every persistent condition has cleared -- so reset
+  // the whole per-condition latch set rather than just the one that happened to be active.
+  resetRailAutoExpand(ctx);
+  const note = ctx.dom.railNote;
+  if (!note) return;
+  note.textContent = '';
+  note.classList.remove('is-problem');
+  note.classList.remove('is-silence');
+  setRailNoteUrgency(note, false);
+}
+
 export function flashRailNote(ctx, text, { setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}) {
   const note = ctx.dom.railNote;
   if (!note) return;
   clearTimeoutFn(ctx.state.railNoteTimer);
+  ctx.state.railProblemNote = false;
+  note.classList.remove('is-problem');
+  note.classList.remove('is-silence');
+  setRailNoteUrgency(note, false);
   note.textContent = text;
-  note.hidden = false;
   ctx.state.railNoteTimer = setTimeoutFn(() => {
     ctx.state.railNoteTimer = null;
-    note.hidden = true;
+    // A flash (Clear/Undo) is a temporary overlay on top of a persistent note, not a destructive
+    // takeover of it: if the problem/silence condition this note exists for is still active when
+    // the flash expires, hand the note back exactly as it was rather than leaving it permanently
+    // blank -- a blank note with the dot still reading "Check mic"/"Problem" strands the operator
+    // with no way to tell what's wrong, which is the exact failure this whole area exists to
+    // prevent. Ground truth is the live rail level, not a flag the flash itself could have gone
+    // stale against.
+    if (PERSISTENT_STATUS_LEVELS.has(ctx.state.railStatusLevel) && ctx.state.railPersistentNoteText) {
+      const isProblem = Boolean(ctx.state.railPersistentNoteIsProblem);
+      ctx.state.railProblemNote = true;
+      note.classList.toggle('is-problem', isProblem);
+      note.classList.toggle('is-silence', !isProblem);
+      setRailNoteUrgency(note, isProblem);
+      note.textContent = ctx.state.railPersistentNoteText;
+      return;
+    }
+    note.textContent = '';
   }, RAIL_NOTE_DURATION_MS);
 }
 
@@ -608,6 +739,7 @@ function isProviderPanelVisible(ctx, kind, source) {
 
 function isSourceUnavailable(ctx, kind, source) {
   if (kind === 'transcription') {
+    if (source === 'demo') return false;
     if (source === 'browser') return !browserSpeechAvailable();
     return !getProviderState(ctx, kind, source).configured;
   }
@@ -717,6 +849,17 @@ function getRegistrationProvider(ctx) {
 }
 
 function getProviderState(ctx, kind, source) {
+  // The demo source depends on nothing -- no microphone, no key, no network -- so it is the one
+  // source that is always configured. That is the whole point of it: there is always a way to see
+  // the display working before a meeting starts.
+  if (kind === 'transcription' && source === 'demo') {
+    return { configured: true, origin: 'local', label: 'Sample meeting' };
+  }
+
+  if (kind === 'summarization' && source === 'demo') {
+    return { configured: true, origin: 'local', label: 'No key needed' };
+  }
+
   if (kind === 'transcription' && source === 'browser') {
     return {
       configured: browserSpeechAvailable(),

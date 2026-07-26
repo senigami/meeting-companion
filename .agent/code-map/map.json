@@ -169,10 +169,10 @@
         "any driver onStatus(text) callback (browser.js, transcription/openai.js, runtime.js failure paths)",
         "public/controller/runtime.js#transcriptionStatusLevel (classifier)",
         "public/controller/view.js#updateStatus(ctx, text, { level })",
-        "Settings > Tools diagnostics line (#status) + rail status dot/word (#railStatusDot, #railStatusWord)"
+        "Settings > Tools diagnostics line (#status) + rail status dot/word (#railStatusDot, #railStatusWord) + #railNote (problem level only)"
       ],
-      "carries": "raw status text -> optional level ('listening'|'paused'|'manual'|'problem') -> two DOM writes from one call",
-      "invariant": "INV-10: transcriptionStatusLevel() must return undefined (not 'problem') for text matching /^Speech recognition error:/i -- these are non-fatal blips (no-speech/aborted) that browser.js emits while still listening. Only fatal phrasing ('...stopped after...', 'Microphone stopped...') raises Problem. updateStatus is the single write point for both surfaces and no-ops on repeated identical levels."
+      "carries": "raw status text -> optional level ('listening'|'paused'|'manual'|'problem') -> three DOM writes from one call",
+      "invariant": "INV-10: transcriptionStatusLevel() must return undefined (not 'problem') for text matching /^Speech recognition error:/i -- these are non-fatal blips (no-speech/aborted) that browser.js emits while still listening. Only fatal phrasing ('...stopped after...', 'Microphone stopped...') raises Problem. updateStatus is the single write point for all three surfaces. It no-ops the badge on a repeated identical level, but NOT the #railNote mirror: problem-level text is written every time, because #status lives inside the closed settings dialog and the note is the only readable copy."
     }
   ],
   "invariants": [

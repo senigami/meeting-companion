@@ -128,6 +128,62 @@ test('malformed json returns a json error response', async () => {
   assert.equal(data.error, 'Invalid JSON payload.');
 });
 
+test('transcription call is not made with stream: true', async () => {
+  let receivedParams = null;
+  const openaiClient = {
+    audio: {
+      transcriptions: {
+        create: async (params) => {
+          receivedParams = params;
+          return { text: 'hello world' };
+        }
+      }
+    }
+  };
+  const app = createApp({ openaiClient });
+
+  const response = await invoke(app, {
+    method: 'POST',
+    url: '/api/transcribe',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ audioBase64: Buffer.from('fake-audio').toString('base64') })
+  });
+  const data = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(data.text, 'hello world');
+  assert.equal(receivedParams.stream, undefined);
+});
+
+test('transcription failure includes a safe, redacted error detail', async () => {
+  const openaiClient = {
+    audio: {
+      transcriptions: {
+        create: async () => {
+          const error = new Error('request failed sk-abcdefghij1234567890 Authorization: Bearer sk-ant-zzzzzzzzzz1234567890');
+          error.code = 'ECONNRESET';
+          throw error;
+        }
+      }
+    }
+  };
+  const app = createApp({ openaiClient });
+
+  const response = await invoke(app, {
+    method: 'POST',
+    url: '/api/transcribe',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ audioBase64: Buffer.from('fake-audio').toString('base64') })
+  });
+  const data = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(data.error, 'Transcription failed.');
+  assert.equal(data.detail, 'ECONNRESET');
+  assert.ok(!data.detail.includes('sk-abcdefghij1234567890'));
+  assert.ok(!data.detail.includes('sk-ant-zzzzzzzzzz1234567890'));
+});
+
 test('oversized payload returns a json error response', async () => {
   const app = createApp();
 

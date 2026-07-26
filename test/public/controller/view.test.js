@@ -404,10 +404,104 @@ function createStatusCtx() {
     dom: {
       status: createStatusNode(),
       railStatusDot: createStatusNode('span'),
-      railStatusWord: createStatusNode('span')
+      railStatusWord: createStatusNode('span'),
+      railNote: createStatusNode('div')
     }
   };
 }
+
+test('updateStatus with a silence level shows a gentler, non-alert rail note distinct from a problem', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'No transcript activity for 45s. Check the microphone.', { level: 'silence' });
+
+  assert.equal(ctx.dom.railStatusWord.textContent, 'Check mic');
+  assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-silence'), true);
+  assert.equal(ctx.dom.railNote.textContent, '⏱ No transcript activity for 45s. Check the microphone.');
+  assert.equal(ctx.dom.railNote.classList.contains('is-silence'), true);
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+  // Unconfirmed, not fatal -- polite/status, not the assertive/alert used for a real problem.
+  assert.equal(ctx.dom.railNote.attributes.role, 'status');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'polite');
+});
+
+test('a problem status auto-expands a collapsed rail once so the reason is readable', () => {
+  const originalDocument = global.document;
+  const classes = new Set();
+  global.document = {
+    documentElement: {
+      classList: {
+        add(name) {
+          classes.add(name);
+        },
+        remove(name) {
+          classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        }
+      },
+      style: {
+        setProperty() {},
+        getPropertyValue() {
+          return '';
+        }
+      }
+    }
+  };
+
+  try {
+    const ctx = createStatusCtx();
+    ctx.state.railCollapsed = true;
+    ctx.dom.railCollapseToggle = createStatusNode('button');
+
+    updateStatus(ctx, 'Microphone stopped.', { level: 'problem' });
+
+    assert.equal(ctx.state.railCollapsed, false);
+    assert.ok(!classes.has('is-rail-collapsed'));
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('a silence warning also auto-expands a collapsed rail, since a note nobody can read helps nobody', () => {
+  const originalDocument = global.document;
+  const classes = new Set(['is-rail-collapsed']);
+  global.document = {
+    documentElement: {
+      classList: {
+        add(name) {
+          classes.add(name);
+        },
+        remove(name) {
+          classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        }
+      },
+      style: {
+        setProperty() {},
+        getPropertyValue() {
+          return '';
+        }
+      }
+    }
+  };
+
+  try {
+    const ctx = createStatusCtx();
+    ctx.state.railCollapsed = true;
+    ctx.dom.railCollapseToggle = createStatusNode('button');
+
+    updateStatus(ctx, 'No transcript activity for 45s. Check the microphone.', { level: 'silence' });
+
+    assert.equal(ctx.state.railCollapsed, false);
+    assert.ok(!classes.has('is-rail-collapsed'));
+  } finally {
+    global.document = originalDocument;
+  }
+});
 
 test('updateStatus always writes the diagnostics status text', () => {
   const ctx = createStatusCtx();
@@ -452,6 +546,188 @@ test('updateStatus without a level leaves the previously set indicator untouched
   assert.equal(ctx.dom.railStatusDot.classList.contains('is-level-listening'), true);
 });
 
+test('updateStatus mirrors a problem message into the rail note, which #status alone cannot show', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Browser transcription stopped: not-allowed', { level: 'problem' });
+
+  assert.equal(ctx.dom.railNote.textContent, '⚠ Browser transcription stopped: not-allowed');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), true);
+  // Assertive/alert for a genuine fatal failure -- see INV-10 -- not the polite/status level used
+  // for benign Clear/Undo flashes.
+  assert.equal(ctx.dom.railNote.attributes.role, 'alert');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'assertive');
+});
+
+test('updateStatus keeps a repeated problem message visible even though the level did not change', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'First failure', { level: 'problem' });
+  updateStatus(ctx, 'Second failure', { level: 'problem' });
+
+  assert.equal(ctx.dom.railNote.textContent, '⚠ Second failure');
+});
+
+test('updateStatus clears the problem note once the level recovers', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Browser transcription stopped: not-allowed', { level: 'problem' });
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+
+  assert.equal(ctx.dom.railNote.textContent, '');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+  assert.equal(ctx.state.railProblemNote, false);
+  // Live region stays mounted (never re-hidden) and drops back to polite once the note is benign.
+  assert.equal(ctx.dom.railNote.attributes.role, 'status');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'polite');
+});
+
+test('a problem note does not auto-hide the way a flashed note does', () => {
+  const ctx = createStatusCtx();
+  const timers = [];
+
+  updateStatus(ctx, 'Browser transcription stopped: not-allowed', {
+    level: 'problem',
+    clearTimeoutFn: (id) => timers.push(id)
+  });
+
+  assert.equal(ctx.state.railNoteTimer, null);
+  assert.equal(ctx.dom.railNote.textContent, '⚠ Browser transcription stopped: not-allowed');
+});
+
+test('a silence level cannot silently clobber an already-confirmed problem', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Falling behind live speech — some speech will be missing from the transcript', { level: 'problem' });
+  updateStatus(ctx, 'No transcript activity for 45s. Check the microphone.', { level: 'silence' });
+
+  assert.equal(ctx.state.railStatusLevel, 'problem');
+  assert.equal(ctx.dom.railStatusWord.textContent, 'Problem');
+  assert.equal(ctx.dom.railNote.textContent, '⚠ Falling behind live speech — some speech will be missing from the transcript');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), true);
+  assert.equal(ctx.dom.status.textContent, 'Falling behind live speech — some speech will be missing from the transcript');
+});
+
+test('a problem outranks silence but recovery to a normal level still clears the note honestly', () => {
+  const ctx = createStatusCtx();
+
+  updateStatus(ctx, 'Microphone stopped.', { level: 'problem' });
+  updateStatus(ctx, 'No transcript activity for 45s.', { level: 'silence' });
+  assert.equal(ctx.state.railStatusLevel, 'problem');
+
+  // The condition itself clearing (not a weaker alarm) is what recovers the rail.
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+
+  assert.equal(ctx.state.railStatusLevel, 'listening');
+  assert.equal(ctx.dom.railNote.textContent, '');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+});
+
+test('flashRailNote restores an active silence note (text, class, urgency) once its own timer expires', () => {
+  const ctx = createStatusCtx();
+  const timers = [];
+  const setTimeoutFn = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const clearTimeoutFn = () => {};
+
+  updateStatus(ctx, 'No transcript activity for 45s. Check the microphone.', { level: 'silence' });
+  flashRailNote(ctx, 'Cleared 2 lines.', { setTimeoutFn, clearTimeoutFn });
+
+  // While the flash is showing, it takes over the note completely (no gold styling on a benign
+  // Clear/Undo message -- that would be its own dishonesty in the other direction).
+  assert.equal(ctx.dom.railNote.textContent, 'Cleared 2 lines.');
+  assert.equal(ctx.dom.railNote.classList.contains('is-silence'), false);
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+
+  // The flash timer fires. The silence condition is still active (railStatusLevel never changed),
+  // so the note must come back exactly as it was -- not stay blank forever.
+  timers[0]();
+
+  assert.equal(ctx.dom.railNote.textContent, '⏱ No transcript activity for 45s. Check the microphone.');
+  assert.equal(ctx.dom.railNote.classList.contains('is-silence'), true);
+  assert.equal(ctx.dom.railNote.attributes.role, 'status');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'polite');
+});
+
+test('flashRailNote restores an active problem note as role="alert" once its own timer expires', () => {
+  const ctx = createStatusCtx();
+  const timers = [];
+  const setTimeoutFn = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const clearTimeoutFn = () => {};
+
+  updateStatus(ctx, 'Microphone stopped.', { level: 'problem' });
+  flashRailNote(ctx, 'Removed: "one"', { setTimeoutFn, clearTimeoutFn });
+  timers[0]();
+
+  assert.equal(ctx.dom.railNote.textContent, '⚠ Microphone stopped.');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), true);
+  assert.equal(ctx.dom.railNote.attributes.role, 'alert');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'assertive');
+});
+
+test('a recovery landing inside a flash window still clears the persistent state it left behind', () => {
+  const ctx = createStatusCtx();
+  const timers = [];
+  const setTimeoutFn = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const clearTimeoutFn = () => {};
+  ctx.state.railAutoExpandedLevels = new Set(['silence']);
+
+  updateStatus(ctx, 'No transcript activity for 45s. Check the microphone.', { level: 'silence' });
+  flashRailNote(ctx, 'Cleared 2 lines.', { setTimeoutFn, clearTimeoutFn });
+
+  // Speech resumes while the Clear flash is still up -- a four-second window that a real service
+  // hits routinely. The flash has already set railProblemNote false, so gating the cleanup on that
+  // flag alone would skip it here and strand the auto-expand latch and the remembered note.
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+  timers[0]();
+
+  assert.equal(ctx.state.railStatusLevel, 'listening');
+  assert.equal(ctx.state.railPersistentNoteText, null);
+  assert.equal(ctx.state.railAutoExpandedLevels.size, 0);
+  assert.equal(ctx.dom.railNote.textContent, '');
+  assert.equal(ctx.dom.railNote.classList.contains('is-silence'), false);
+});
+
+test('flashRailNote does not restore a stale note once the condition has actually cleared', () => {
+  const ctx = createStatusCtx();
+  const timers = [];
+  const setTimeoutFn = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const clearTimeoutFn = () => {};
+
+  updateStatus(ctx, 'Microphone stopped.', { level: 'problem' });
+  flashRailNote(ctx, 'Cleared 1 line.', { setTimeoutFn, clearTimeoutFn });
+  // The problem clears for real while the flash is still showing.
+  updateStatus(ctx, 'Listening.', { level: 'listening' });
+  timers[0]();
+
+  assert.equal(ctx.dom.railNote.textContent, '');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+});
+
+test('flashRailNote takes over from a sticky problem note instead of layering on it', () => {
+  const ctx = createStatusCtx();
+  updateStatus(ctx, 'Browser transcription stopped: not-allowed', { level: 'problem' });
+
+  flashRailNote(ctx, 'Cleared 2 lines.', { setTimeoutFn: () => 1, clearTimeoutFn: () => {} });
+
+  assert.equal(ctx.dom.railNote.textContent, 'Cleared 2 lines.');
+  assert.equal(ctx.dom.railNote.classList.contains('is-problem'), false);
+  assert.equal(ctx.state.railProblemNote, false);
+  assert.equal(ctx.dom.railNote.attributes.role, 'status');
+  assert.equal(ctx.dom.railNote.attributes['aria-live'], 'polite');
+});
+
 function createRailNoteCtx() {
   return {
     state: {},
@@ -461,9 +737,8 @@ function createRailNoteCtx() {
   };
 }
 
-test('flashRailNote shows the note text and hides it again after the timer fires', () => {
+test('flashRailNote shows the note text and clears it again after the timer fires', () => {
   const ctx = createRailNoteCtx();
-  ctx.dom.railNote.hidden = true;
   const timers = [];
   const setTimeoutFn = (fn) => {
     timers.push(fn);
@@ -474,16 +749,16 @@ test('flashRailNote shows the note text and hides it again after the timer fires
   flashRailNote(ctx, 'Cleared 2 lines.', { setTimeoutFn, clearTimeoutFn });
 
   assert.equal(ctx.dom.railNote.textContent, 'Cleared 2 lines.');
-  assert.equal(ctx.dom.railNote.hidden, false);
 
   timers[0]();
 
-  assert.equal(ctx.dom.railNote.hidden, true);
+  // The live region itself is never re-hidden (see index.html/view.js) -- only its text empties,
+  // so the node stays registered in the accessibility tree for the next announcement.
+  assert.equal(ctx.dom.railNote.textContent, '');
 });
 
 test('flashRailNote clears any prior timer so rapid successive calls do not flicker', () => {
   const ctx = createRailNoteCtx();
-  ctx.dom.railNote.hidden = true;
   let nextId = 0;
   const cleared = [];
   const setTimeoutFn = () => {
@@ -500,7 +775,6 @@ test('flashRailNote clears any prior timer so rapid successive calls do not flic
 
   assert.ok(cleared.includes(firstTimer));
   assert.equal(ctx.dom.railNote.textContent, 'Removed: "two"');
-  assert.equal(ctx.dom.railNote.hidden, false);
 });
 
 test('flashRailNote does nothing when there is no rail note element', () => {

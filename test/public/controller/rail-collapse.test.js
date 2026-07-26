@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  autoExpandRailForCondition,
   bindRailCollapse,
   loadRailCollapsed,
+  resetRailAutoExpand,
   setRailCollapsed
 } from '../../../public/controller/rail-collapse.js';
 
@@ -381,6 +383,132 @@ test('expanding after a collapse restores the pre-collapse width instead of 64px
     assert.equal(ctx.state.operatorRailWidth, 260);
     assert.equal(documentElement.style.getPropertyValue('--operator-rail-width'), '260px');
     assert.equal(storage.operatorRailWidth, undefined);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+  }
+});
+
+test('autoExpandRailForCondition force-expands a collapsed rail without persisting it as the saved preference', () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+
+  const classes = new Set();
+  const toggle = createElement();
+
+  global.document = { documentElement: createDocumentElement(classes) };
+
+  const storage = {};
+  global.localStorage = {
+    getItem(key) {
+      return storage[key] ?? null;
+    },
+    setItem(key, value) {
+      storage[key] = String(value);
+    }
+  };
+
+  try {
+    const ctx = {
+      state: { railCollapsed: true, operatorRailWidth: 260 },
+      dom: { railCollapseToggle: toggle }
+    };
+
+    autoExpandRailForCondition(ctx, 'problem');
+
+    assert.equal(ctx.state.railCollapsed, false);
+    assert.ok(!classes.has('is-rail-collapsed'));
+    // A forced expansion the operator did not ask for must not silently overwrite their saved
+    // preference -- reloading mid-problem, or a later unrelated session, must not surprise them.
+    assert.equal(storage.operatorRailCollapsed, undefined);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+  }
+});
+
+test('autoExpandRailForCondition only forces the expansion once per condition, leaving the operator free to re-collapse', () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+
+  const classes = new Set();
+  const toggle = createElement();
+
+  global.document = { documentElement: createDocumentElement(classes) };
+
+  const storage = {};
+  global.localStorage = {
+    getItem(key) {
+      return storage[key] ?? null;
+    },
+    setItem(key, value) {
+      storage[key] = String(value);
+    }
+  };
+
+  try {
+    const ctx = {
+      state: { railCollapsed: true, operatorRailWidth: 260 },
+      dom: { railCollapseToggle: toggle }
+    };
+
+    autoExpandRailForCondition(ctx, 'problem');
+    assert.equal(ctx.state.railCollapsed, false);
+
+    // The operator deliberately re-collapses it while the same problem is still active --
+    // a second call must not fight that choice by expanding it again.
+    setRailCollapsed(ctx, true);
+    autoExpandRailForCondition(ctx, 'problem');
+
+    assert.equal(ctx.state.railCollapsed, true);
+
+    // Once the problem clears, the next problem gets its own single forced expansion.
+    resetRailAutoExpand(ctx);
+    autoExpandRailForCondition(ctx, 'problem');
+
+    assert.equal(ctx.state.railCollapsed, false);
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+  }
+});
+
+test('autoExpandRailForCondition latch is per-condition: silence still gets its own expansion after problem already used its latch', () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+
+  const classes = new Set();
+  const toggle = createElement();
+
+  global.document = { documentElement: createDocumentElement(classes) };
+
+  const storage = {};
+  global.localStorage = {
+    getItem(key) {
+      return storage[key] ?? null;
+    },
+    setItem(key, value) {
+      storage[key] = String(value);
+    }
+  };
+
+  try {
+    const ctx = {
+      state: { railCollapsed: true, operatorRailWidth: 260 },
+      dom: { railCollapseToggle: toggle }
+    };
+
+    // 'problem' fires and auto-expands.
+    autoExpandRailForCondition(ctx, 'problem');
+    assert.equal(ctx.state.railCollapsed, false);
+
+    // Operator re-collapses.
+    setRailCollapsed(ctx, true);
+
+    // A genuinely different condition ('silence') fires -- with a shared latch this would
+    // silently do nothing and leave the note unreadable. It must get its own expansion.
+    autoExpandRailForCondition(ctx, 'silence');
+    assert.equal(ctx.state.railCollapsed, false);
   } finally {
     global.document = originalDocument;
     global.localStorage = originalLocalStorage;

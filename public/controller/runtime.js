@@ -53,6 +53,17 @@ const STORAGE = {
 const CLEAR_ARM_TIMEOUT_MS = 3000;
 const UNDO_STATUS_MAX_CHARS = 40;
 
+// How often the watchdog re-checks the gap since the last transcript event (partial or final).
+const SILENCE_CHECK_INTERVAL_MS = 5000;
+// Threshold chosen deliberately generous, not aggressive: this room includes long sermon pauses
+// and reflective silence during prayer, both entirely normal, and a false "something's wrong"
+// alarm fired into the middle of a moment of silence would itself be a harm (the opposite failure
+// this steward exists to prevent). 45 seconds with zero transcript events -- no partial, no final
+// -- is long enough that it is no longer plausibly just a pause in speech, and short enough that a
+// genuinely unplugged mic or a silently-crashed speech engine is caught within under a minute
+// instead of running the rest of the service showing a calm, wrong "Listening."
+const SILENCE_WATCHDOG_MS = 45000;
+
 function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
   const clean = typeof text === 'string' ? text : '';
   return clean.length > maxChars ? `${clean.slice(0, maxChars)}…` : clean;
@@ -77,7 +88,9 @@ export function createRuntime(ctx, deps = {}) {
     createSummarizationDriverFn = createSummarizationDriver,
     fetchImpl = fetch,
     setTimeoutFn = setTimeout,
-    clearTimeoutFn = clearTimeout
+    clearTimeoutFn = clearTimeout,
+    nowFn = Date.now,
+    documentImpl = globalThis.document
   } = deps;
 
   function clearPendingSelection(provider) {
@@ -199,8 +212,68 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
+  function noteTranscriptActivity() {
+    const wasSilent = ctx.state.railStatusLevel === 'silence';
+    ctx.state.lastTranscriptEventAt = nowFn();
+    if (wasSilent) {
+      // The watchdog fired; an event just arrived, so the alarm is over. Recover to the plain
+      // "Listening" status rather than leaving the gentler "Check mic" note stuck on screen.
+      updateStatus(ctx, 'Listening.', { level: 'listening' });
+    }
+  }
+
+  function scheduleSilenceCheck() {
+    ctx.state.silenceWatchdogTimer = setTimeoutFn(checkSilence, SILENCE_CHECK_INTERVAL_MS);
+    ctx.state.silenceWatchdogTimer?.unref?.();
+  }
+
+  function checkSilence() {
+    // Never fires while paused, stopped, or in manual mode -- only while actually listening.
+    if (!ctx.state.listening || ctx.state.paused) return;
+    const lastEventAt = ctx.state.lastTranscriptEventAt || nowFn();
+    const elapsed = nowFn() - lastEventAt;
+    if (elapsed >= SILENCE_WATCHDOG_MS && ctx.state.railStatusLevel !== 'silence') {
+      updateStatus(
+        ctx,
+        'No transcript activity for 45s. Check the microphone is unmuted, this tab is not muted, and it is pointed at the speaker -- or switch to manual lines.',
+        { level: 'silence' }
+      );
+    }
+    scheduleSilenceCheck();
+  }
+
+  function startSilenceWatchdog() {
+    stopSilenceWatchdog();
+    ctx.state.lastTranscriptEventAt = nowFn();
+    scheduleSilenceCheck();
+  }
+
+  function stopSilenceWatchdog() {
+    clearTimeoutFn(ctx.state.silenceWatchdogTimer);
+    ctx.state.silenceWatchdogTimer = null;
+  }
+
+  function forgiveSilenceGap() {
+    // Called when a backgrounded tab regains visibility: the throttled interval just produced a
+    // real gap that was never a genuine outage, so the watchdog must not use it against the
+    // operator by firing "no transcript activity" the moment the tab wakes back up.
+    ctx.state.lastTranscriptEventAt = nowFn();
+  }
+
+  function handleVisibilityChange() {
+    if (documentImpl?.hidden) return;
+    if (!ctx.state.listening || ctx.state.paused) return;
+    forgiveSilenceGap();
+    // Background-tab throttling (~1/min) means the summarize loop drifted; resync it now that the
+    // page is foregrounded again instead of silently continuing to keep up at the throttled rate.
+    startLoop();
+  }
+
+  documentImpl?.addEventListener?.('visibilitychange', handleVisibilityChange);
+
   function handleTranscriptEvent(event) {
     if (!event?.text) return;
+    noteTranscriptActivity();
 
     if (event.type === 'final') {
       ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text);
@@ -215,8 +288,14 @@ export function createRuntime(ctx, deps = {}) {
   function buildTranscriptionDriver() {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
-      onStatus: (text) => {
-        const level = transcriptionStatusLevel(text);
+      // A driver may state its own level. Sniffing prose with transcriptionStatusLevel() was the
+      // only channel until now, and it silently misses anything phrased outside its regex -- a
+      // driver shedding audio to catch up says something serious in words the classifier does not
+      // recognise, so the rail stayed calm while speech was being dropped. An explicit level from
+      // the component that actually knows beats guessing from its wording; the classifier stays as
+      // the fallback for the messages that do not pass one.
+      onStatus: (text, { level: statedLevel } = {}) => {
+        const level = statedLevel || transcriptionStatusLevel(text);
         updateStatus(ctx, text, level ? { level } : undefined);
       },
       fetchImpl,
@@ -424,6 +503,7 @@ export function createRuntime(ctx, deps = {}) {
       startLoop();
       if (!ctx.state.paused) {
         updateStatus(ctx, 'Listening.', { level: 'listening' });
+        startSilenceWatchdog();
       }
     } catch (error) {
       updateStatus(ctx, `Could not start listening: ${error.message}`, { level: 'problem' });
@@ -440,6 +520,7 @@ export function createRuntime(ctx, deps = {}) {
 
   async function stopListening() {
     ctx.state.listening = false;
+    stopSilenceWatchdog();
     await pauseActiveTranscription();
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
@@ -453,6 +534,7 @@ export function createRuntime(ctx, deps = {}) {
     updatePauseButton(ctx);
 
     if (ctx.state.paused) {
+      stopSilenceWatchdog();
       const wasListening = ctx.state.listening;
       if (wasListening) {
         await pauseActiveTranscription();
@@ -580,11 +662,17 @@ export function createRuntime(ctx, deps = {}) {
 
   async function ensureSelectedTranscriptionSourceExists() {
     if (ctx.state.transcriptionSource === 'browser') return;
+    // Demo needs nothing, so it can never be the "your source went away" case.
+    if (ctx.state.transcriptionSource === 'demo') return;
     if (ctx.state.transcriptionSource === 'openai' && ctx.state.openAiReady) return;
     await setTranscriptionSource('browser');
   }
 
   function resolveAvailableSummarizationSource() {
+    // Demo needs no key, so an explicit choice of it is always honoured. Deliberately NOT the
+    // silent fallback when no key is configured: falling back to it would make a misconfigured
+    // service look like a working one, which is the dishonesty this rail is built to avoid.
+    if (ctx.state.summarizationSource === 'demo') return 'demo';
     if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
     if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
     if (ctx.state.anthropicReady) return 'claude';

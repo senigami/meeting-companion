@@ -83,27 +83,25 @@ export function createApp({
 
       const audioBuffer = Buffer.from(String(audioBase64), 'base64');
       const file = await toFile(audioBuffer, filename, { type: mimeType });
+      // Non-streaming call: this route only ever sends ONE response back to the
+      // client, so no partial/delta result from streaming was ever surfaced.
+      // `stream: true` bought us nothing but a long-lived SSE connection to
+      // OpenAI — precisely the shape that produces ECONNRESET on a flaky path,
+      // and the leading suspect for a real ECONNRESET incident. Do not restore
+      // it as an "optimization" without a client that actually consumes deltas.
       const transcription = await client.audio.transcriptions.create({
         file,
         model: 'gpt-4o-transcribe',
         prompt: buildTranscriptionPrompt(mode),
-        language: 'en',
-        stream: true
+        language: 'en'
       });
 
-      let text = '';
-      for await (const event of transcription) {
-        if (event.type === 'transcript.text.delta') {
-          text += event.delta || '';
-        } else if (event.type === 'transcript.text.done') {
-          text = event.text || text;
-        }
-      }
-
-      res.json({ text: normalizeText(text) });
+      res.json({ text: normalizeText(transcription.text || '') });
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Transcription failed.' });
+      // Redacted before logging too: stderr is usually captured into a log file, which is the one
+      // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Transcription failed.', detail: safeErrorDetail(error) });
     }
   });
 
@@ -124,8 +122,10 @@ export function createApp({
       });
       res.json(result);
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Summarization failed.' });
+      // Redacted before logging too: stderr is usually captured into a log file, which is the one
+      // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Summarization failed.', detail: safeErrorDetail(error) });
     }
   });
 
@@ -162,7 +162,9 @@ export function createApp({
 
       return res.status(400).json({ error: 'Unsupported provider.' });
     } catch (error) {
-      console.error(error);
+      // Redacted before logging too: stderr is usually captured into a log file, which is the one
+      // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
+      console.error(safeErrorDetail(error));
       res.status(500).json({ error: 'Provider test failed.' });
     }
   });
@@ -237,6 +239,24 @@ function resolveOpenAIClient({ apiKey = '', openaiClient, createOpenAIClientFn, 
 
 function resolveAnthropicKey({ apiKey = '', anthropicApiKey = '', providerKeyStore }) {
   return normalizeText(apiKey || providerKeyStore?.get?.('claude') || anthropicApiKey);
+}
+
+const MAX_ERROR_DETAIL_LENGTH = 200;
+// Matches OpenAI/Anthropic-shaped secret keys (sk-..., sk-ant-...) so a key
+// accidentally embedded in an error message (e.g. from a thrown request URL)
+// can never reach the client. Never relax this without an explicit owner ask.
+const API_KEY_PATTERN = /\b(sk-[A-Za-z0-9_-]{10,}|sk-ant-[A-Za-z0-9_-]{10,})\b/gi;
+const AUTH_HEADER_PATTERN = /authorization\s*:\s*\S+/gi;
+
+// Extracts a short, safe-to-display detail from a caught error: enough for an
+// operator to know *why* a call failed (e.g. "ECONNRESET" or a network cause)
+// without ever leaking a provider key, an Authorization header, request body
+// audio, or transcript text. INV-12 (provider keys never leave the server
+// process) applies to this string just as much as to the key store itself.
+function safeErrorDetail(error) {
+  const raw = String(error?.code || error?.cause?.code || error?.message || error || 'Unknown error');
+  const redacted = raw.replace(API_KEY_PATTERN, '[redacted]').replace(AUTH_HEADER_PATTERN, '[redacted]');
+  return redacted.length > MAX_ERROR_DETAIL_LENGTH ? `${redacted.slice(0, MAX_ERROR_DETAIL_LENGTH)}…` : redacted;
 }
 
 function isSupportedProvider(provider) {

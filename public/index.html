@@ -99,7 +99,7 @@
         </div>
       </div>
 
-      <div id="railNote" class="railNote" hidden></div>
+      <div id="railNote" class="railNote" role="status" aria-live="polite"></div>
       </div>
 
       <div class="railBody controlScrollArea">
@@ -230,8 +230,12 @@
                 <span class="providerName">OpenAI</span>
                 <span class="providerStatus">Available</span>
               </button>
+              <button id="transcriptionDemo" type="button" data-kind="transcription" data-source="demo" class="providerOption" aria-pressed="false">
+                <span class="providerName">Demo</span>
+                <span class="providerStatus">Sample meeting</span>
+              </button>
             </div>
-            <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available.</p>
+            <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available. Demo replays a sample meeting with no microphone and no key, so you can check the display before anyone arrives.</p>
           </section>
 
           <section class="settingsCard providerCard" data-settings-section="summaries">
@@ -244,6 +248,10 @@
               <button id="summaryClaude" type="button" data-kind="summarization" data-source="claude" class="providerOption" aria-pressed="false" hidden>
                 <span class="providerName">Claude</span>
                 <span class="providerStatus">Available</span>
+              </button>
+              <button id="summaryDemo" type="button" data-kind="summarization" data-source="demo" class="providerOption" aria-pressed="false">
+                <span class="providerName">Demo</span>
+                <span class="providerStatus">No key needed</span>
               </button>
             </div>
             <p id="summaryHint" class="field-note">Only configured services appear here. Add a service below to make one available.</p>

@@ -1,0 +1,38 @@
+{
+  "at": "2026-07-26T02:00:00Z",
+  "commit": "uncommitted",
+  "task": "Make the rail's problem note actually reach an operator not staring at the screen: an always-mounted live region with a role that escalates for confirmed failures, non-colour cues for colour-blind/greyscale viewers, and a new 'silence' status level (with a watchdog to detect it) for the case that was previously invisible -- a dead microphone showing a calm, wrong Listening.",
+  "files": {
+    "public/controller/view.js": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "updateStatus now mirrors 'problem'/'silence' levels into #railNote (PERSISTENT_STATUS_LEVELS) since #status lives inside the closed settings dialog and is otherwise unreadable, and clears the note once the level recovers. showRailPersistentNote sets role/aria-live to alert/assertive for a confirmed 'problem' (INV-10) vs status/polite for the unconfirmed 'silence', prepends a literal '⚠ ' or '⏱ ' (WCAG 1.4.1 -- colour is not the only channel), and calls autoExpandForProblem so a collapsed rail doesn't hide the note. RAIL_STATUS_WORDS gained 'silence' -> 'Check mic'. flashRailNote no longer toggles `hidden`; it just empties textContent, and clears any sticky problem note it takes over from."
+    },
+    "public/controller/runtime.js": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "New silence watchdog: checkSilence polls every SILENCE_CHECK_INTERVAL_MS (5000) and escalates to level 'silence' once SILENCE_WATCHDOG_MS (45000) has passed with no partial/final transcript event, deliberately generous so it doesn't fire during a normal pause in speech (a long prayer, reflective silence) -- only while actually listening and unpaused. noteTranscriptActivity resets the clock on every event and recovers 'silence' back to plain Listening. handleVisibilityChange forgives the gap and resyncs the summarize loop when a backgrounded, throttled tab regains visibility, so the throttle doesn't get mistaken for a real outage. startSilenceWatchdog/stopSilenceWatchdog are wired into startListening/stopListening/togglePause."
+    },
+    "public/controller/rail-collapse.js": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "setRailCollapsed takes a new { persist = true } option. autoExpandForProblem force-expands a collapsed rail once per problem occurrence (guarded by railAutoExpandedForProblem) using persist: false, so the forced expansion never overwrites the operator's saved preference -- a reload mid-problem must not silently re-collapse, and a later unrelated session must not surprise them by staying expanded. resetAutoExpandForProblem clears the guard once the condition clears, and fires for both 'problem' and 'silence'."
+    },
+    "public/index.html": {
+      "change": "modified",
+      "contract_changed": true,
+      "summary": "#railNote drops `hidden` and is now always mounted with role=\"status\" aria-live=\"polite\" from page load, so it is already registered in the accessibility tree before any text lands in it (toggling hidden in step with the text was an announcement race some AT drops)."
+    },
+    "public/styles/controls.css": {
+      "change": "modified",
+      "contract_changed": false,
+      "summary": "New .railStatusDot.is-level-silence colour (gold #ffd60a, distinct from pause-amber and problem-red) with its own pulse animation entry. .railNote:empty collapses to zero footprint instead of relying on `hidden`. .railNote.is-problem / .is-silence styling, with .is-problem verified at 4.89:1 contrast against --chrome-bg (passes WCAG AA for 12px text)."
+    },
+    "test/public/rail-note-a11y.test.js": { "change": "added", "contract_changed": false, "summary": "New suite covering the always-mounted live region and its role/aria-live switching." },
+    "test/public/controller/rail-collapse.test.js": { "change": "modified", "contract_changed": false, "summary": "Tests for autoExpandForProblem's single-shot force-expand without persisting, and that a manual re-collapse during the same problem is respected until resetAutoExpandForProblem." },
+    "test/public/controller/runtime.test.js": { "change": "modified", "contract_changed": false, "summary": "Tests for the 45s silence threshold not firing early, firing and recovering on a new transcript event, never firing while paused/stopped/manual, and the visibilitychange handler forgiving the gap and resyncing the loop." },
+    "test/public/controller/view.test.js": { "change": "modified", "contract_changed": false, "summary": "Tests for the silence level's gentler non-alert note, auto-expand on both problem and silence, the sticky note surviving a same-level repeat, clearing on recovery, and flashRailNote taking over from a sticky note instead of layering on it." },
+    "test/public/controller/runtime-test-helpers.js": { "change": "modified", "contract_changed": false, "summary": "Harness now supports injecting nowFn and documentImpl, and the default #railNote element is created without `hidden` to match the always-mounted live region." }
+  },
+  "flow_impact": "Extends the existing rail-status flow (driver onStatus -> updateStatus -> rail dot/word) with a second alarm source (the silence watchdog, independent of any driver) and a second delivery channel (the persistent, auto-expanding, role-escalating #railNote) so a fatal or merely-unexplained condition is both visible and announced even when the rail is collapsed or the settings dialog is closed."
+}

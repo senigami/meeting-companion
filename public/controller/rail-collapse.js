@@ -34,7 +34,7 @@ export function loadRailCollapsed(storage = globalThis.localStorage) {
   return stored === 'true';
 }
 
-export function setRailCollapsed(ctx, collapsed) {
+export function setRailCollapsed(ctx, collapsed, { persist = true } = {}) {
   const isCollapsed = Boolean(collapsed);
   ctx.state.railCollapsed = isCollapsed;
 
@@ -52,7 +52,13 @@ export function setRailCollapsed(ctx, collapsed) {
     toggle.setAttribute('aria-label', labels.ariaLabel);
   }
 
-  persistCollapsed(isCollapsed);
+  // `persist: false` is used by autoExpandRailForCondition: a forced expansion the operator didn't ask
+  // for should not overwrite their saved preference, or a reload mid-problem would silently
+  // "fix itself" into collapsed again with no explanation, or worse, surprise them by staying
+  // expanded on a later, unrelated session once the problem is long gone.
+  if (persist) {
+    persistCollapsed(isCollapsed);
+  }
 
   if (!isCollapsed) {
     // Collapse never rewrites ctx.state.operatorRailWidth or its storage key,
@@ -61,6 +67,34 @@ export function setRailCollapsed(ctx, collapsed) {
   }
 
   return isCollapsed;
+}
+
+// A persistent condition's reason (#railNote) is unreadable at the 64px collapsed width -- exactly
+// the silent-failure symptom this whole hardening pass exists to prevent, surviving in one
+// configuration. This now covers both persistent rail levels ('problem' and 'silence'), not just a
+// confirmed problem -- verified live: with the rail collapsed the silence watchdog fired correctly
+// and the operator saw nothing but an unchanged dot, because the 64px rail hides #railNote.
+//
+// The latch is per-condition (keyed by level) rather than one shared flag: a shared latch meant
+// that once 'problem' had auto-expanded and the operator re-collapsed, a later, genuinely different
+// condition ('silence') would never get its own expansion -- the note would fire but stay
+// unreadable. Force the rail open once per *condition* so the operator can read why, but leave them
+// free to re-collapse it (we do not fight that choice by re-expanding on every subsequent status
+// update while the same condition is still active).
+export function autoExpandRailForCondition(ctx, level) {
+  if (!ctx.state.railCollapsed) return;
+  ctx.state.railAutoExpandedLevels ??= new Set();
+  if (ctx.state.railAutoExpandedLevels.has(level)) return;
+  ctx.state.railAutoExpandedLevels.add(level);
+  setRailCollapsed(ctx, false, { persist: false });
+}
+
+// Called when the rail returns to a normal (non-persistent) status -- i.e. every persistent
+// condition has actually cleared. Resets the whole latch set so whichever condition fires next,
+// 'problem' or 'silence', gets its own fresh forced expansion rather than inheriting a stale
+// "already used" mark from an earlier, different condition.
+export function resetRailAutoExpand(ctx) {
+  ctx.state.railAutoExpandedLevels?.clear();
 }
 
 export function bindRailCollapse(ctx) {

@@ -232,11 +232,18 @@ html.is-resizing-rail .railResizeHandle::before {
   --rail-status-color: #ff453a;
 }
 
+.railStatusDot.is-level-silence {
+  /* chrome literal: a distinct gold, not the pause-amber (#ffc15c) and not the problem-red -- an
+     unconfirmed, time-based signal reads as its own thing, not as a restyled Paused or Problem. */
+  --rail-status-color: #ffd60a;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .railStatusDot.is-level-listening,
   .railStatusDot.is-level-paused,
   .railStatusDot.is-level-manual,
-  .railStatusDot.is-level-problem {
+  .railStatusDot.is-level-problem,
+  .railStatusDot.is-level-silence {
     animation: railStatusPulse 480ms ease-out;
   }
 }
@@ -262,6 +269,42 @@ html.is-resizing-rail .railResizeHandle::before {
   font-size: 12px;
   color: var(--chrome-text-secondary);
 }
+
+/*
+ * Stays mounted in the DOM at all times (see index.html) so this live region
+ * is already in the accessibility tree before any text lands in it -- an AT
+ * announcement race that toggling the `hidden` attribute in step with the
+ * text would otherwise lose. When there is nothing to say, collapse it to
+ * zero footprint instead of hiding it.
+ */
+.railNote:empty {
+  padding: 0;
+}
+
+.railNote.is-problem {
+  /* chrome literal: matches --clear-danger, same red as .railStatusDot.is-level-problem. Verified
+     4.89:1 against --chrome-bg (#1e1e1e) live in-browser -- passes WCAG AA (4.5:1) for this 12px text. */
+  color: #ff453a;
+  font-weight: 600;
+}
+
+.railNote.is-silence {
+  /* chrome literal: matches --rail-status-color for .is-level-silence. Deliberately not the
+     problem-red: this is visible and persistent, not styled as a confirmed fatal error.
+     11.81:1 against --chrome-bg (#1e1e1e) -- verified via WCAG relative-luminance contrast
+     formula run live in-browser against this exact pair, cross-checked against the recorded
+     4.89:1 for .is-problem's #ff453a (same formula reproduced that figure exactly). Comfortably
+     passes WCAG AA (4.5:1) for this 12px text. */
+  color: #ffd60a;
+  font-weight: 600;
+}
+
+/*
+ * Colour is not the only channel (WCAG 1.4.1): view.js prepends a literal "⚠ "
+ * to problem text (not a CSS ::before -- generated content is inconsistently
+ * exposed to the accessibility tree) so a colour-blind/greyscale viewer gets a
+ * shape-based cue too, and it reads naturally as part of the announced text.
+ */
 
 @media (prefers-reduced-motion: no-preference) {
   .railNote {

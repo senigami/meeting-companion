@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
+import { updateStatus } from '../../../public/controller/view.js';
 
 test('runtime falls back to Claude summarization when OpenAI is unavailable', async () => {
   await withRuntimeHarness({
@@ -205,6 +206,36 @@ test('a fatal browser speech recognition error escalates the rail indicator to p
     capturedOnStatus('Browser transcription stopped after speech recognition error: not-allowed');
 
     assert.equal(elements.status.textContent, 'Browser transcription stopped after speech recognition error: not-allowed');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
+  });
+});
+
+test('a driver that states its own status level is believed over the prose classifier', async () => {
+  let capturedOnStatus = null;
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedOnStatus = deps.onStatus;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    // Dropping captured speech is serious, but says so in wording the classifier's regex
+    // does not match -- without the stated level the rail would stay a calm green "Listening".
+    const dropped = 'Falling behind live speech — skipping audio to catch back up.';
+    capturedOnStatus(dropped, { level: 'problem' });
+
+    assert.equal(elements.status.textContent, dropped);
     assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
     assert.equal(elements.railStatusWord.textContent, 'Problem');
   });
@@ -881,5 +912,232 @@ test('clearing an already-empty transcript does not overwrite the undo snapshot'
     assert.equal(ctx.state.transcriptItems.length, 2);
     assert.equal(ctx.state.transcriptItems[0].text, 'first line');
     assert.equal(ctx.state.transcriptItems[1].text, 'second line');
+  });
+});
+
+test('silence watchdog fires "Check mic" after 45s of no transcript events while listening', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 1000;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback, delay) => {
+    const id = { callback, delay };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+
+  const runOnePendingCheck = () => {
+    // Run exactly the one watchdog timer queued right now, letting it re-schedule its own next
+    // check -- draining the whole queue here would loop forever, since each check always queues
+    // exactly one more.
+    const [next] = scheduled.splice(0, 1);
+    next?.callback();
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ elements, ctx, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+
+    // Advance in 5s steps (the watchdog's own re-check cadence) to 40s -- still short of the 45s
+    // threshold, so a normal pause in speech must not trip the alarm.
+    for (let i = 0; i < 8; i += 1) {
+      currentTime += 5000;
+      runOnePendingCheck();
+    }
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), false);
+
+    // Cross the 45s threshold.
+    currentTime += 5000;
+    runOnePendingCheck();
+
+    assert.equal(ctx.state.railStatusLevel, 'silence');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Check mic');
+    assert.match(elements.status.textContent, /No transcript activity for 45s/);
+    assert.match(elements.status.textContent, /check the microphone|switch to manual/i);
+    // A gentler, unconfirmed signal -- not styled or announced as a confirmed fatal problem.
+    assert.equal(elements.railNote.classList.contains('is-problem'), false);
+    assert.equal(elements.railNote.classList.contains('is-silence'), true);
+    assert.equal(elements.railNote.attributes.role, 'status');
+
+    // A new transcript event arriving recovers the rail back to plain "Listening".
+    runtime.handleTranscriptEvent({ type: 'final', text: 'The mic is back.' });
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+    assert.equal(elements.railNote.classList.contains('is-silence'), false);
+  });
+});
+
+test('silence watchdog never fires while paused, stopped, or in manual mode', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 0;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback) => {
+    const id = { callback };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+  const runOnePendingCheck = () => {
+    const [next] = scheduled.splice(0, 1);
+    next?.callback();
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+
+    currentTime += 120000;
+    runOnePendingCheck();
+
+    assert.notEqual(ctx.state.railStatusLevel, 'silence');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), false);
+  });
+});
+
+test('the silence watchdog never clobbers a confirmed problem, even after 45s of no transcript events', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 0;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback, delay) => {
+    const id = { callback, delay };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+  const runOnePendingCheck = () => {
+    const [next] = scheduled.splice(0, 1);
+    next?.callback();
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+
+    // A confirmed problem is already showing -- e.g. the summarize-failure escalation, or any
+    // other genuinely fatal condition (INV-10). Reproduced directly here rather than driving the
+    // whole summarize-backoff path, which is owned elsewhere -- only the resulting
+    // rail level matters to this test.
+    updateStatus(
+      ctx,
+      'Falling behind live speech — some speech will be missing from the transcript',
+      { level: 'problem' }
+    );
+    assert.equal(ctx.state.railStatusLevel, 'problem');
+
+    // 45s pass with no transcript events -- precisely the case where audio is being shed or a
+    // backoff has paused sends for up to 60s, i.e. the fault IS the server path, not the mic.
+    for (let i = 0; i < 9; i += 1) {
+      currentTime += 5000;
+      runOnePendingCheck();
+    }
+
+    // The watchdog must not silently downgrade a confirmed problem into "Check mic" -- that would
+    // send the operator to the microphone when the real fault is elsewhere.
+    assert.equal(ctx.state.railStatusLevel, 'problem');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), false);
+    assert.equal(elements.railNote.textContent, '⚠ Falling behind live speech — some speech will be missing from the transcript');
+
+    // Recovery still works once the condition itself clears (not via the watchdog).
+    runtime.handleTranscriptEvent({ type: 'final', text: 'The mic is back.' });
+    updateStatus(ctx, 'Listening.', { level: 'listening' });
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+    assert.equal(elements.railNote.textContent, '');
+  });
+});
+
+test('a backgrounded tab regaining visibility resyncs the summarize loop and forgives the gap', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let capturedHandler = null;
+  const fakeDocument = {
+    hidden: true,
+    addEventListener(type, handler) {
+      if (type === 'visibilitychange') capturedHandler = handler;
+    }
+  };
+
+  let currentTime = 0;
+  const nowFn = () => currentTime;
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    documentImpl: fakeDocument
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    assert.equal(typeof capturedHandler, 'function');
+
+    // The tab was backgrounded and throttled for a long stretch -- a real gap, but not a real
+    // outage. lastTranscriptEventAt is left stale from startListening.
+    currentTime = 90000;
+    const loopHandleBeforeResync = ctx.state.loopHandle;
+
+    fakeDocument.hidden = false;
+    capturedHandler();
+
+    // The watchdog's clock is reset rather than being left to fire the instant the tab wakes up.
+    assert.equal(ctx.state.lastTranscriptEventAt, currentTime);
+    // The summarize loop was restarted (resynced) rather than left at its throttled cadence.
+    assert.notEqual(ctx.state.loopHandle, loopHandleBeforeResync);
   });
 });
