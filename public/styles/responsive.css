@@ -70,6 +70,16 @@
   }
 
   /*
+   * The counterpart to controls.css's base `#quickPanelToggle { display: none }`.
+   * This is the only breakpoint where the quick-controls sheet exists, so it is
+   * the only breakpoint where the button that opens it should. `grid` (not
+   * `block`) matches .iconButton's own display, which centers the glyph.
+   */
+  #quickPanelToggle {
+    display: grid;
+  }
+
+  /*
    * "Manual"/listening status used to be its own full-width row below
    * the brand+icons row -- on a phone that's a whole line spent on a
    * small pill. Put it inline in the same row as the brand instead (a

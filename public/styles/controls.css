@@ -66,6 +66,19 @@ html.is-resizing-rail .railResizeHandle::before {
   display: none;
 }
 
+/*
+ * The quick-controls sheet is a mobile-only affordance: on desktop, Quick
+ * Controls and Live Transcript are already visible in the rail, so there is
+ * nothing for this button to reveal. It shipped without a desktop rule and so
+ * rendered next to #railCollapseToggle -- and because both use the same
+ * #icon-panel-right glyph, desktop showed two identical panel buttons where
+ * only the collapse toggle is meaningful. Hidden by default; responsive.css
+ * turns it back on inside the <=900px block alongside the rest of the sheet.
+ */
+#quickPanelToggle {
+  display: none;
+}
+
 .railTop,
 .controlHeader {
   position: relative;
