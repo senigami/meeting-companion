@@ -2,12 +2,14 @@ node_modules/
 .env
 .DS_Store
 
-# Persistent agent identities — local only, never published
-.claude/agents/
-
-# Orchestration decision log (OD-NNNN) — the reasoning behind the agent layer, so it is local for the
-# same reason the agent layer is. Backed up outside the repo, since being ignored leaves it unversioned.
-.claude/decisions/
+# Everything under .claude/ is local by default: agent identities, the OD decision log, and the hooks
+# that enforce our own working discipline. Default-deny on purpose — twice in one day a rule that
+# listed what to hide missed something new (gate records in .agent/, then the decision log), and a
+# list of exceptions is the wrong shape when the cost of missing one is publishing role names.
+# launch.json is the deliberate exception: dev-server configs are useful to anyone who clones this.
+# The decision log is unversioned as a result, so it is backed up outside the repo (OD-0013).
+.claude/*
+!.claude/launch.json
 
 # Session memory — local only, never published
 Memory/
