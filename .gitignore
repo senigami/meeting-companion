@@ -11,6 +11,7 @@ Memory/
 # Orchestration mandate — local only
 AGENTS.md
 
-# Agent-produced reports and local agent rules — never published
-.agent/reports/
-.agent/rules.md
+# Everything the agents produce — reports, gate records, local rules, and the code map with its
+# changelog queue. All of it is working material for how the repo gets built, not part of the app, so
+# the whole folder stays local rather than us maintaining a list of which parts are published.
+.agent/
