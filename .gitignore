@@ -10,3 +10,7 @@ Memory/
 
 # Orchestration mandate — local only
 AGENTS.md
+
+# Agent-produced reports and local agent rules — never published
+.agent/reports/
+.agent/rules.md

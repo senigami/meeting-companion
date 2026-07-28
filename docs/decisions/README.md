@@ -9,7 +9,6 @@ Specs say what the app does. ADRs say why the app is shaped this way. ADR number
 | [ADR-0001](0001-local-express-static-app.md) | Local Express app with static browser UI | Accepted |
 | [ADR-0002](0002-modular-source-registry.md) | Modular source registry for transcription and summarization | Accepted |
 | [ADR-0003](0003-no-audio-storage-by-default.md) | No audio or transcript persistence by default | Accepted |
-| [ADR-0004](0004-model-tiers-for-the-agent-roster.md) | Model tiers for the agent roster | Accepted |
 
 ## Template
 
