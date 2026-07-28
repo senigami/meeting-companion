@@ -5,6 +5,10 @@ node_modules/
 # Persistent agent identities — local only, never published
 .claude/agents/
 
+# Orchestration decision log (OD-NNNN) — the reasoning behind the agent layer, so it is local for the
+# same reason the agent layer is. Backed up outside the repo, since being ignored leaves it unversioned.
+.claude/decisions/
+
 # Session memory — local only, never published
 Memory/
 
