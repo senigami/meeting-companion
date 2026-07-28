@@ -1,3 +1,12 @@
 node_modules/
 .env
 .DS_Store
+
+# Persistent agent identities — local only, never published
+.claude/agents/
+
+# Session memory — local only, never published
+Memory/
+
+# Orchestration mandate — local only
+AGENTS.md
