@@ -65,6 +65,8 @@ test('bootstrap starts the demo feed when requested in the query string', async 
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
+    summaryMaxWords: createElement({ value: '2' }),
+    summaryMaxWordsValue: createElement({ textContent: '' }),
     viewPanel: createElement({ hidden: true }),
     viewButton: createElement(),
     closeViewPanel: createElement(),

@@ -79,14 +79,14 @@ function fitToWordLimit(sentence, maxWords = SUMMARY_MAX_WORDS) {
 // several joined: a joined line was being re-split by the display's own 120-character wrap
 // (transcript-display.js#segmentTranscriptText), so two sentences landed on the wall as two cards in
 // the same instant, which read as the first summary having been skipped and then catching up.
-function pickCandidateSentence(recentTranscript, visibleLines) {
+function pickCandidateSentence(recentTranscript, visibleLines, maxWords) {
   const sentences = splitSentences(recentTranscript).filter((sentence) => TERMINAL_END.test(sentence));
   const visibleSet = new Set(visibleLines.map((line) => cleanModelLine(line).toLowerCase()));
 
   for (const sentence of sentences) {
     const stripped = stripFillerOpener(sentence);
     if (!stripped) continue;
-    const fitted = fitToWordLimit(stripped);
+    const fitted = fitToWordLimit(stripped, maxWords);
     if (!fitted) continue;
     if (visibleSet.has(fitted.toLowerCase())) continue;
     return fitted;
@@ -99,11 +99,11 @@ export function createDemoSummarizer(deps = {}) {
   return {
     id: 'demo',
     label: 'Demo',
-    async summarize({ recentTranscript = '', visibleLines = [] } = {}) {
+    async summarize({ recentTranscript = '', visibleLines = [], maxWords = SUMMARY_MAX_WORDS } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
-      const picked = pickCandidateSentence(text, visibleLines);
+      const picked = pickCandidateSentence(text, visibleLines, maxWords);
       if (!picked) return { line: '' };
 
       const line = cleanModelLine(picked);

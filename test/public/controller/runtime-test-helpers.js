@@ -149,7 +149,13 @@ export function createRuntimeHarness({
         ? localStorageValues[key]
         : null;
     },
-    setItem() {}
+    // Writes land back in localStorageValues so a "this must NOT be persisted" assertion can
+    // actually fail. While this was a no-op, the keyless-first-run test asserting demo is not stored
+    // passed whether the code persisted it or not -- it pinned nothing, which is how demo went
+    // sticky in the first place.
+    setItem(key, value) {
+      localStorageValues[key] = String(value);
+    }
   };
 
   const configFetch = fetchImpl || (fetchConfig

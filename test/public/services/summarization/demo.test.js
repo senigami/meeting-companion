@@ -73,6 +73,18 @@ test('falls back to a word-boundary cut only when even the first clause is too l
   assert.ok('The speaker described a very long and detailed story about a mission trip to a small village where the community gathered to help.'.startsWith(result.line));
 });
 
+test('respects a passed maxWords rather than always using the shared default', async () => {
+  const summarizer = createDemoSummarizer();
+  const result = await summarizer.summarize({
+    recentTranscript: 'There is a working bee at the hall on Saturday morning from nine, to tidy the garden beds and clear the gutters before winter.',
+    visibleLines: [],
+    maxWords: 8
+  });
+
+  assert.ok(result.line.split(/\s+/).length <= 8);
+  assert.equal(result.line, 'There is a working bee at the hall');
+});
+
 test('a sentence inside the word limit is passed through untouched', async () => {
   const summarizer = createDemoSummarizer();
   const sentence = 'Brother Lee shared a scripture about hope.';

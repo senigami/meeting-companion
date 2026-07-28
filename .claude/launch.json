@@ -7,6 +7,13 @@
       "runtimeArgs": ["start"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "meeting-companion-keyless",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["OPENAI_API_KEY=", "ANTHROPIC_API_KEY=", "npm", "start"],
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }

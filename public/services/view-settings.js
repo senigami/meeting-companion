@@ -12,6 +12,8 @@ export const DISPLAY_MARGIN_MIN = 0;
 export const DISPLAY_MARGIN_MAX = 40;
 export const summaryIntervalOptions = [2, 5, 10, 15];
 export const summaryIntervalSliderMax = summaryIntervalOptions.length - 1;
+export const summaryMaxWordsOptions = [8, 11, 14, 17];
+export const summaryMaxWordsSliderMax = summaryMaxWordsOptions.length - 1;
 
 function clampNumber(value, min, max, fallback) {
   const numeric = Number(value);
@@ -65,4 +67,20 @@ export function summaryIntervalSliderIndexFromSeconds(value, fallback = 5) {
 export function summaryIntervalSecondsFromSliderIndex(value, fallback = 5) {
   const index = Math.round(clampNumber(value, 0, summaryIntervalSliderMax, 0));
   return summaryIntervalOptions[index] ?? clampSummaryIntervalSeconds(fallback, fallback);
+}
+
+export function clampSummaryMaxWords(value, fallback = 14) {
+  const numeric = clampNumber(value, summaryMaxWordsOptions[0], summaryMaxWordsOptions.at(-1), fallback);
+  return nearestOption(numeric, summaryMaxWordsOptions, fallback);
+}
+
+export function summaryMaxWordsSliderIndexFromWords(value, fallback = 14) {
+  const words = clampSummaryMaxWords(value, fallback);
+  const index = summaryMaxWordsOptions.indexOf(words);
+  return index === -1 ? 0 : index;
+}
+
+export function summaryMaxWordsFromSliderIndex(value, fallback = 14) {
+  const index = Math.round(clampNumber(value, 0, summaryMaxWordsSliderMax, 0));
+  return summaryMaxWordsOptions[index] ?? clampSummaryMaxWords(fallback, fallback);
 }

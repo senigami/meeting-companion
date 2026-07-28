@@ -107,12 +107,13 @@ export function createApp({
 
   app.post('/api/summarize', async (req, res) => {
     try {
-      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', visibleLines = [] } = req.body || {};
+      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords } = req.body || {};
       const result = await summarizeWithSource({
         source,
         mode,
         recentTranscript,
         visibleLines,
+        maxWords,
         openaiClient: resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore }),
         anthropicApiKey: source === 'claude'
           ? resolveAnthropicKey({ apiKey, anthropicApiKey, providerKeyStore })

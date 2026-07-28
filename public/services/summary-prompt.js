@@ -4,10 +4,26 @@
 // twice this long, and nothing caught it because the limit only existed as prose inside the prompt.
 export const SUMMARY_MAX_WORDS = 14;
 
+// The operator can set a card length, but maxWords lands directly inside the prompt text sent to the
+// model, so it is clamped rather than trusted: anything non-numeric or outside the range falls back
+// to the shared default. The clamp lives here, next to the prompt it protects, so the number in a
+// prompt is always the number that was honoured -- when the clamp lived only on the server, the
+// client could hand back a prompt claiming a limit the server had already rejected.
+export const MAX_WORDS_MIN = 6;
+export const MAX_WORDS_MAX = 24;
+
+export function clampMaxWords(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return SUMMARY_MAX_WORDS;
+  const rounded = Math.round(numeric);
+  if (rounded < MAX_WORDS_MIN || rounded > MAX_WORDS_MAX) return SUMMARY_MAX_WORDS;
+  return rounded;
+}
+
 export function modeInstruction(mode = 'speaker') {
   switch (mode) {
     case 'information':
-      return 'Prioritize exact dates, times, places, hymn numbers, assignments, and announcements.';
+      return 'Prioritize exact dates, times, places, hymn numbers, assignments, and announcements. Copy every number, name, and date exactly; drop the surrounding courtesy words rather than shortening a detail.';
     case 'song':
       return 'Only show hymn or song status. Do not show lyrics or commentary.';
     case 'prayer':
@@ -56,14 +72,20 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 export function buildSummarizePrompt({
   mode = 'speaker',
   recentTranscript = '',
-  visibleLines = []
+  visibleLines = [],
+  maxWords = SUMMARY_MAX_WORDS
 } = {}) {
+  const wordLimit = clampMaxWords(maxWords);
   const visibleBlock = visibleLines.filter(Boolean).length
     ? visibleLines.filter(Boolean).map((line) => `- ${line}`).join('\n')
     : '- none';
 
   return `
-You are creating large-print assistive text for one deaf and low-vision person during a church meeting.
+You are creating large-print assistive text for one deaf, low-vision person during a church meeting.
+American Sign Language is their first language and English is their second, so write clean, simple
+English -- never ASL gloss or ASL word order, which is not a writing system and reads as broken text.
+They read slowly and see poorly, so every word on the card has to earn its place: one card is one
+glance, and a word spent on filler is a word they pay for.
 
 Return zero or one line.
 Only add a line when the transcript contains something useful that is new or more specific than the lines already shown.
@@ -74,8 +96,16 @@ Write a single short line that would help someone reading from across the room.
 Do not use labels such as "main point," "speaker," "summary," or "announcement."
 Do not say "still talking about."
 Use plain, specific language.
-Preserve names, dates, times, hymn numbers, scripture references, assignments, and places.
-Maximum ${SUMMARY_MAX_WORDS} words.
+Lead with the topic or the person the line is about, then say what about it. Never open with a
+subordinate clause ("If you are able to help, ...") -- put the thing first ("Working bee Saturday").
+Preserve names, dates, times, hymn numbers, scripture references, assignments, and places exactly as
+they were said. These are what a reader cannot recover from context; never paraphrase a number.
+Use everyday words and no abbreviations. No idioms, figures of speech, sarcasm, or wordplay: if the
+speaker used one, write what it means instead of what they said.
+Name the person rather than writing "he", "she", or "they", unless the name is on a visible line
+directly above.
+One idea per line. Active voice. Do not join two thoughts with "and" or a semicolon.
+Maximum ${wordLimit} words, and fewer whenever fewer will do.
 Do not add information.
 If nothing new or useful was communicated, return an empty string.
 

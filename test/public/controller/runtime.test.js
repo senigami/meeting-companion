@@ -25,12 +25,173 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
     await runtime.loadRuntimeConfig();
 
     assert.equal(ctx.state.summarizationSource, 'claude');
-    assert.equal(elements.settingsAlertBadge.hidden, false);
-    assert.equal(elements.alertsSection.hidden, false);
     assert.equal(summarizationButtons[0].dataset.configured, 'false');
     assert.equal(summarizationButtons[1].dataset.configured, 'true');
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
-    assert.match(elements.apiWarning.textContent, /Claude summaries remain available/i);
+
+    // The fallback SUCCEEDED: summaries are running on Claude, which has a key. Nothing is wrong, so
+    // nothing is alerted. This test previously required the opposite -- an "OpenAI key is missing"
+    // warning about the provider the app had just correctly moved away from, which is a standing
+    // alert the operator cannot clear and did not cause. The unconfigured state of OpenAI is still
+    // visible where it belongs: summarizationButtons[0].dataset.configured is 'false' above.
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.equal(elements.apiWarning.textContent, '');
+  });
+});
+
+test('fresh install with no provider keys defaults to demo summaries with no alert and no switch note', async () => {
+  await withRuntimeHarness({
+    fetchConfig: {
+      hasOpenAIKey: false,
+      hasAnthropicKey: false,
+      model: null,
+      sources: {
+        transcription: [
+          { id: 'browser', label: 'Browser', description: 'Browser' },
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+        ],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'claude', label: 'Claude', description: 'Claude' }
+        ]
+      }
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
+    assert.equal(ctx.state.summarizationSource, 'demo');
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.equal(elements.apiWarning.textContent, '');
+    // No keys is the expected first-run state, not a fallback the operator needs to be told about.
+    assert.equal(elements.railNote.textContent, '');
+    // Nothing recorded a choice. Falsy rather than literally false: start-app.js seeds this field
+    // and the test harness does not, so an unseeded `undefined` is the real first-run shape here.
+    assert.ok(!ctx.state.summarizationSourceChosen);
+    // And the default must NOT be persisted. A stored 'demo' has to keep meaning "the operator chose
+    // this"; once the app writes the same value to mean "I picked this for you", the next boot cannot
+    // tell them apart. The regression test below is what that actually caused.
+    assert.notEqual(localStorage.getItem('summarizationSource'), 'demo');
+  });
+});
+
+// REGRESSION (caught at the pre-commit gate, 2026-07-26). Demo went sticky: the keyless first run persisted
+// summarizationSource='demo' without a chosen flag, so on the next boot WITH a real key the
+// honour-demo rule fired on a choice nobody made. Result: rehearsal-script sentences on a live wall,
+// no alert, in front of the one person who cannot hear the room to know the wall is wrong -- INV-13's
+// exact failure, introduced by the same commit that added INV-13.
+test('demo does not become sticky: a key appearing after a keyless run wins over an unchosen demo', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      summarizationSource: 'demo',
+      summarizationSourceChosen: false
+    },
+    fetchConfig: {
+      hasOpenAIKey: true,
+      hasAnthropicKey: false,
+      model: 'gpt-4o-mini',
+      sources: {
+        transcription: [
+          { id: 'browser', label: 'Browser', description: 'Browser' },
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+        ],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'claude', label: 'Claude', description: 'Claude' }
+        ]
+      }
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
+    assert.equal(ctx.state.summarizationSource, 'openai');
+    assert.notEqual(ctx.state.summarizationSource, 'demo');
+  });
+});
+
+test('an explicitly chosen demo IS honoured even when a real key is available', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      summarizationSource: 'demo',
+      summarizationSourceChosen: true
+    },
+    fetchConfig: {
+      hasOpenAIKey: true,
+      hasAnthropicKey: false,
+      model: 'gpt-4o-mini',
+      sources: {
+        transcription: [{ id: 'browser', label: 'Browser', description: 'Browser' }],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'demo', label: 'Demo', description: 'Demo' }
+        ]
+      }
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
+    // Rehearsing before a meeting with a key already configured is legitimate; the flag is what
+    // separates it from the app choosing demo on the operator's behalf.
+    assert.equal(ctx.state.summarizationSource, 'demo');
+  });
+});
+
+// INV-13 note for this test: it also pins that the alert copy names REAL alternatives only. Offering
+// Demo as the fix would be telling the operator to put rehearsal text on a live wall.
+test('an operator who actively chose an unconfigured provider still gets the alert, naming only real alternatives', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      summarizationSourceChosen: true,
+      summarizationSource: 'openai'
+    },
+    fetchConfig: {
+      hasOpenAIKey: false,
+      hasAnthropicKey: false,
+      model: null,
+      sources: {
+        transcription: [
+          { id: 'browser', label: 'Browser', description: 'Browser' },
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+        ],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'claude', label: 'Claude', description: 'Claude' }
+        ]
+      }
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
+    assert.equal(ctx.state.summarizationSource, 'openai');
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.apiWarning.textContent, /OpenAI is selected for summaries but has no key/i);
+    assert.doesNotMatch(elements.apiWarning.textContent, /demo/i);
+  });
+});
+
+test('unchosen with no OpenAI key but an Anthropic key falls back to Claude, not demo, and still flashes the switch note', async () => {
+  await withRuntimeHarness({
+    fetchConfig: {
+      hasOpenAIKey: false,
+      hasAnthropicKey: true,
+      model: null,
+      sources: {
+        transcription: [
+          { id: 'browser', label: 'Browser', description: 'Browser' },
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+        ],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'claude', label: 'Claude', description: 'Claude' }
+        ]
+      }
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
+    assert.equal(ctx.state.summarizationSource, 'claude');
+    assert.match(elements.railNote.textContent, /Summaries switched to Claude \(previous source unavailable\)\./);
   });
 });
 
@@ -349,7 +510,7 @@ test('settings open state keeps alert and settings buttons in sync', async () =>
   });
 });
 
-test('runtime falls back to a valid summarization source when persisted source is stale', async () => {
+test('runtime falls back to demo when persisted source is stale, unchosen, and no keys are configured', async () => {
   await withRuntimeHarness({
     localStorageValues: {
       summarizationSource: 'stale-source'
@@ -372,10 +533,43 @@ test('runtime falls back to a valid summarization source when persisted source i
   }, async ({ ctx, elements, runtime }) => {
     await runtime.loadRuntimeConfig();
 
+    // Nothing was ever actively chosen and no keys are configured, so this is the expected
+    // first-run state (demo), not an error -- regardless of what stale value happened to be
+    // stored under the old default.
+    assert.equal(ctx.state.summarizationSource, 'demo');
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.equal(elements.apiWarning.textContent, '');
+  });
+});
+
+test('runtime falls back to an unconfigured but chosen source and alerts, when a stale source was chosen and no keys exist', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      summarizationSourceChosen: true
+    },
+    fetchConfig: {
+      hasOpenAIKey: false,
+      hasAnthropicKey: false,
+      model: null,
+      sources: {
+        transcription: [
+          { id: 'browser', label: 'Browser', description: 'Browser' },
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+        ],
+        summarization: [
+          { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+          { id: 'claude', label: 'Claude', description: 'Claude' }
+        ]
+      }
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.loadRuntimeConfig();
+
     assert.equal(ctx.state.summarizationSource, 'openai');
     assert.equal(elements.settingsAlertBadge.hidden, false);
     assert.equal(elements.alertsSection.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
+    assert.match(elements.apiWarning.textContent, /OpenAI is selected for summaries but has no key/i);
   });
 });
 

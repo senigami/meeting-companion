@@ -50,7 +50,7 @@ function createClickable(initial = {}) {
   return element;
 }
 
-test('app bootstrap loads without module errors and shows runtime warning when OpenAI is missing', async () => {
+test('app bootstrap loads without module errors and starts keyless with demo summaries and no alert', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
   const originalFetch = global.fetch;
@@ -79,6 +79,8 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
+    summaryMaxWords: createElement({ value: '2' }),
+    summaryMaxWordsValue: createElement({ textContent: '' }),
     viewPanel: createElement({ hidden: true }),
     viewButton: createElement(),
     closeViewPanel: createElement(),
@@ -201,17 +203,17 @@ test('app bootstrap loads without module errors and shows runtime warning when O
     await import('../../public/app.js?bootstrap-test=' + Date.now());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.equal(elements.apiWarning.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
-    assert.match(elements.apiWarning.textContent, /Claude key is missing/i);
-    assert.match(elements.status.textContent, /Browser transcription still works/i);
+    // Fresh install, no provider keys, nothing actively chosen: this defaults to demo summaries
+    // with no alert at all -- no keys is the expected first-run state, not an error to dismiss.
+    assert.equal(elements.apiWarning.hidden, true);
+    assert.equal(elements.apiWarning.textContent, '');
+    assert.match(elements.status.textContent, /Browser transcription and demo summaries work with no key/i);
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5%');
     assert.equal(elements.summaryIntervalValue.textContent, '5s');
-    assert.equal(elements.settingsAlertBadge.hidden, false);
-    assert.equal(elements.alertsSection.hidden, false);
-    assert.match(elements.apiWarning.textContent, /OpenAI key is missing/i);
-    assert.match(elements.status.textContent, /Browser transcription still works/i);
+    assert.equal(elements.settingsAlertBadge.hidden, true);
+    assert.equal(elements.alertsSection.hidden, true);
+    assert.match(elements.status.textContent, /Browser transcription and demo summaries work with no key/i);
     assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
     assert.equal(elements.settingsPanel.hidden, true);
     assert.equal(summarizationButtons[1].disabled, false);
@@ -287,6 +289,8 @@ test('ready check test button calls testProviderKey and the sample button closes
     displayMarginValue: createElement({ textContent: '' }),
     summaryInterval: createElement({ value: '1' }),
     summaryIntervalValue: createElement({ textContent: '' }),
+    summaryMaxWords: createElement({ value: '2' }),
+    summaryMaxWordsValue: createElement({ textContent: '' }),
     viewPanel: createElement({ hidden: true }),
     viewButton: createElement(),
     closeViewPanel: createElement(),

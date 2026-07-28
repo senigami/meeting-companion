@@ -266,6 +266,11 @@ function createSettingsCtx(stateOverrides = {}) {
 
   return {
     state: {
+      // A provider only raises an alert when a selected source needs it, so these fixtures carry a
+      // realistic selection: without one, an unconfigured provider is correctly silent and the
+      // alert-section tests below would be asserting against an alert that should never fire.
+      transcriptionSource: 'browser',
+      summarizationSource: 'openai',
       openAiReady: true,
       anthropicReady: true,
       ...stateOverrides

@@ -1,5 +1,6 @@
 import {
   summaryIntervalSliderIndexFromSeconds,
+  summaryMaxWordsSliderIndexFromWords,
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
@@ -573,6 +574,15 @@ export function updateSummaryIntervalControl(ctx) {
   updateSliderFill(ctx.dom.summaryIntervalInput);
 }
 
+export function updateSummaryMaxWordsControl(ctx) {
+  if (!ctx.dom.summaryMaxWordsInput || !ctx.dom.summaryMaxWordsValue) return;
+  const index = summaryMaxWordsSliderIndexFromWords(ctx.state.summaryMaxWords);
+  ctx.dom.summaryMaxWordsInput.value = String(index);
+  ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', `${ctx.state.summaryMaxWords} words`);
+  ctx.dom.summaryMaxWordsValue.textContent = `${ctx.state.summaryMaxWords} words`;
+  updateSliderFill(ctx.dom.summaryMaxWordsInput);
+}
+
 export function syncViewerControls(ctx) {
   ctx.dom.fontSizeInput.value = String(sliderPositionFromFontSize(ctx.state.fontSize));
   ctx.dom.fontSizeInput.setAttribute('aria-valuetext', `${ctx.state.fontSize}px`);
@@ -582,6 +592,7 @@ export function syncViewerControls(ctx) {
   ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}%`;
   updateSliderFill(ctx.dom.displayMarginInput);
   updateSummaryIntervalControl(ctx);
+  updateSummaryMaxWordsControl(ctx);
   updateDisplayMarginGuides(ctx);
 }
 
@@ -893,24 +904,44 @@ function getProviderState(ctx, kind, source) {
   };
 }
 
+// An unconfigured provider is only an alert when something currently selected actually needs it.
+// This used to alert on every provider that had no key, which meant an operator running OpenAI and
+// browser transcription was permanently told "Claude key is missing" about a provider they had never
+// selected and may never use. That is not an error, it is a fact about a road not taken -- and a
+// standing alert nobody can clear teaches the operator to ignore the alert surface, which is exactly
+// what INV-10 exists to prevent. The settings panel still shows every provider's "Needs key" state;
+// that is where you go to learn what is unconfigured. An alert is for something wrong right now.
+function providersInUse(ctx) {
+  const inUse = new Set();
+  if (ctx.state.transcriptionSource === 'openai') inUse.add('openai');
+  if (ctx.state.summarizationSource === 'openai') inUse.add('openai');
+  if (ctx.state.summarizationSource === 'claude') inUse.add('anthropic');
+  return inUse;
+}
+
 function buildAlerts(ctx) {
   const alerts = [];
-  if (!ctx.state.openAiReady) {
+  const inUse = providersInUse(ctx);
+
+  if (inUse.has('openai') && !ctx.state.openAiReady) {
     alerts.push({
       provider: 'openai',
-      message: ctx.state.anthropicReady
-        ? 'OpenAI key is missing. Browser transcription still works, and Claude summaries remain available.'
-        : 'OpenAI key is missing. Browser transcription still works, but OpenAI transcription and summaries are off.'
+      // Alternatives named here are REAL ones only. Demo is deliberately never offered as a remedy:
+      // it replays a rehearsal script, so on a live display it would show text nobody said. See the
+      // note in services/response.js -- manual typing is the sanctioned live fallback, not demo.
+      message: ctx.state.transcriptionSource === 'openai'
+        ? 'OpenAI is selected but has no key. Add one in AI services, or switch transcription to Browser.'
+        : 'OpenAI is selected for summaries but has no key. Add one in AI services, or switch summaries to Claude.'
     });
   }
-  if (!ctx.state.anthropicReady) {
+
+  if (inUse.has('anthropic') && !ctx.state.anthropicReady) {
     alerts.push({
       provider: 'claude',
-      message: ctx.state.openAiReady
-        ? 'Claude key is missing. OpenAI features are available.'
-        : 'Claude key is missing. Add one to enable Claude summaries.'
+      message: 'Claude is selected for summaries but has no key. Add one in AI services, or switch summaries to OpenAI.'
     });
   }
+
   return alerts;
 }
 

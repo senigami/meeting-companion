@@ -12,7 +12,8 @@ import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
   clampDisplayMargin,
   clampFontSize,
-  clampSummaryIntervalSeconds
+  clampSummaryIntervalSeconds,
+  clampSummaryMaxWords
 } from '../services/view-settings.js';
 import {
   flashRailNote,
@@ -26,7 +27,8 @@ import {
   syncSettingsPanel,
   syncViewerControls,
   setDisplayMarginGuidesVisible,
-  updateSummaryIntervalControl
+  updateSummaryIntervalControl,
+  updateSummaryMaxWordsControl
 } from './view.js';
 import {
   BUCKET_SEND_MAX_CHARS,
@@ -47,8 +49,15 @@ const STORAGE = {
   fontSize: 'fontSize',
   displayMargin: 'displayMargin',
   summaryInterval: 'summaryIntervalSeconds',
+  summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
-  summarizationSource: 'summarizationSource'
+  summarizationSource: 'summarizationSource',
+  // Must stay in sync with start-app.js's own STORAGE map, which is a separate object listing the
+  // same keys. This one was missing, so setSummarizationSource called
+  // localStorage.setItem(undefined, 'true') -- writing a key literally named "undefined" -- and an
+  // operator's explicit provider choice silently failed to survive a reload. Unit tests passed
+  // because they stub localStorage and never assert the key name. Add to BOTH maps or neither.
+  summarizationSourceChosen: 'summarizationSourceChosen'
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
@@ -414,7 +423,8 @@ export function createRuntime(ctx, deps = {}) {
       const result = await driver.summarize({
         mode: ctx.state.mode,
         recentTranscript: recent,
-        visibleLines: ctx.state.transcriptItems.slice(-5).map((item) => item.text)
+        visibleLines: ctx.state.transcriptItems.slice(-5).map((item) => item.text),
+        maxWords: ctx.state.summaryMaxWords
       });
 
       resetSummarizeBackoff();
@@ -497,6 +507,15 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();
     }
+  }
+
+  function setSummaryMaxWords(nextMaxWords) {
+    const next = clampSummaryMaxWords(nextMaxWords, ctx.state.summaryMaxWords);
+    if (next === ctx.state.summaryMaxWords) return;
+    ctx.state.summaryMaxWords = next;
+    localStorage.setItem(STORAGE.summaryMaxWords, String(next));
+    updateSummaryMaxWordsControl(ctx);
+    updateStatus(ctx, `Words per card set to ${next}.`);
   }
 
   async function startListening({ force = false } = {}) {
@@ -590,7 +609,14 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function setSummarizationSource(source) {
-    if (!source || ctx.state.summarizationSource === source) return;
+    // The falsy guard runs FIRST: a call with no source is not a choice, and recording one would let
+    // a stray call mark the operator as having picked whatever happens to be selected. Re-picking the
+    // current source IS a choice, though -- clicking Demo while already on Demo is exactly how someone
+    // confirms it deliberately -- so the flag is set for that case before the no-op early-out.
+    if (!source) return;
+    ctx.state.summarizationSourceChosen = true;
+    localStorage.setItem(STORAGE.summarizationSourceChosen, 'true');
+    if (ctx.state.summarizationSource === source) return;
     ctx.state.summarizationSource = source;
     localStorage.setItem(STORAGE.summarizationSource, source);
     summarizationDriver = null;
@@ -606,7 +632,7 @@ export function createRuntime(ctx, deps = {}) {
     }
     ctx.state.registrationProvider = source;
     ctx.state.pendingProviderSelection = { provider: source, kind, source };
-    updateStatus(ctx, `Add a ${source === 'openai' ? 'OpenAI' : 'Claude'} key to use this provider.`);
+    updateStatus(ctx, `Add ${source === 'openai' ? 'an OpenAI' : 'a Claude'} key to use this provider.`);
     openSettingsForProvider(source, kind);
   }
 
@@ -683,10 +709,19 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function resolveAvailableSummarizationSource() {
-    // Demo needs no key, so an explicit choice of it is always honoured. Deliberately NOT the
-    // silent fallback when no key is configured: falling back to it would make a misconfigured
-    // service look like a working one, which is the dishonesty this rail is built to avoid.
-    if (ctx.state.summarizationSource === 'demo') return 'demo';
+    // First run, nothing configured, nothing chosen: demo is the expected out-of-the-box state,
+    // not an error to alert about. Only applies when zero providers are configured -- if exactly
+    // one is, the existing fallback to that provider below is still correct and desirable.
+    if (!ctx.state.summarizationSourceChosen && !ctx.state.openAiReady && !ctx.state.anthropicReady) {
+      return 'demo';
+    }
+    // Demo needs no key, so an EXPLICIT choice of it is always honoured -- and the chosen flag is
+    // what makes it explicit. This check used to read the source alone, which was safe only while
+    // 'demo' in storage could mean nothing else. Once the keyless first run started writing 'demo'
+    // there too, the two meanings became indistinguishable: add a key later, reload, and this rule
+    // honoured a "choice" nobody made, putting rehearsal-script sentences on a live wall with no
+    // alert. That is INV-13's exact failure, so demo must never be reachable without the flag.
+    if (ctx.state.summarizationSource === 'demo' && ctx.state.summarizationSourceChosen) return 'demo';
     if (ctx.state.summarizationSource === 'openai' && ctx.state.openAiReady) return 'openai';
     if (ctx.state.summarizationSource === 'claude' && ctx.state.anthropicReady) return 'claude';
     if (ctx.state.anthropicReady) return 'claude';
@@ -695,12 +730,28 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   async function ensureSelectedSummarizationSourceExists() {
+    const previousSource = ctx.state.summarizationSource;
     const nextSource = resolveAvailableSummarizationSource();
-    if (nextSource === ctx.state.summarizationSource) return;
+    if (nextSource === previousSource) return;
+
+    // Belt and braces with the chosen-flag gate above: the unchosen first-run default is not
+    // persisted at all, so storage never holds a 'demo' that means "the app picked this". A stored
+    // source should only ever mean "the operator chose it" or "a real provider was substituted".
+    const isFirstRunDemoDefault =
+      nextSource === 'demo' && !ctx.state.summarizationSourceChosen && !ctx.state.openAiReady && !ctx.state.anthropicReady;
+
     ctx.state.summarizationSource = nextSource;
-    localStorage.setItem(STORAGE.summarizationSource, nextSource);
+    if (!isFirstRunDemoDefault) localStorage.setItem(STORAGE.summarizationSource, nextSource);
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);
+    // The switch itself is not an error -- summaries are still running -- but it is a fact the
+    // operator did not choose and should be told about, transiently, rather than left to notice
+    // only by checking Settings. A silent automatic provider switch is its own kind of dishonesty
+    // even though nothing is broken. Exception: an unchosen, keyless first run defaulting to demo
+    // is not a switch from the operator's point of view -- they never chose anything -- so no note.
+    if (isFirstRunDemoDefault) return;
+    const label = nextSource === 'claude' ? 'Claude' : nextSource === 'openai' ? 'OpenAI' : nextSource;
+    flashRailNote(ctx, `Summaries switched to ${label} (previous source unavailable).`);
   }
 
   function isTypingTarget(target) {
@@ -748,8 +799,12 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.openAiReady
         ? 'Manual mode is ready. OpenAI key detected.'
         : ctx.state.anthropicReady
-          ? 'OpenAI key is missing. Browser transcription still works; Claude summaries are available.'
-          : 'OpenAI key is missing. Browser transcription still works.'
+          ? 'Manual mode is ready. Browser transcription and Claude summaries are available.'
+          // No keys at all is the expected first-run state, not a deficiency, and it is no longer
+          // even a limited one: browser transcription works and summaries fall back to demo. Leading
+          // with "OpenAI key is missing" told a brand-new operator that something was wrong with an
+          // app that was in fact working, which is the same false-alarm problem the alert model had.
+          : 'Manual mode is ready. Browser transcription and demo summaries work with no key. Add a provider key in AI services for live summaries.'
     );
   }
 
@@ -769,6 +824,7 @@ export function createRuntime(ctx, deps = {}) {
     setMode,
     setPanelOpen: (open, options) => setSettingsOpen(ctx, open, options),
     setSummaryInterval,
+    setSummaryMaxWords,
     setSummarizationSource,
     setTranscriptionSource,
     setRegistrationProvider,

@@ -2,7 +2,9 @@ import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds,
+  clampSummaryMaxWords,
   summaryIntervalSecondsFromSliderIndex,
+  summaryMaxWordsFromSliderIndex,
   fontSizeFromSliderPosition
 } from '../services/view-settings.js';
 import {
@@ -34,8 +36,10 @@ const STORAGE = {
   fontSize: 'fontSize',
   displayMargin: 'displayMargin',
   summaryInterval: 'summaryIntervalSeconds',
+  summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
-  summarizationSource: 'summarizationSource'
+  summarizationSource: 'summarizationSource',
+  summarizationSourceChosen: 'summarizationSourceChosen'
 };
 
 export function startApp() {
@@ -51,6 +55,7 @@ export function startApp() {
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
+      summaryMaxWords: clampSummaryMaxWords(localStorage.getItem(STORAGE.summaryMaxWords) || 14),
       displayMarginGuidesVisible: false,
       displayMarginAdjusting: false,
       transcriptChunks: [],
@@ -71,6 +76,7 @@ export function startApp() {
       registrationProvider: 'openai',
       transcriptionSource: localStorage.getItem(STORAGE.transcriptionSource) || 'browser',
       summarizationSource: localStorage.getItem(STORAGE.summarizationSource) || 'openai',
+      summarizationSourceChosen: localStorage.getItem(STORAGE.summarizationSourceChosen) === 'true',
       openAiReady: false,
       anthropicReady: false,
       serverOpenAiReady: false,
@@ -110,6 +116,9 @@ export function startApp() {
       summaryIntervalInput: $('summaryInterval'),
       summaryIntervalValue: $('summaryIntervalValue'),
       summaryIntervalField: $('summaryIntervalField'),
+      summaryMaxWordsInput: $('summaryMaxWords'),
+      summaryMaxWordsValue: $('summaryMaxWordsValue'),
+      summaryMaxWordsField: $('summaryMaxWordsField'),
       viewPanel: $('viewPanel'),
       viewButton: $('viewButton'),
       closeViewPanel: $('closeViewPanel'),
@@ -318,6 +327,9 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(summaryIntervalSecondsFromSliderIndex(e.target.value, ctx.state.summaryIntervalSeconds));
   });
+  ctx.dom.summaryMaxWordsInput.addEventListener('input', (e) => {
+    runtime.setSummaryMaxWords(summaryMaxWordsFromSliderIndex(e.target.value, ctx.state.summaryMaxWords));
+  });
 
   bindDragFade(ctx.dom.fontSizeInput, ctx.dom.fontSizeField);
 
@@ -333,6 +345,7 @@ function bindViewerControls(ctx, runtime) {
   });
 
   bindDragFade(ctx.dom.summaryIntervalInput, ctx.dom.summaryIntervalField);
+  bindDragFade(ctx.dom.summaryMaxWordsInput, ctx.dom.summaryMaxWordsField);
 }
 
 function bindModeAndSourceButtons(ctx, runtime) {
