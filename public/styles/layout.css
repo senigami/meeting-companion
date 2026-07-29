@@ -137,6 +137,82 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   letter-spacing: 0.01em;
 }
 
+/*
+ * Text handed to the summarizer but not yet drained from the bucket (INV-11: only a successful
+ * response removes it). Dimmed, never removed or struck through -- struck-through reads as "gone
+ * for good," which is wrong here: this text un-dims to full opacity again if the call fails or
+ * pause interrupts it (runtime.js's summarizeCurrentText `finally`), so the styling must not
+ * assert an outcome that isn't settled yet. Operator-rail only -- the TV display never renders
+ * this span.
+ */
+.transcriptChunk--inFlight {
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .transcriptChunk--inFlight {
+    transition: opacity 200ms ease;
+  }
+}
+
+.railTranscriptFrame {
+  position: relative;
+}
+
+/*
+ * A thin, honest clock: fills over exactly one summarize interval so the
+ * operator can see the moment absorption happens (runtime.js ties the
+ * restart to the real setInterval tick that drives summarization, never a
+ * parallel timer of its own -- see startLoop). Decorative timing aid only:
+ * the meaningful status (paused/behind/problem) is already announced via
+ * #railStatus/#railNote, so this stays aria-hidden rather than adding a
+ * second, noisier channel for the same fact.
+ */
+.railTranscriptProgress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.railTranscriptProgressFill {
+  height: 100%;
+  width: 0%;
+  background: var(--chrome-accent);
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .railTranscriptProgressFill {
+    transition-property: width;
+    transition-timing-function: linear;
+  }
+}
+
+/* Paused/stopped: honestly idle, not sweeping as if a cycle were running. */
+.railTranscriptProgress[data-state="idle"] .railTranscriptProgressFill {
+  width: 0%;
+  opacity: 0;
+}
+
+/*
+ * Overrun: a scheduled tick found the previous summarize call still in
+ * flight (the same fact runtime.js's noteSkippedSummarizeTick / 'behind'
+ * rail status reports -- Janus counts it, this only decides how it reads
+ * here too). The bar freezes full rather than silently restarting a fresh
+ * sweep, and borrows the same blue as .railStatusDot.is-level-behind so it
+ * reads as the same confirmed-but-non-destructive condition, not a new one.
+ */
+.railTranscriptProgress[data-state="overrun"] .railTranscriptProgressFill {
+  width: 100%;
+  background: #5ac8fa;
+  opacity: 0.7;
+}
+
 .transcript-item {
   position: relative;
   border-radius: 24px;

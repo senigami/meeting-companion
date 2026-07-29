@@ -11,7 +11,7 @@ export function createOpenAISummarizer({
   return {
     id: 'openai',
     label: 'OpenAI',
-    async summarize({ mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -21,6 +21,7 @@ export function createOpenAISummarizer({
         body: JSON.stringify({
           mode,
           recentTranscript: text,
+          previousBlock,
           visibleLines,
           maxWords
         })
@@ -30,7 +31,7 @@ export function createOpenAISummarizer({
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
       if (!line && data.reason) onStatus(data.reason);
-      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, visibleLines, maxWords }) };
+      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }) };
     }
   };
 }

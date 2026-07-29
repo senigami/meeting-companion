@@ -22,6 +22,20 @@ function splitByThought(text) {
 // and "Pres." are everyday words in this room, not edge cases.
 const ABBREVIATION_END = /(?:^|\s)(?:bro|sis|pres|dr|mr|mrs|ms|st|jr|sr|vs|no|approx|dept|vol|ch|fig|e\.g|i\.e|[a-z])\.$/i;
 
+// A genuine new sentence starts with a capital letter or a digit. A fragment that starts with a
+// lowercase letter is always a continuation of the sentence before it -- this is what actually
+// caught the funeral-notice bug: "11:00 a." + "m." merge into "a.m." via ABBREVIATION_END above
+// (the generic single-letter case), but that merge is a one-step lookback, so testing the *next*
+// fragment against the now-merged "...a.m." tail fails (its last token is "m.", preceded by a
+// period, not whitespace) and "in the chapel." was left stranded as its own lowercase-leading
+// card, severing the location from the funeral it belonged to. Rather than widen ABBREVIATION_END
+// to look through an arbitrary number of periods -- which would also swallow a genuinely new
+// sentence any time an abbreviation happens to open it -- this checks the fragment being emitted,
+// not the one already merged: no split-off fragment may start a card in lowercase, full stop.
+function startsLowercase(text) {
+  return /^[a-z]/.test(text.trimStart());
+}
+
 function splitBySentence(text) {
   const sentenceMatches = String(text || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g);
   if (!sentenceMatches) return [];
@@ -29,7 +43,9 @@ function splitBySentence(text) {
   const merged = [];
   sentenceMatches.forEach((part) => {
     const previous = merged[merged.length - 1];
-    if (previous && ABBREVIATION_END.test(previous.trimEnd())) {
+    const continuesAbbreviation = previous && ABBREVIATION_END.test(previous.trimEnd());
+    const continuesLowercase = previous && startsLowercase(part);
+    if (continuesAbbreviation || continuesLowercase) {
       merged[merged.length - 1] = `${previous}${part}`;
       return;
     }
@@ -77,6 +93,20 @@ export function segmentTranscriptText(text, { maxChars = DEFAULT_MAX_CHARS } = {
   return chunks.flatMap((chunk) => splitLongChunk(chunk, maxChars));
 }
 
+// One model response is one card (Steve's ruling, 2026-07-29): do NOT sentence-split AI text.
+// splitBySentence used to run unconditionally regardless of the maxChars passed in here, which is
+// how a two-fact summary ("...gutters. Do it before winter.") became two cards and orphaned a
+// clause -- the AI_LINE_SAFETY_MAX_CHARS bound in createTranscriptItems was gating splitLongChunk
+// only, never the sentence split. splitByThought (blank-line/newline breaks) still applies, since
+// that is a structural break the model itself emitted, not a sentence boundary we are inventing.
+// The sole remaining split is the runaway-length safety wrap below.
+function segmentAiResponseText(text, { maxChars = AI_LINE_SAFETY_MAX_CHARS } = {}) {
+  const thoughtChunks = splitByThought(text);
+  if (!thoughtChunks.length) return [];
+
+  return thoughtChunks.flatMap((chunk) => splitLongChunk(chunk, maxChars));
+}
+
 export function createTranscriptItems({
   text,
   mode,
@@ -84,16 +114,11 @@ export function createTranscriptItems({
   createdAt = Date.now(),
   maxChars = DEFAULT_MAX_CHARS
 } = {}) {
-  // An AI line arrives already bounded by the summarizers' shared word limit, so re-splitting it
-  // here can only do harm: a single grammatically complete sentence with no internal punctuation
-  // (a long announcement, say) was being word-wrapped at 120 characters into two cards, which put
-  // "...clear the gutters" on one card and "before winter." on the next. Segmenting is for raw or
-  // manually-typed text, where a wall of characters genuinely does need breaking up.
-  // The exemption is not unconditional: a model can disobey its 14-word instruction, and one
-  // 60-word card is worse to read from the back of a hall than two. So AI lines keep a generous
-  // safety bound well above any obedient line, and only a runaway one gets wrapped.
+  // One model response is one card: an AI line is never sentence-split, only guarded against a
+  // runaway length (see segmentAiResponseText above). Raw/manually-typed text still goes through
+  // full sentence + width segmentation, because a pasted wall of text genuinely needs breaking up.
   const segments = source === 'ai'
-    ? segmentTranscriptText(text, { maxChars: Math.max(maxChars, AI_LINE_SAFETY_MAX_CHARS) })
+    ? segmentAiResponseText(text, { maxChars: Math.max(maxChars, AI_LINE_SAFETY_MAX_CHARS) })
     : segmentTranscriptText(text, { maxChars });
 
   return segments.map((segment, index) => ({

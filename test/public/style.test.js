@@ -321,6 +321,19 @@ test('inactive transcript cards render at 0.8 opacity on the TV canvas', async (
   assert.match(css, /\.transcript-item:not\(\[data-active="true"\]\)\s*\{[^}]*opacity:\s*0\.8;/s);
 });
 
+test('in-flight (sent, not yet consumed) transcript text is dimmed on the rail and honors reduced motion', async () => {
+  const css = await readSplitCss();
+
+  // Distinct from the TV canvas's inactive-card opacity (0.8) above -- this is an operator-only
+  // rail affordance for text that has left for the summarizer but has not yet actually left the
+  // bucket (INV-11), so it must read as "in flight," not merely "less important."
+  assert.match(css, /\.transcriptChunk--inFlight\s*\{[^}]*opacity:\s*0\.45;/s);
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.transcriptChunk--inFlight[\s\S]*transition:\s*opacity 200ms/s
+  );
+});
+
 test('rail status indicator exposes a dot and word, hiding only the word when collapsed', async () => {
   const css = await readSplitCss();
 
@@ -339,6 +352,25 @@ test('rail status indicator exposes a dot and word, hiding only the word when co
     css,
     /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.railStatusDot\.is-level-listening[\s\S]*animation:\s*railStatusPulse/s
   );
+});
+
+test('live transcript progress bar is scoped to the operator rail, honest about idle/overrun, and honors reduced motion', async () => {
+  const css = await readSplitCss();
+
+  assert.match(css, /\.railTranscriptFrame\s*\{[^}]*position:\s*relative;[^}]*\}/s);
+  assert.match(css, /\.railTranscriptProgress\s*\{[^}]*position:\s*absolute;[^}]*\}/s);
+  // Sweeping is gated under no-preference, not declared unconditionally -- the repo's blanket
+  // `@media (prefers-reduced-motion: reduce) { *, ... { transition: none !important; } }` rule
+  // (base.css) covers disabling it, so this new element inherits that contract for free rather
+  // than needing its own override.
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.railTranscriptProgressFill[\s\S]*transition-property:\s*width;/s
+  );
+  // Paused/stopped reads idle (not sweeping as if work were coming), and an overrun tick freezes
+  // full rather than silently restarting a fresh, healthy-looking sweep (INV-10 applied here).
+  assert.match(css, /\.railTranscriptProgress\[data-state="idle"\][\s\S]*\.railTranscriptProgressFill[\s\S]*width:\s*0%;/s);
+  assert.match(css, /\.railTranscriptProgress\[data-state="overrun"\][\s\S]*\.railTranscriptProgressFill[\s\S]*width:\s*100%;/s);
 });
 
 test('ready check rows expose a dot, label, and optional fix/action for the tools section pre-flight', async () => {

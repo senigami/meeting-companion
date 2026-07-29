@@ -244,3 +244,179 @@ test('DEMO_SCRIPT entries are per-sentence and no longer carry an inter-utteranc
     assert.equal(entry.delayMs, undefined);
   }
 });
+
+const VALID_MODES = ['speaker', 'information', 'song', 'prayer'];
+
+// The full matrix from .agent/demo-scenario-matrix-brief.md. Asserted against a literal list so
+// deleting a scenario fails a test rather than passing quietly.
+const REQUIRED_PROVES_TAGS = [
+  'speaker-narrative',
+  'speaker-pronoun-heavy',
+  'speaker-embedded-number',
+  'speaker-invitation',
+  'info-date-time-place',
+  'info-assignments',
+  'info-hymn-number',
+  'info-scripture-reference',
+  'info-multi-fact',
+  'info-courtesy-padding',
+  'song-status-with-number',
+  'song-lyrics-must-not-appear',
+  'song-commentary-must-not-appear',
+  'prayer-multiple-requests',
+  'prayer-long-rambling',
+  'prayer-short',
+  'edge-unpunctuated-tail',
+  'edge-disfluency',
+  'edge-duplicate-line',
+  'edge-run-on',
+  'edge-silence-gap',
+  'edge-minimal-utterance'
+];
+
+function findByProves(tag) {
+  return DEMO_SCRIPT.find((entry) => entry.proves === tag);
+}
+
+test('every entry has a valid mode', () => {
+  for (const entry of DEMO_SCRIPT) {
+    assert.ok(VALID_MODES.includes(entry.mode), `unexpected mode "${entry.mode}" on "${entry.text}"`);
+  }
+});
+
+test('every proves tag in the scenario matrix brief exists in the script', () => {
+  const presentTags = new Set(DEMO_SCRIPT.map((entry) => entry.proves).filter(Boolean));
+  for (const tag of REQUIRED_PROVES_TAGS) {
+    assert.ok(presentTags.has(tag), `missing scenario coverage for "${tag}"`);
+  }
+});
+
+test('info-* rows really contain digits, not just a claim of them', () => {
+  const infoTags = REQUIRED_PROVES_TAGS.filter((tag) => tag.startsWith('info-'));
+  for (const tag of infoTags) {
+    const entry = findByProves(tag);
+    assert.ok(entry, `missing entry for "${tag}"`);
+    assert.equal(entry.mode, 'information');
+    assert.match(entry.text, /\d/, `"${tag}" entry has no digits: "${entry.text}"`);
+  }
+});
+
+test('edge-unpunctuated-tail really lacks terminal punctuation', () => {
+  const entry = findByProves('edge-unpunctuated-tail');
+  assert.ok(entry);
+  assert.ok(!/[.!?]$/.test(entry.text.trim()), `expected no terminal punctuation, got "${entry.text}"`);
+});
+
+test('edge-run-on really exceeds 240 characters', () => {
+  const entry = findByProves('edge-run-on');
+  assert.ok(entry);
+  assert.ok(entry.text.length > 240, `expected over 240 chars, got ${entry.text.length}`);
+});
+
+test('edge-duplicate-line is really duplicated as two consecutive identical entries', () => {
+  const index = DEMO_SCRIPT.findIndex((entry) => entry.proves === 'edge-duplicate-line');
+  assert.ok(index >= 0 && index + 1 < DEMO_SCRIPT.length);
+  assert.equal(DEMO_SCRIPT[index].text, DEMO_SCRIPT[index + 1].text);
+});
+
+test('edge-silence-gap carries a pauseBeforeMs long enough to trip a silence watchdog', () => {
+  const entry = findByProves('edge-silence-gap');
+  assert.ok(entry);
+  assert.ok(entry.pauseBeforeMs > 15000, `expected a long pause, got ${entry.pauseBeforeMs}`);
+});
+
+test('edge-minimal-utterance is a near-empty line', () => {
+  const entry = findByProves('edge-minimal-utterance');
+  assert.ok(entry);
+  assert.ok(entry.text.trim().split(/\s+/).length <= 2, `expected a minimal utterance, got "${entry.text}"`);
+});
+
+test('song-lyrics-must-not-appear does not contain real hymn/song lyrics (only invented lyric-shaped text)', () => {
+  const entry = findByProves('song-lyrics-must-not-appear');
+  assert.ok(entry);
+  assert.equal(entry.mode, 'song');
+  // Guard against reintroducing a recognisable line from a well-known hymn.
+  const bannedPhrases = ['amazing grace', 'how sweet the sound', 'holy holy holy', 'be thou my vision'];
+  const lower = entry.text.toLowerCase();
+  for (const phrase of bannedPhrases) {
+    assert.ok(!lower.includes(phrase), `entry appears to contain a real lyric fragment: "${phrase}"`);
+  }
+});
+
+test('the demo driver applies each entry\'s mode via the injected onModeChange callback before its text is emitted', async () => {
+  const clock = fakeTimers();
+  const calls = [];
+  const script = [
+    { text: 'Good morning, everyone.', mode: 'speaker' },
+    { text: 'Hymn 42, ready to sing.', mode: 'song' },
+    { text: 'Heavenly Father, thank you. Amen.', mode: 'prayer' }
+  ];
+
+  const driver = createDemoTranscriptionDriver({
+    onEvent: (event) => calls.push({ kind: 'event', ...event }),
+    onStatus: () => {},
+    onModeChange: (mode) => calls.push({ kind: 'mode', mode }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    script
+  });
+
+  await driver.start();
+  while (clock.pendingCount() > 0) clock.flush();
+
+  const modeCalls = calls.filter((call) => call.kind === 'mode');
+  assert.deepEqual(modeCalls.map((call) => call.mode), ['speaker', 'song', 'prayer']);
+
+  // Each mode call happens strictly before the final text for its own entry.
+  for (let i = 0; i < script.length; i += 1) {
+    const modeIndex = calls.findIndex((call) => call.kind === 'mode' && call.mode === script[i].mode);
+    const finalIndex = calls.findIndex((call) => call.kind === 'event' && call.type === 'final' && call.text === script[i].text);
+    assert.ok(modeIndex < finalIndex, `expected mode change before final text for "${script[i].text}"`);
+  }
+});
+
+test('pauseBeforeMs adds an extra deterministic gap without disturbing the default cadence', async () => {
+  const clock = fakeTimers();
+  const events = [];
+  const script = [
+    { text: 'Good morning.', mode: 'speaker' },
+    { text: 'Let us pause.', mode: 'speaker', pauseBeforeMs: 10000 }
+  ];
+
+  const driver = createDemoTranscriptionDriver({
+    onEvent: (event) => events.push({ ...event, at: clock.now() }),
+    onStatus: () => {},
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    script
+  });
+
+  await driver.start();
+  while (clock.pendingCount() > 0) clock.flush();
+
+  const finals = events.filter((event) => event.type === 'final');
+  const gap = finals[1].at - finals[0].at;
+  assert.ok(gap > 10000, `expected the extra pause to be reflected in the gap, got ${gap}`);
+});
+
+test('two runs of the same script with the same injected clock produce identical timings (deterministic cadence)', async () => {
+  function run() {
+    const clock = fakeTimers();
+    const events = [];
+    const driver = createDemoTranscriptionDriver({
+      onEvent: (event) => events.push({ type: event.type, text: event.text, at: clock.now() }),
+      onStatus: () => {},
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+      script: DEMO_SCRIPT
+    });
+    return driver.start().then(() => {
+      while (clock.pendingCount() > 0) clock.flush();
+      return events;
+    });
+  }
+
+  const first = await run();
+  const second = await run();
+  assert.deepEqual(first, second);
+});

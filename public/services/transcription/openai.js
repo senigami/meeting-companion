@@ -2,6 +2,7 @@ import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
+import { createAudioConditioner } from '../audio-processing.js';
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -23,9 +24,15 @@ export function createOpenAITranscriptionDriver({
   fetchImpl = fetch,
   chunkMs = 3500,
   setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout
+  clearTimeoutFn = clearTimeout,
+  audioSettings = {},
+  audioContextFactory = () => (typeof AudioContext !== 'undefined' ? new AudioContext() : (typeof webkitAudioContext !== 'undefined' ? new webkitAudioContext() : null)),
+  now = () => Date.now(),
+  onAudioDiagnostics = () => {}
 } = {}) {
-  let stream = null;
+  let stream = null; // raw microphone stream, tracks stopped on stop()
+  let conditionedStream = null; // what MediaRecorder actually receives
+  let conditioner = null;
   let recorder = null;
   let listening = false;
   let queued = Promise.resolve();
@@ -132,6 +139,29 @@ export function createOpenAITranscriptionDriver({
       } catch {}
     }
     recorder = null;
+    try {
+      conditioner?.close();
+    } catch {}
+    conditioner = null;
+    conditionedStream = null;
+  }
+
+  // Requests the three browser-level constraints, then reports what was actually granted -- a
+  // constraint request can be silently ignored by the browser/device, so we never assume it was
+  // honoured just because getUserMedia resolved.
+  async function reportGrantedConstraints(mediaStream) {
+    try {
+      const track = mediaStream.getAudioTracks?.()?.[0];
+      const settings = track?.getSettings?.();
+      if (settings) {
+        onAudioDiagnostics({
+          message: `Microphone constraints granted: autoGainControl=${settings.autoGainControl}, noiseSuppression=${settings.noiseSuppression}, echoCancellation=${settings.echoCancellation}`,
+          settings
+        });
+      }
+    } catch {
+      // Diagnostic only; never fail capture over introspection.
+    }
   }
 
   return {
@@ -143,13 +173,39 @@ export function createOpenAITranscriptionDriver({
     setMode(nextMode) {
       mode = nextMode || 'speaker';
     },
+    // Live re-tune of the conditioning graph (preset, high-pass, compressor, limiter) without
+    // rebuilding the graph or touching the mic. The three browser-level constraints need
+    // reacquisition to change and are intentionally NOT retuned here -- that is a separate,
+    // future-pass concern per the brief; this pass only exposes the read side (readLevels).
+    updateAudioSettings(nextAudioSettings) {
+      audioSettings = { ...audioSettings, ...nextAudioSettings };
+      conditioner?.update(audioSettings);
+    },
+    readLevels() {
+      return conditioner ? conditioner.readLevels() : null;
+    },
     async start({ currentMode } = {}) {
       if (!this.isAvailable()) throw new Error('Microphone capture is not available in this browser.');
       mode = currentMode || mode;
       sessionId += 1;
       const currentSession = sessionId;
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recorder = new MediaRecorder(stream);
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: audioSettings.audioBrowserAgc !== false,
+          noiseSuppression: audioSettings.audioBrowserNoiseSuppression === true,
+          echoCancellation: audioSettings.audioBrowserEchoCancel === true
+        }
+      });
+      await reportGrantedConstraints(stream);
+
+      conditioner = createAudioConditioner({
+        audioContextFactory,
+        settings: audioSettings,
+        now,
+        onDiagnostics: onAudioDiagnostics
+      });
+      conditionedStream = conditioner.connect(stream);
+      recorder = new MediaRecorder(conditionedStream || stream);
       listening = true;
       queued = Promise.resolve();
       resetFailureBackoff();

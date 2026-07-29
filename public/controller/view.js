@@ -1,5 +1,4 @@
 import {
-  summaryIntervalSliderIndexFromSeconds,
   summaryMaxWordsSliderIndexFromWords,
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
@@ -35,23 +34,48 @@ const RAIL_STATUS_WORDS = {
   // whole watchdog exists to prevent. A fourth, gentler level is the honest middle: visible and
   // persistent (loud enough to notice), but not styled or announced as urgently as a confirmed
   // fatal error (not loud enough to panic over).
-  silence: 'Check mic'
+  silence: 'Check mic',
+  // Confirmed, not speculative: trimBucket only ever drops the oldest speech once the buffer has
+  // actually overflowed (BUCKET_MAX_CHARS), which only happens during a sustained summarizer
+  // outage. Distinct wording from 'problem' -- this is INV-13 (silent loss of speech the reader
+  // never gets), not INV-10's fatal transcription failure, and the two facts must stay tellable
+  // apart on the rail.
+  dropped: 'Speech dropped',
+  // Also confirmed, not speculative: only set when a scheduled summarize tick actually found the
+  // previous one still in flight (see noteSkippedSummarizeTick), which only happens when a call is
+  // running longer than the update interval. Distinct from 'dropped' -- no speech has been lost
+  // here, the wall is just late -- and distinct from 'silence', which is a time-based guess, not an
+  // observed fact.
+  behind: 'Running behind'
 };
 
 // Levels serious enough that their rail-note explanation must stay up (no auto-hide) until the
 // condition clears, rather than flashing briefly like a Clear/Undo note. 'problem' is a confirmed
-// fatal condition (INV-10); 'silence' is not confirmed fatal, only prolonged and unexplained --
-// see showRailPersistentNote for how the two are still styled and announced differently.
-const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'silence']);
+// fatal condition (INV-10); 'dropped' and 'behind' are confirmed-but-non-fatal (INV-13 data loss /
+// scheduling lag); 'silence' is not confirmed fatal, only prolonged and unexplained -- see
+// showRailPersistentNote for how all four are still styled and announced differently.
+const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'silence']);
 
-// Ordered severity for the two persistent levels: 'problem' (a confirmed fatal condition, INV-10)
-// must never be silently replaced by 'silence' (an unconfirmed, gentler watchdog alarm) just
-// because the silence check happens to fire while a problem is already active -- e.g. a
-// summarize-failure escalation followed by 45s of no transcript events precisely because the
-// server path is backed off. Recovery still works: it comes from the condition itself clearing to
-// a non-persistent level (e.g. 'listening'), never from a lower-ranked persistent level elbowing
-// in on a higher one.
-const LEVEL_RANK = { problem: 2, silence: 1 };
+// Ordered severity for the four persistent levels, most confirmed/severe first: 'problem' (a
+// confirmed fatal condition, INV-10) must never be silently replaced by a lower-ranked persistent
+// level elbowing in while it's still active -- e.g. a summarize-failure escalation followed by 45s
+// of no transcript events precisely because the server path is backed off. 'dropped' (confirmed
+// data loss) outranks 'behind' (confirmed lag, no loss yet) which outranks 'silence' (unconfirmed).
+// Recovery still works: it comes from the condition itself clearing to a non-persistent level
+// (e.g. 'listening'), never from a lower-ranked persistent level elbowing in on a higher one.
+const LEVEL_RANK = { problem: 4, dropped: 3, behind: 2, silence: 1 };
+
+// Per-level rail-note presentation: a distinct Unicode prefix (WCAG 1.4.1 -- colour is not the
+// only channel) and CSS class for each persistent level, plus whether it interrupts assertively.
+// Only a confirmed fatal condition (INV-10) is announced as role="alert"; the other three are
+// role="status"/polite so they don't also start crying wolf.
+const PERSISTENT_LEVEL_META = {
+  problem: { className: 'is-problem', prefix: '⚠ ', urgent: true },
+  dropped: { className: 'is-dropped', prefix: '✂ ', urgent: false },
+  behind: { className: 'is-behind', prefix: '⏳ ', urgent: false },
+  silence: { className: 'is-silence', prefix: '⏱ ', urgent: false }
+};
+const PERSISTENT_LEVEL_CLASSES = Object.values(PERSISTENT_LEVEL_META).map((meta) => meta.className);
 
 export function updateStatus(ctx, text, { level, clearTimeoutFn = clearTimeout } = {}) {
   if (level && RAIL_STATUS_WORDS[level]) {
@@ -72,7 +96,7 @@ export function updateStatus(ctx, text, { level, clearTimeoutFn = clearTimeout }
   // there is unreadable. Mirror it into the rail note, and keep it up (no auto-hide) until the
   // level clears.
   if (PERSISTENT_STATUS_LEVELS.has(level)) {
-    showRailPersistentNote(ctx, text, { clearTimeoutFn, isProblem: level === 'problem' });
+    showRailPersistentNote(ctx, text, { clearTimeoutFn, level });
   } else if (ctx.state.railProblemNote || ctx.state.railPersistentNoteText) {
     // Deliberately NOT gated on railProblemNote alone: flashRailNote clears that flag while its
     // overlay is up, so a recovery landing inside the 4s flash window would skip the cleanup
@@ -109,55 +133,52 @@ function setRailNoteUrgency(note, isProblem) {
   note.setAttribute('aria-live', isProblem ? 'assertive' : 'polite');
 }
 
-// Non-text-based problem cue (WCAG 1.4.1: colour is not the only channel -- the red text colour
-// alone must not be the only thing distinguishing a problem note from a benign Clear/Undo one).
-// A plain Unicode prefix, not a separate aria-hidden node: this module has no DOM/document
-// dependency today (renderDisplay's document.createElement only runs where a caller has stubbed
-// `document`), so keep it that way rather than introducing one just for a decorative glyph.
-const RAIL_PROBLEM_PREFIX = '⚠ ';
-// A different glyph for the "silence" level: it is a time-based, unconfirmed signal, not the same
-// claim as a confirmed fatal error, so it gets its own shape-based cue rather than reusing ⚠.
-const RAIL_SILENCE_PREFIX = '⏱ ';
+// Non-text-based cue per level (WCAG 1.4.1: colour is not the only channel -- text colour alone
+// must not be the only thing distinguishing one persistent note from another or from a benign
+// Clear/Undo one). A plain Unicode prefix, not a separate aria-hidden node: this module has no
+// DOM/document dependency today (renderDisplay's document.createElement only runs where a caller
+// has stubbed `document`), so keep it that way rather than introducing one just for a decorative
+// glyph. See PERSISTENT_LEVEL_META for the actual glyph/class/urgency per level.
 
-function showRailPersistentNote(ctx, text, { clearTimeoutFn = clearTimeout, isProblem = true } = {}) {
+function showRailPersistentNote(ctx, text, { clearTimeoutFn = clearTimeout, level = 'problem' } = {}) {
   const note = ctx.dom.railNote;
   if (!note) return;
+  const meta = PERSISTENT_LEVEL_META[level] || PERSISTENT_LEVEL_META.problem;
   clearTimeoutFn(ctx.state.railNoteTimer);
   ctx.state.railNoteTimer = null;
   ctx.state.railProblemNote = true;
-  note.classList.toggle('is-problem', isProblem);
-  note.classList.toggle('is-silence', !isProblem);
-  // Only a confirmed fatal condition interrupts assertively (role="alert"). The silence watchdog
-  // has not confirmed anything is actually broken -- it stays role="status"/polite so it doesn't
-  // also start crying wolf during what might just be a long prayer.
-  setRailNoteUrgency(note, isProblem);
-  const fullText = (isProblem ? RAIL_PROBLEM_PREFIX : RAIL_SILENCE_PREFIX) + text;
+  PERSISTENT_LEVEL_CLASSES.forEach((className) => note.classList.toggle(className, className === meta.className));
+  // Only a confirmed fatal condition interrupts assertively (role="alert"). The other persistent
+  // levels have not confirmed anything is actually broken, or are non-fatal by nature -- they stay
+  // role="status"/polite so they don't also start crying wolf during what might just be a long
+  // prayer, a recoverable outage, or a summarizer that's merely running late.
+  setRailNoteUrgency(note, meta.urgent);
+  const fullText = meta.prefix + text;
   note.textContent = fullText;
   // Remembered so a later flashRailNote (Clear/Undo) can hand the note back exactly as it was --
   // text, class, and urgency -- once its own timer expires, rather than leaving the condition's
   // note permanently blank while the condition itself is still active.
   ctx.state.railPersistentNoteText = fullText;
-  ctx.state.railPersistentNoteIsProblem = isProblem;
-  // Both persistent levels auto-expand, not just a confirmed problem. Verified live: with the rail
+  ctx.state.railPersistentNoteLevel = level;
+  // Every persistent level auto-expands, not just a confirmed problem. Verified live: with the rail
   // collapsed the watchdog fired correctly and the operator saw nothing but an unchanged dot,
   // because the 64px rail hides #railNote -- which would leave the watchdog doing no work in
   // exactly the unattended case it exists for. The note's whole value is that it says what to DO
   // next. Keyed by level: see autoExpandRailForCondition for why a shared latch was wrong.
-  autoExpandRailForCondition(ctx, isProblem ? 'problem' : 'silence');
+  autoExpandRailForCondition(ctx, level);
 }
 
 function clearRailProblem(ctx) {
   ctx.state.railProblemNote = false;
   ctx.state.railPersistentNoteText = null;
-  ctx.state.railPersistentNoteIsProblem = null;
+  ctx.state.railPersistentNoteLevel = null;
   // The rail has returned to a normal status -- every persistent condition has cleared -- so reset
   // the whole per-condition latch set rather than just the one that happened to be active.
   resetRailAutoExpand(ctx);
   const note = ctx.dom.railNote;
   if (!note) return;
   note.textContent = '';
-  note.classList.remove('is-problem');
-  note.classList.remove('is-silence');
+  PERSISTENT_LEVEL_CLASSES.forEach((className) => note.classList.remove(className));
   setRailNoteUrgency(note, false);
 }
 
@@ -166,25 +187,23 @@ export function flashRailNote(ctx, text, { setTimeoutFn = setTimeout, clearTimeo
   if (!note) return;
   clearTimeoutFn(ctx.state.railNoteTimer);
   ctx.state.railProblemNote = false;
-  note.classList.remove('is-problem');
-  note.classList.remove('is-silence');
+  PERSISTENT_LEVEL_CLASSES.forEach((className) => note.classList.remove(className));
   setRailNoteUrgency(note, false);
   note.textContent = text;
   ctx.state.railNoteTimer = setTimeoutFn(() => {
     ctx.state.railNoteTimer = null;
     // A flash (Clear/Undo) is a temporary overlay on top of a persistent note, not a destructive
-    // takeover of it: if the problem/silence condition this note exists for is still active when
-    // the flash expires, hand the note back exactly as it was rather than leaving it permanently
-    // blank -- a blank note with the dot still reading "Check mic"/"Problem" strands the operator
-    // with no way to tell what's wrong, which is the exact failure this whole area exists to
-    // prevent. Ground truth is the live rail level, not a flag the flash itself could have gone
-    // stale against.
+    // takeover of it: if the condition this note exists for is still active when the flash expires,
+    // hand the note back exactly as it was rather than leaving it permanently blank -- a blank note
+    // with the dot still reading e.g. "Problem"/"Speech dropped" strands the operator with no way
+    // to tell what's wrong, which is the exact failure this whole area exists to prevent. Ground
+    // truth is the live rail level, not a flag the flash itself could have gone stale against.
     if (PERSISTENT_STATUS_LEVELS.has(ctx.state.railStatusLevel) && ctx.state.railPersistentNoteText) {
-      const isProblem = Boolean(ctx.state.railPersistentNoteIsProblem);
+      const level = ctx.state.railPersistentNoteLevel;
+      const meta = PERSISTENT_LEVEL_META[level] || PERSISTENT_LEVEL_META.problem;
       ctx.state.railProblemNote = true;
-      note.classList.toggle('is-problem', isProblem);
-      note.classList.toggle('is-silence', !isProblem);
-      setRailNoteUrgency(note, isProblem);
+      PERSISTENT_LEVEL_CLASSES.forEach((className) => note.classList.toggle(className, className === meta.className));
+      setRailNoteUrgency(note, meta.urgent);
       note.textContent = ctx.state.railPersistentNoteText;
       return;
     }
@@ -567,8 +586,7 @@ function updateSliderFill(input) {
 
 export function updateSummaryIntervalControl(ctx) {
   if (!ctx.dom.summaryIntervalInput || !ctx.dom.summaryIntervalValue) return;
-  const index = summaryIntervalSliderIndexFromSeconds(ctx.state.summaryIntervalSeconds);
-  ctx.dom.summaryIntervalInput.value = String(index);
+  ctx.dom.summaryIntervalInput.value = String(ctx.state.summaryIntervalSeconds);
   ctx.dom.summaryIntervalInput.setAttribute('aria-valuetext', `${ctx.state.summaryIntervalSeconds}s`);
   ctx.dom.summaryIntervalValue.textContent = `${ctx.state.summaryIntervalSeconds}s`;
   updateSliderFill(ctx.dom.summaryIntervalInput);

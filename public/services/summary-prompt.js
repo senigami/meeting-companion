@@ -72,6 +72,7 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 export function buildSummarizePrompt({
   mode = 'speaker',
   recentTranscript = '',
+  previousBlock = '',
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS
 } = {}) {
@@ -79,6 +80,20 @@ export function buildSummarizePrompt({
   const visibleBlock = visibleLines.filter(Boolean).length
     ? visibleLines.filter(Boolean).map((line) => `- ${line}`).join('\n')
     : '- none';
+
+  // The rolling two-block window (.agent/rolling-window-brief.md): the previous block is rendered
+  // as its own labelled section, distinct from the current transcript, and marked context-only. A
+  // concatenated blob would let the model re-summarize the previous block in different words, which
+  // sails right past shouldAcceptModelLine's exact-key dedupe. Absent/empty previousBlock must leave
+  // the prompt byte-identical to before this feature existed -- that is the regression guard for a
+  // first tick, a mode change, or a failed previous call.
+  const previousBlockText = String(previousBlock || '').trim();
+  const visibleSection = `Visible lines already shown:\n${visibleBlock}`;
+  const previousSection = previousBlockText
+    ? `\n\nPrevious block (already summarized -- context only. Do NOT write a line about this block by itself; use it only to recover an idea that started in it and continues into the new text):\n${previousBlockText}`
+    : '';
+  const recentLabel = previousBlockText ? 'New transcript (summarize this)' : 'Recent transcript';
+  const recentSection = `${recentLabel}:\n${String(recentTranscript).trim()}`;
 
   return `
 You are creating large-print assistive text for one deaf, low-vision person during a church meeting.
@@ -99,7 +114,16 @@ Use plain, specific language.
 Lead with the topic or the person the line is about, then say what about it. Never open with a
 subordinate clause ("If you are able to help, ...") -- put the thing first ("Working bee Saturday").
 Preserve names, dates, times, hymn numbers, scripture references, assignments, and places exactly as
-they were said. These are what a reader cannot recover from context; never paraphrase a number.
+they were said. These are what a reader cannot recover from context; never paraphrase a number. This
+does not relax when the transcript is long: compression means dropping detail, never dropping or
+softening a name, date, time, hymn number, or assignment, and the word maximum below is still a
+ceiling to cut toward, not a target to reach by rounding a number off.
+Never invent a number, name, date, time, or other specific detail that was not spoken. A descriptive
+or ordinal reference ("our first hymn," "the closing hymn," "next week's reading," "the usual
+volunteers") stays exactly that -- do not turn it into "hymn number one" or any other specific
+designation unless that designation was actually said. If no number was spoken, carry the speaker's
+own descriptive wording instead of supplying one. A confident specific you made up is worse than a
+faithful vague line: never guess a detail to sound precise.
 Use everyday words and no abbreviations. No idioms, figures of speech, sarcasm, or wordplay: if the
 speaker used one, write what it means instead of what they said.
 Name the person rather than writing "he", "she", or "they", unless the name is on a visible line
@@ -108,6 +132,11 @@ One idea per line. Active voice. Do not join two thoughts with "and" or a semico
 Maximum ${wordLimit} words, and fewer whenever fewer will do.
 Do not add information.
 If nothing new or useful was communicated, return an empty string.
+Do not repeat what a visible line already says.
+When the transcript holds more than one card's worth of speech, write the core message as it stands
+now, not the opening of it -- a reader who gets the gist a little late can still follow the meeting; a
+reader who only ever gets paragraph one of five cannot. If something important in the transcript is
+missing from the visible lines, say that now: this may be the only chance the reader gets at it.
 
 Mode: ${mode}
 ${modeInstruction(mode)}
@@ -120,10 +149,8 @@ Do not produce generic statements such as:
 - Something important is being shared.
 - The speaker is giving encouragement.
 
-Visible lines already shown:
-${visibleBlock}
+${visibleSection}${previousSection}
 
-Recent transcript:
-${String(recentTranscript).trim()}
+${recentSection}
 `.trim();
 }

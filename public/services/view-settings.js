@@ -10,10 +10,18 @@ export const FONT_SIZE_MAX = 144;
 export const FONT_SIZE_SLIDER_MAX = 1000;
 export const DISPLAY_MARGIN_MIN = 0;
 export const DISPLAY_MARGIN_MAX = 40;
-export const summaryIntervalOptions = [2, 5, 10, 15];
-export const summaryIntervalSliderMax = summaryIntervalOptions.length - 1;
+// The update interval moves one second at a time across its whole range, and the slider's value IS
+// the number of seconds -- no option list, no index mapping. It used to snap to 2/5/10/15, which made
+// the two settings worth comparing (5s against 10s) the only two you could reach and put everything
+// between them out of range. Words-per-card below still uses a small option set on purpose: reading
+// load is a perceptual judgement with a few sensible answers, where interval is a timing dial.
+export const SUMMARY_INTERVAL_MIN_SECONDS = 2;
+export const SUMMARY_INTERVAL_MAX_SECONDS = 15;
 export const summaryMaxWordsOptions = [8, 11, 14, 17];
 export const summaryMaxWordsSliderMax = summaryMaxWordsOptions.length - 1;
+export const AUDIO_HIGH_PASS_HZ_MIN = 50;
+export const AUDIO_HIGH_PASS_HZ_MAX = 150;
+export const audioProcessingPresetOptions = ['off', 'gentle', 'normal'];
 
 function clampNumber(value, min, max, fallback) {
   const numeric = Number(value);
@@ -54,19 +62,8 @@ export function clampDisplayMargin(value, fallback = 4.5) {
 }
 
 export function clampSummaryIntervalSeconds(value, fallback = 5) {
-  const numeric = clampNumber(value, summaryIntervalOptions[0], summaryIntervalOptions.at(-1), fallback);
-  return nearestOption(numeric, summaryIntervalOptions, fallback);
-}
-
-export function summaryIntervalSliderIndexFromSeconds(value, fallback = 5) {
-  const seconds = clampSummaryIntervalSeconds(value, fallback);
-  const index = summaryIntervalOptions.indexOf(seconds);
-  return index === -1 ? 0 : index;
-}
-
-export function summaryIntervalSecondsFromSliderIndex(value, fallback = 5) {
-  const index = Math.round(clampNumber(value, 0, summaryIntervalSliderMax, 0));
-  return summaryIntervalOptions[index] ?? clampSummaryIntervalSeconds(fallback, fallback);
+  const numeric = clampNumber(value, SUMMARY_INTERVAL_MIN_SECONDS, SUMMARY_INTERVAL_MAX_SECONDS, fallback);
+  return Math.round(numeric);
 }
 
 export function clampSummaryMaxWords(value, fallback = 14) {
@@ -84,3 +81,33 @@ export function summaryMaxWordsFromSliderIndex(value, fallback = 14) {
   const index = Math.round(clampNumber(value, 0, summaryMaxWordsSliderMax, 0));
   return summaryMaxWordsOptions[index] ?? clampSummaryMaxWords(fallback, fallback);
 }
+
+export function clampAudioProcessingPreset(value, fallback = 'gentle') {
+  return audioProcessingPresetOptions.includes(value) ? value : fallback;
+}
+
+export function clampAudioHighPassHz(value, fallback = 80) {
+  return Math.round(clampNumber(value, AUDIO_HIGH_PASS_HZ_MIN, AUDIO_HIGH_PASS_HZ_MAX, fallback));
+}
+
+// The audio-processing booleans persist as the literal strings 'true'/'false' in localStorage,
+// matching the existing summarizationSourceChosen pattern in runtime.js/start-app.js. A missing
+// key (first run, or an older localStorage) falls back to the stage's documented default rather
+// than reading as false.
+export function clampAudioBoolean(value, fallback) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return fallback;
+}
+
+export const AUDIO_SETTINGS_DEFAULTS = {
+  audioProcessingPreset: 'gentle',
+  audioHighPassEnabled: true,
+  audioHighPassHz: 80,
+  audioCompressorEnabled: true,
+  audioLimiterEnabled: true,
+  audioBrowserAgc: true,
+  audioBrowserNoiseSuppression: false,
+  audioBrowserEchoCancel: false,
+  audioBypassForTest: false
+};

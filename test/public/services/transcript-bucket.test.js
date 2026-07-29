@@ -5,7 +5,7 @@ import {
   partitionBucket,
   removeConsumed,
   splitAtLastTerminator,
-  takeSendableChunks,
+  takeOldestModeRun,
   trimBucket
 } from '../../../public/services/transcript-bucket.js';
 
@@ -102,23 +102,52 @@ test('trimBucket drops the oldest whole chunks beyond the cap but never the newe
   assert.equal(single.length, 1);
 });
 
-test('takeSendableChunks keeps the oldest chunks that fit, leaving the rest for the next tick', () => {
+test('takeOldestModeRun sends and would-consume the exact same set on a backlog well over 1000 characters', () => {
+  // Three chunks, each 400 chars, well past the old 1000-char send cap -- this is the scenario the
+  // head-slicing bug destroyed: a large backlog handed to a slicer that keeps only the tail.
   const chunks = [
-    { at: NOW, text: 'A'.repeat(40) },
-    { at: NOW + 1, text: 'B'.repeat(40) },
-    { at: NOW + 2, text: 'C'.repeat(40) }
+    { at: NOW, text: 'A'.repeat(400), mode: 'speaker' },
+    { at: NOW + 1, text: 'B'.repeat(400), mode: 'speaker' },
+    { at: NOW + 2, text: 'C'.repeat(400), mode: 'speaker' }
   ];
 
-  const taken = takeSendableChunks(chunks, 85);
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker' });
 
-  // Oldest-first, so the display marches in the order things were said, and nothing is consumed
-  // that was not also sent -- the head of a backlog used to be removed without ever being summarized.
-  assert.deepEqual(taken.map((chunk) => chunk.text[0]), ['A', 'B']);
+  // Sent-set equals consumed-set, asserted on the actual strings -- not lengths or counts.
+  assert.deepEqual(run.chunks, chunks);
+  assert.equal(run.text, `${'A'.repeat(400)} ${'B'.repeat(400)} ${'C'.repeat(400)}`);
+  assert.equal(run.text.length, 1202);
+  assert.equal(run.mode, 'speaker');
 });
 
-test('takeSendableChunks always returns at least one chunk so an over-long chunk still makes progress', () => {
-  const chunks = [{ at: NOW, text: 'D'.repeat(400) }];
+test('takeOldestModeRun stops at the first mode change, leaving the later mode for its own call', () => {
+  const chunks = [
+    { at: NOW, text: 'welcome everyone', mode: 'speaker' },
+    { at: NOW + 1, text: 'we will now sing', mode: 'speaker' },
+    { at: NOW + 2, text: 'a brief announcement', mode: 'information' }
+  ];
 
-  assert.equal(takeSendableChunks(chunks, 100).length, 1);
-  assert.deepEqual(takeSendableChunks([], 100), []);
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker' });
+
+  assert.deepEqual(run.chunks.map((chunk) => chunk.text), ['welcome everyone', 'we will now sing']);
+  assert.equal(run.mode, 'speaker');
+  assert.equal(run.text, 'welcome everyone we will now sing');
+});
+
+test('takeOldestModeRun starts a run from the current mode when the leading chunk was never tagged', () => {
+  const chunks = [{ at: NOW, text: 'untagged legacy chunk' }];
+  const run = takeOldestModeRun(chunks, { defaultMode: 'information' });
+  assert.equal(run.mode, 'information');
+  assert.deepEqual(run.chunks, chunks);
+});
+
+test('takeOldestModeRun throws rather than silently sending a slice of a run larger than the cap', () => {
+  const chunks = [
+    { at: NOW, text: 'X'.repeat(2000), mode: 'speaker' }
+  ];
+  assert.throws(() => takeOldestModeRun(chunks, { defaultMode: 'speaker', maxChars: 1600 }));
+});
+
+test('takeOldestModeRun returns nothing for an empty or all-blank bucket', () => {
+  assert.deepEqual(takeOldestModeRun([], { defaultMode: 'speaker' }), { chunks: [], mode: 'speaker', text: '' });
 });

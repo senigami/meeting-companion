@@ -163,7 +163,12 @@
 
             <section class="railSection railTranscriptSection" id="railTranscriptSection">
               <div class="section-label">Live transcript</div>
-              <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
+              <div class="railTranscriptFrame">
+                <div id="railTranscriptProgress" class="railTranscriptProgress" data-state="idle" aria-hidden="true">
+                  <div id="railTranscriptProgressFill" class="railTranscriptProgressFill"></div>
+                </div>
+                <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
+              </div>
             </section>
           </div>
         </div>
@@ -213,8 +218,8 @@
                   <label for="summaryInterval">Update interval</label>
                   <output id="summaryIntervalValue" for="summaryInterval"></output>
                 </div>
-                <input id="summaryInterval" class="sliderInput" type="range" min="0" max="3" step="1" />
-                <div class="field-note">Moves in discrete steps: 2s, 5s, 10s, 15s.</div>
+                <input id="summaryInterval" class="sliderInput" type="range" min="2" max="15" step="1" />
+                <div class="field-note">One second at a time, from 2s to 15s.</div>
               </div>
               <div class="range-field" id="summaryMaxWordsField">
                 <div class="range-head">

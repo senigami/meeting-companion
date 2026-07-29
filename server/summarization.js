@@ -1,9 +1,16 @@
 import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
+import { shortenToLimit } from '../public/services/text.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './model-config.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
+
+// A displayed line must never exceed this, but it must also never be reached by cutting inside a
+// word or bolting on an ellipsis -- see shortenToLimit (public/services/text.js) for why. Same
+// bound as the pre-existing (buggy) clamp; the 140-char figure itself was never in question, only
+// how the line got there.
+const DISPLAY_LINE_MAX_CHARS = 140;
 
 // maxWords arrives as untrusted client input and its only consumer is buildSummarizePrompt, which
 // clamps it there -- next to the prompt text it protects, so a prompt can never claim a limit that
@@ -13,6 +20,7 @@ export async function summarizeWithSource({
   source = 'openai',
   mode = 'speaker',
   recentTranscript = '',
+  previousBlock = '',
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS,
   openaiClient = null,
@@ -29,6 +37,7 @@ export async function summarizeWithSource({
         client: openaiClient,
         mode,
         recentTranscript: text,
+        previousBlock,
         visibleLines,
         maxWords
       });
@@ -39,6 +48,7 @@ export async function summarizeWithSource({
         fetchImpl,
         mode,
         recentTranscript: text,
+        previousBlock,
         visibleLines,
         maxWords
       });
@@ -47,12 +57,12 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLines, maxWords }) {
+async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlock, visibleLines, maxWords }) {
   if (!client) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
 
-  const prompt = buildSummarizePrompt({ mode, recentTranscript, visibleLines, maxWords });
+  const prompt = buildSummarizePrompt({ mode, recentTranscript, previousBlock, visibleLines, maxWords });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,
@@ -64,7 +74,7 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLine
 
   let line = cleanModelLine(completion.choices?.[0]?.message?.content || '');
   if (!shouldAcceptModelLine(line, visibleLines)) line = '';
-  if (line.length > 140) line = line.slice(0, 137).trimEnd() + '...';
+  line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
   return { line };
 }
 
@@ -74,6 +84,7 @@ async function summarizeWithClaude({
   fetchImpl,
   mode,
   recentTranscript,
+  previousBlock,
   visibleLines,
   maxWords
 }) {
@@ -81,7 +92,7 @@ async function summarizeWithClaude({
     return { line: '', reason: 'ANTHROPIC_API_KEY is not set. Manual mode still works.' };
   }
 
-  const prompt = buildSummarizePrompt({ mode, recentTranscript, visibleLines, maxWords });
+  const prompt = buildSummarizePrompt({ mode, recentTranscript, previousBlock, visibleLines, maxWords });
   const response = await fetchImpl(ANTHROPIC_API_URL, {
     method: 'POST',
     headers: {
@@ -113,6 +124,6 @@ async function summarizeWithClaude({
     : '';
   let line = cleanModelLine(output);
   if (!shouldAcceptModelLine(line, visibleLines)) line = '';
-  if (line.length > 140) line = line.slice(0, 137).trimEnd() + '...';
+  line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
   return { line };
 }

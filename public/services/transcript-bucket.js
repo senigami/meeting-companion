@@ -13,8 +13,13 @@ import { normalizeText } from './text.js';
 export const TERMINAL_END = /[.!?…]["')\]]*$/;
 
 export const BUCKET_SETTLE_MS = 20000;
-export const BUCKET_MAX_CHARS = 1600;
-export const BUCKET_SEND_MAX_CHARS = 1000;
+// This used to be sized for BUCKET_SEND_MAX_CHARS (a 1000-char send slice) plus a little headroom,
+// which held barely two minutes of speech. Now that takeOldestModeRun sends the whole oldest mode
+// run every tick and there is no send-slice cap, this constant's only job is to be the outage
+// buffer: how much speech a stalled or failing summarizer can hold before trimBucket starts
+// dropping the oldest of it. Raised to 8000 (roughly ten minutes of speech at typical speaking
+// pace) so a short provider outage does not start silently discarding meeting content.
+export const BUCKET_MAX_CHARS = 8000;
 
 export function splitAtLastTerminator(text) {
   const clean = normalizeText(text);
@@ -47,26 +52,34 @@ export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCK
   return { consumable, remainder };
 }
 
-// The oldest run of consumable chunks that fits inside the send cap, so "what was sent" and "what
-// gets consumed" are the same set. bucketText slices to the LAST maxChars, so handing it the whole
-// consumable set and then removing all of it silently destroyed the head of a large backlog -- speech
-// that was never sent to a summarizer and never reached the wall. Oldest-first also keeps the display
-// marching in the order things were said; whatever does not fit stays in the bucket for the next tick.
-// Always returns at least one chunk, so a single over-long chunk can still make progress.
-export function takeSendableChunks(consumable = [], maxChars = BUCKET_SEND_MAX_CHARS) {
+// The whole oldest contiguous run of consumable chunks that share one mode, built directly from
+// those chunks' own text so "what was sent" and "what gets consumed" are provably the same set --
+// no separate slicing step to fall out of sync. A mode boundary ends the run early: one summarize
+// call must never carry text captured under two different modes, because the prompt carries a
+// single `Mode:` line. Chunks captured before mode-tagging existed (or by a caller that never
+// tags) fall back to defaultMode, so an untagged chunk never wrongly starts or breaks a run.
+//
+// maxChars defaults to BUCKET_MAX_CHARS, the cap trimBucket already enforces on the whole bucket
+// before this ever runs, so a run should never exceed it. If it somehow does, this throws instead
+// of silently sending a slice while a caller consumes the whole (larger) run -- that mismatch is
+// exactly how the head of a backlog was destroyed before (see the note on bucketText below).
+export function takeOldestModeRun(consumable = [], { defaultMode = null, maxChars = BUCKET_MAX_CHARS } = {}) {
   const list = (Array.isArray(consumable) ? consumable : []).filter((chunk) => chunk && normalizeText(chunk.text));
-  if (!list.length) return [];
+  if (!list.length) return { chunks: [], mode: defaultMode, text: '' };
 
-  const taken = [];
-  let total = 0;
+  const runMode = list[0].mode ?? defaultMode;
+  const chunks = [];
   for (const chunk of list) {
-    const length = normalizeText(chunk.text).length + (taken.length ? 1 : 0);
-    if (taken.length && total + length > maxChars) break;
-    taken.push(chunk);
-    total += length;
+    if ((chunk.mode ?? defaultMode) !== runMode) break;
+    chunks.push(chunk);
   }
 
-  return taken;
+  const text = chunks.map((chunk) => normalizeText(chunk.text)).join(' ').trim();
+  if (text.length > maxChars) {
+    throw new Error('transcript send text exceeds the safe cap -- refusing to send a slice while consuming the whole run');
+  }
+
+  return { chunks, mode: runMode, text };
 }
 
 export function removeConsumed(chunks = [], consumed = []) {

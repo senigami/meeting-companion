@@ -63,6 +63,101 @@ test('prompt honours a passed maxWords and defaults to the shared limit', () => 
   assert.match(customPrompt, /Maximum 8 words/);
 });
 
+test('prompt instructs catch-up behavior without relaxing verbatim details', () => {
+  const prompt = buildSummarizePrompt({
+    mode: 'speaker',
+    recentTranscript: 'A long backlog of speech spanning several cards worth of content.',
+    visibleLines: ['Forgive one another.']
+  });
+
+  assert.match(prompt, /Do not repeat what a visible line already says/i);
+  assert.match(prompt, /write the core message as it stands\s*\nnow, not the opening of it/i);
+  assert.match(prompt, /paragraph one of five/i);
+  assert.match(prompt, /missing from the visible lines, say that now/i);
+  assert.match(prompt, /never dropping or\s*\nsoftening a name, date, time, hymn number, or assignment/i);
+  assert.match(prompt, /ceiling to cut toward, not a target to reach by rounding a number off/i);
+});
+
+// The rolling two-block window (.agent/rolling-window-brief.md): the previous block must render
+// under its own label, marked context-only, distinct from the current transcript's label -- a
+// concatenated blob would let the model re-summarize old content in different words and sail past
+// shouldAcceptModelLine's exact-key dedupe.
+test('previous block renders under its own context-only label, distinct from the current transcript', () => {
+  const prompt = buildSummarizePrompt({
+    mode: 'speaker',
+    recentTranscript: 'The new sentence just spoken.',
+    previousBlock: 'The earlier sentence already summarized.',
+    visibleLines: []
+  });
+
+  assert.match(prompt, /Previous block \(already summarized -- context only\. Do NOT write a line about this block by itself/i);
+  assert.match(prompt, /The earlier sentence already summarized\./);
+  assert.match(prompt, /New transcript \(summarize this\):\s*\nThe new sentence just spoken\./);
+
+  const previousIndex = prompt.indexOf('The earlier sentence already summarized.');
+  const newIndex = prompt.indexOf('The new sentence just spoken.');
+  assert.ok(previousIndex > -1 && newIndex > -1 && previousIndex < newIndex);
+});
+
+test('an absent or empty previousBlock leaves the prompt byte-identical to today\'s prompt', () => {
+  const args = { mode: 'speaker', recentTranscript: 'Anything at all.', visibleLines: ['A visible line.'], maxWords: 10 };
+
+  const withoutField = buildSummarizePrompt(args);
+  const withEmptyString = buildSummarizePrompt({ ...args, previousBlock: '' });
+  const withWhitespaceOnly = buildSummarizePrompt({ ...args, previousBlock: '   ' });
+
+  assert.equal(withEmptyString, withoutField);
+  assert.equal(withWhitespaceOnly, withoutField);
+  assert.match(withoutField, /Recent transcript:\nAnything at all\./);
+  assert.doesNotMatch(withoutField, /Previous block/i);
+});
+
+test('max-words and verbatim-entity contract still hold with a previous block present', () => {
+  const prompt = buildSummarizePrompt({
+    mode: 'information',
+    recentTranscript: 'Hymn 241 will be sung at 10:15 by Sister Jones.',
+    previousBlock: 'The meeting opened with a welcome from Brother Smith on July 19.',
+    visibleLines: [],
+    maxWords: 8
+  });
+
+  assert.match(prompt, /Maximum 8 words/);
+  assert.match(prompt, /never paraphrase a number/i);
+  assert.match(prompt, /Copy every number, name, and date exactly/i);
+  assert.match(prompt, /Hymn 241 will be sung at 10:15 by Sister Jones\./);
+  assert.match(prompt, /Brother Smith on July 19\./);
+});
+
+// INV-13: fabricated content on the wall is the worst failure mode -- a made-up hymn number sends
+// the reader to the wrong hymn with no way to catch the error. This governs inventing a detail that
+// was never spoken, distinct from the verbatim-entity rule above, which governs one that was.
+test('prompt forbids inventing a specific detail that was not spoken', () => {
+  const prompt = buildSummarizePrompt({ mode: 'speaker', recentTranscript: 'Anything at all.' });
+
+  assert.match(prompt, /Never invent a number, name, date, time, or other specific detail that was not spoken/i);
+  assert.match(prompt, /"our first hymn,"/);
+  assert.match(prompt, /do not turn it into "hymn number one"/i);
+  assert.match(prompt, /carry the speaker's\s*\nown descriptive wording instead of supplying one/i);
+  assert.match(prompt, /A confident specific you made up is worse than a\s*\nfaithful vague line/i);
+});
+
+test('anti-fabrication clause survives with and without a previous block', () => {
+  const withPrevious = buildSummarizePrompt({
+    mode: 'information',
+    recentTranscript: 'Let us stand together now and turn to our first hymn.',
+    previousBlock: 'The meeting opened with a welcome from Brother Smith on July 19.',
+    visibleLines: []
+  });
+  const withoutPrevious = buildSummarizePrompt({
+    mode: 'information',
+    recentTranscript: 'Let us stand together now and turn to our first hymn.',
+    visibleLines: []
+  });
+
+  assert.match(withPrevious, /Never invent a number, name, date, time, or other specific detail that was not spoken/i);
+  assert.match(withoutPrevious, /Never invent a number, name, date, time, or other specific detail that was not spoken/i);
+});
+
 test('model line cleanup trims bullets and quotes', () => {
   assert.equal(cleanModelLine('  - "Hymn 241 selected"  '), 'Hymn 241 selected');
   assert.equal(cleanModelLine('Song starting now'), 'Song starting now');

@@ -77,6 +77,8 @@ function createDefaultElements() {
     manualInput: createElement(),
     liveTranscript: createElement(),
     railTranscript: createElement(),
+    railTranscriptProgress: createElement({ dataset: { state: 'idle' } }),
+    railTranscriptProgressFill: createElement(),
     fontSizeInput,
     fontSizeValue: createElement({ textContent: '' }),
     displayMarginInput,

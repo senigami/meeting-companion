@@ -263,3 +263,117 @@ test('openai transcription bounds the send queue and reports skipped audio hones
     }
   });
 });
+
+function makeFakeAudioParam(initial = 1) {
+  return { value: initial, setTargetAtTime(target) { this.value = target; } };
+}
+
+function makeFakeConditionedContext(conditionedStream) {
+  return {
+    currentTime: 0,
+    createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+    createBiquadFilter: () => ({ type: '', frequency: makeFakeAudioParam(80), connect() {}, disconnect() {} }),
+    createGain: () => ({ gain: makeFakeAudioParam(1), connect() {}, disconnect() {} }),
+    createAnalyser: () => ({
+      fftSize: 2048,
+      connect() {},
+      disconnect() {},
+      getFloatTimeDomainData(buffer) { buffer.fill(0); }
+    }),
+    createDynamicsCompressor: () => ({
+      threshold: makeFakeAudioParam(-24),
+      knee: makeFakeAudioParam(30),
+      ratio: makeFakeAudioParam(12),
+      attack: makeFakeAudioParam(0.003),
+      release: makeFakeAudioParam(0.25),
+      connect() {},
+      disconnect() {}
+    }),
+    createMediaStreamDestination: () => ({ stream: conditionedStream, connect() {}, disconnect() {} }),
+    close() {}
+  };
+}
+
+test('openai transcription requests the three browser constraints instead of a bare audio:true', async () => {
+  await withFakeNavigatorAndRecorder(async () => {
+    let capturedConstraints = null;
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      capturedConstraints = constraints;
+      return originalGetUserMedia(constraints);
+    };
+
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: { audioBrowserAgc: true, audioBrowserNoiseSuppression: true, audioBrowserEchoCancel: false },
+      audioContextFactory: undefined // no Web Audio available -- must still work
+    });
+    await driver.start({ currentMode: 'speaker' });
+    await driver.stop();
+
+    assert.deepEqual(capturedConstraints, {
+      audio: {
+        autoGainControl: true,
+        noiseSuppression: true,
+        echoCancellation: false
+      }
+    });
+  });
+});
+
+test('MediaRecorder receives the conditioned stream when a real AudioContext-like graph is available', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const conditionedStream = { id: 'conditioned', getTracks: () => [] };
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: { audioProcessingPreset: 'gentle' },
+      audioContextFactory: () => makeFakeConditionedContext(conditionedStream)
+    });
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+    assert.equal(recorder.stream, conditionedStream, 'MediaRecorder must receive the conditioned stream, not the raw one');
+    await driver.stop();
+  });
+});
+
+test('MediaRecorder receives the raw stream, a genuine passthrough, when audioBypassForTest is set', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: { audioBypassForTest: true },
+      audioContextFactory: () => makeFakeConditionedContext({ id: 'conditioned-should-not-be-used' })
+    });
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+    assert.notEqual(recorder.stream?.id, 'conditioned-should-not-be-used');
+    await driver.stop();
+  });
+});
+
+test('MediaRecorder still receives a working raw stream when no AudioContext is available at all', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: {},
+      audioContextFactory: undefined
+    });
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+    assert.ok(recorder.stream, 'transcription keeps working on the raw stream when conditioning is unavailable');
+    await driver.stop();
+  });
+});
+
+test('readLevels() exposes conditioner levels when connected, and null when there is no conditioner', async () => {
+  await withFakeNavigatorAndRecorder(async () => {
+    const conditionedStream = { id: 'conditioned', getTracks: () => [] };
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioContextFactory: () => makeFakeConditionedContext(conditionedStream)
+    });
+    assert.equal(driver.readLevels(), null, 'no levels before start()');
+    await driver.start({ currentMode: 'speaker' });
+    assert.ok(driver.readLevels(), 'levels available once connected');
+    await driver.stop();
+  });
+});

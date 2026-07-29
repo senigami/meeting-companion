@@ -11,8 +11,8 @@ node_modules/
 .claude/*
 !.claude/launch.json
 
-# Session memory — local only, never published
-Memory/
+# Session memory — local only, never published (OD-0017: Memory/ and .remember/ retired 2026-07-29)
+.memory/
 
 # Orchestration mandate — local only
 AGENTS.md

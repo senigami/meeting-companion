@@ -11,7 +11,7 @@ export function createClaudeSummarizer({
   return {
     id: 'claude',
     label: 'Claude',
-    async summarize({ mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -22,6 +22,7 @@ export function createClaudeSummarizer({
           source: 'claude',
           mode,
           recentTranscript: text,
+          previousBlock,
           visibleLines,
           maxWords
         })
@@ -31,7 +32,7 @@ export function createClaudeSummarizer({
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
       if (!line && data.reason) onStatus(data.reason);
-      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, visibleLines, maxWords }) };
+      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }) };
     }
   };
 }

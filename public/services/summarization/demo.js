@@ -99,7 +99,11 @@ export function createDemoSummarizer(deps = {}) {
   return {
     id: 'demo',
     label: 'Demo',
-    async summarize({ recentTranscript = '', visibleLines = [], maxWords = SUMMARY_MAX_WORDS } = {}) {
+    // previousBlock is accepted (never destructured away silently) so the shared summarize()
+    // contract stays the same shape across all three drivers, but this driver is not an AI
+    // summarizer -- see the module comment above -- so there is nothing for it to do with it: it
+    // never builds a prompt, it only walks recentTranscript sentence by sentence.
+    async summarize({ recentTranscript = '', previousBlock = '', visibleLines = [], maxWords = SUMMARY_MAX_WORDS } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 

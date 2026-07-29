@@ -6,9 +6,8 @@ import {
   clampFontSize,
   clampSummaryIntervalSeconds,
   clampSummaryMaxWords,
-  summaryIntervalOptions,
-  summaryIntervalSecondsFromSliderIndex,
-  summaryIntervalSliderIndexFromSeconds,
+  SUMMARY_INTERVAL_MIN_SECONDS,
+  SUMMARY_INTERVAL_MAX_SECONDS,
   summaryMaxWordsOptions,
   summaryMaxWordsFromSliderIndex,
   summaryMaxWordsSliderIndexFromWords,
@@ -16,7 +15,11 @@ import {
   sliderPositionFromFontSize,
   FONT_SIZE_MIN,
   FONT_SIZE_MAX,
-  FONT_SIZE_SLIDER_MAX
+  FONT_SIZE_SLIDER_MAX,
+  clampAudioProcessingPreset,
+  clampAudioHighPassHz,
+  clampAudioBoolean,
+  AUDIO_SETTINGS_DEFAULTS
 } from '../../../public/services/view-settings.js';
 
 test('view settings clamp to safe display ranges', () => {
@@ -32,19 +35,29 @@ test('view settings clamp to safe display ranges', () => {
   assert.equal(clampSummaryMaxWords(undefined), 14);
 });
 
-test('summary interval options stay quick to adjust', () => {
-  assert.deepEqual(summaryIntervalOptions, [2, 5, 10, 15]);
+test('summary interval spans 2s to 15s', () => {
+  assert.equal(SUMMARY_INTERVAL_MIN_SECONDS, 2);
+  assert.equal(SUMMARY_INTERVAL_MAX_SECONDS, 15);
 });
 
-test('summary interval slider maps to the same discrete values', () => {
-  assert.equal(summaryIntervalSliderIndexFromSeconds(2), 0);
-  assert.equal(summaryIntervalSliderIndexFromSeconds(5), 1);
-  assert.equal(summaryIntervalSliderIndexFromSeconds(10), 2);
-  assert.equal(summaryIntervalSliderIndexFromSeconds(15), 3);
-  assert.equal(summaryIntervalSecondsFromSliderIndex(0), 2);
-  assert.equal(summaryIntervalSecondsFromSliderIndex(1), 5);
-  assert.equal(summaryIntervalSecondsFromSliderIndex(2), 10);
-  assert.equal(summaryIntervalSecondsFromSliderIndex(3), 15);
+test('summary interval moves one second at a time, with no snapping to a coarse option set', () => {
+  // The point of the change: every whole second in range is reachable. 5s and 10s used to be the
+  // only comparable settings; 6s through 9s were simply unreachable.
+  for (let seconds = SUMMARY_INTERVAL_MIN_SECONDS; seconds <= SUMMARY_INTERVAL_MAX_SECONDS; seconds += 1) {
+    assert.equal(clampSummaryIntervalSeconds(seconds), seconds, `${seconds}s must be reachable`);
+  }
+});
+
+test('summary interval clamps to the range and rounds to a whole second', () => {
+  assert.equal(clampSummaryIntervalSeconds(0), 2);
+  assert.equal(clampSummaryIntervalSeconds(1), 2);
+  assert.equal(clampSummaryIntervalSeconds(99), 15);
+  assert.equal(clampSummaryIntervalSeconds(7.4), 7);
+  assert.equal(clampSummaryIntervalSeconds(7.6), 8);
+  assert.equal(clampSummaryIntervalSeconds('9'), 9);
+  assert.equal(clampSummaryIntervalSeconds('abc'), 5);
+  assert.equal(clampSummaryIntervalSeconds(undefined), 5);
+  assert.equal(clampSummaryIntervalSeconds(NaN, 11), 11);
 });
 
 test('summary max words options stay short for a slow, distance reader', () => {
@@ -99,4 +112,43 @@ test('font size slider position maps exponentially, not linearly, onto pixels', 
   // Round-trips (within the pixel step's own rounding) for a value that
   // falls exactly on a 4px step.
   assert.equal(fontSizeFromSliderPosition(sliderPositionFromFontSize(84)), 84);
+});
+
+test('audio processing preset clamps to a known preset name, defaulting to gentle', () => {
+  assert.equal(clampAudioProcessingPreset('off'), 'off');
+  assert.equal(clampAudioProcessingPreset('gentle'), 'gentle');
+  assert.equal(clampAudioProcessingPreset('normal'), 'normal');
+  assert.equal(clampAudioProcessingPreset('bogus'), 'gentle');
+  assert.equal(clampAudioProcessingPreset(undefined), 'gentle');
+  assert.equal(clampAudioProcessingPreset(null, 'normal'), 'normal');
+});
+
+test('audio high-pass cutoff clamps to 50-150Hz', () => {
+  assert.equal(clampAudioHighPassHz(10), 50);
+  assert.equal(clampAudioHighPassHz(9999), 150);
+  assert.equal(clampAudioHighPassHz('80'), 80);
+  assert.equal(clampAudioHighPassHz('garbage'), 80);
+  assert.equal(clampAudioHighPassHz(undefined), 80);
+});
+
+test('audio boolean settings parse the literal localStorage strings, falling back when absent', () => {
+  assert.equal(clampAudioBoolean('true', false), true);
+  assert.equal(clampAudioBoolean('false', true), false);
+  assert.equal(clampAudioBoolean(null, true), true);
+  assert.equal(clampAudioBoolean(undefined, false), false);
+  assert.equal(clampAudioBoolean('garbage', true), true);
+});
+
+test('audio settings defaults match the brief exactly', () => {
+  assert.deepEqual(AUDIO_SETTINGS_DEFAULTS, {
+    audioProcessingPreset: 'gentle',
+    audioHighPassEnabled: true,
+    audioHighPassHz: 80,
+    audioCompressorEnabled: true,
+    audioLimiterEnabled: true,
+    audioBrowserAgc: true,
+    audioBrowserNoiseSuppression: false,
+    audioBrowserEchoCancel: false,
+    audioBypassForTest: false
+  });
 });

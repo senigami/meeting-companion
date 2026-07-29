@@ -3,9 +3,12 @@ import {
   clampFontSize,
   clampSummaryIntervalSeconds,
   clampSummaryMaxWords,
-  summaryIntervalSecondsFromSliderIndex,
   summaryMaxWordsFromSliderIndex,
-  fontSizeFromSliderPosition
+  fontSizeFromSliderPosition,
+  clampAudioProcessingPreset,
+  clampAudioHighPassHz,
+  clampAudioBoolean,
+  AUDIO_SETTINGS_DEFAULTS
 } from '../services/view-settings.js';
 import {
   bindRailResize,
@@ -39,7 +42,18 @@ const STORAGE = {
   summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
   summarizationSource: 'summarizationSource',
-  summarizationSourceChosen: 'summarizationSourceChosen'
+  summarizationSourceChosen: 'summarizationSourceChosen',
+  // Must stay in sync with runtime.js's own STORAGE map -- see the gotcha recorded there. Add a
+  // key to BOTH maps or neither.
+  audioProcessingPreset: 'audioProcessingPreset',
+  audioHighPassEnabled: 'audioHighPassEnabled',
+  audioHighPassHz: 'audioHighPassHz',
+  audioCompressorEnabled: 'audioCompressorEnabled',
+  audioLimiterEnabled: 'audioLimiterEnabled',
+  audioBrowserAgc: 'audioBrowserAgc',
+  audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
+  audioBrowserEchoCancel: 'audioBrowserEchoCancel',
+  audioBypassForTest: 'audioBypassForTest'
 };
 
 export function startApp() {
@@ -60,9 +74,11 @@ export function startApp() {
       displayMarginAdjusting: false,
       transcriptChunks: [],
       transcriptPreview: '',
+      inFlightChunks: [],
       listening: false,
       loopHandle: null,
       lastSentText: '',
+      lastSentBlock: null,
       stickToBottom: true,
       prefersReducedMotion: Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),
       settingsOpen: false,
@@ -81,7 +97,16 @@ export function startApp() {
       anthropicReady: false,
       serverOpenAiReady: false,
       serverAnthropicReady: false,
-      providerKeys: {}
+      providerKeys: {},
+      audioProcessingPreset: clampAudioProcessingPreset(localStorage.getItem(STORAGE.audioProcessingPreset), AUDIO_SETTINGS_DEFAULTS.audioProcessingPreset),
+      audioHighPassEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioHighPassEnabled), AUDIO_SETTINGS_DEFAULTS.audioHighPassEnabled),
+      audioHighPassHz: clampAudioHighPassHz(localStorage.getItem(STORAGE.audioHighPassHz), AUDIO_SETTINGS_DEFAULTS.audioHighPassHz),
+      audioCompressorEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioCompressorEnabled), AUDIO_SETTINGS_DEFAULTS.audioCompressorEnabled),
+      audioLimiterEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioLimiterEnabled), AUDIO_SETTINGS_DEFAULTS.audioLimiterEnabled),
+      audioBrowserAgc: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserAgc), AUDIO_SETTINGS_DEFAULTS.audioBrowserAgc),
+      audioBrowserNoiseSuppression: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserNoiseSuppression), AUDIO_SETTINGS_DEFAULTS.audioBrowserNoiseSuppression),
+      audioBrowserEchoCancel: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserEchoCancel), AUDIO_SETTINGS_DEFAULTS.audioBrowserEchoCancel),
+      audioBypassForTest: clampAudioBoolean(localStorage.getItem(STORAGE.audioBypassForTest), AUDIO_SETTINGS_DEFAULTS.audioBypassForTest)
     },
     dom: {
       display: $('display'),
@@ -99,6 +124,8 @@ export function startApp() {
       railNote: $('railNote'),
       liveTranscript: $('liveTranscript'),
       railTranscript: $('railTranscript'),
+      railTranscriptProgress: $('railTranscriptProgress'),
+      railTranscriptProgressFill: $('railTranscriptProgressFill'),
       readyCheckMicDot: $('readyCheckMicDot'),
       readyCheckMicFix: $('readyCheckMicFix'),
       readyCheckAiDot: $('readyCheckAiDot'),
@@ -325,7 +352,7 @@ function bindViewerControls(ctx, runtime) {
   });
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
-    runtime.setSummaryInterval(summaryIntervalSecondsFromSliderIndex(e.target.value, ctx.state.summaryIntervalSeconds));
+    runtime.setSummaryInterval(e.target.value);
   });
   ctx.dom.summaryMaxWordsInput.addEventListener('input', (e) => {
     runtime.setSummaryMaxWords(summaryMaxWordsFromSliderIndex(e.target.value, ctx.state.summaryMaxWords));

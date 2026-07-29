@@ -31,11 +31,10 @@ import {
   updateSummaryMaxWordsControl
 } from './view.js';
 import {
-  BUCKET_SEND_MAX_CHARS,
   bucketText,
   partitionBucket,
   removeConsumed,
-  takeSendableChunks,
+  takeOldestModeRun,
   trimBucket
 } from '../services/transcript-bucket.js';
 import { clearDisplayMarginGuideTimer, flashDisplayMarginGuides } from './margin-guides.js';
@@ -57,7 +56,16 @@ const STORAGE = {
   // localStorage.setItem(undefined, 'true') -- writing a key literally named "undefined" -- and an
   // operator's explicit provider choice silently failed to survive a reload. Unit tests passed
   // because they stub localStorage and never assert the key name. Add to BOTH maps or neither.
-  summarizationSourceChosen: 'summarizationSourceChosen'
+  summarizationSourceChosen: 'summarizationSourceChosen',
+  audioProcessingPreset: 'audioProcessingPreset',
+  audioHighPassEnabled: 'audioHighPassEnabled',
+  audioHighPassHz: 'audioHighPassHz',
+  audioCompressorEnabled: 'audioCompressorEnabled',
+  audioLimiterEnabled: 'audioLimiterEnabled',
+  audioBrowserAgc: 'audioBrowserAgc',
+  audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
+  audioBrowserEchoCancel: 'audioBrowserEchoCancel',
+  audioBypassForTest: 'audioBypassForTest'
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
@@ -208,14 +216,95 @@ export function createRuntime(ctx, deps = {}) {
     flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
   }
 
+  // INV-13: trimBucket only ever drops the oldest speech once the bucket has actually overflowed
+  // BUCKET_MAX_CHARS -- which, with the per-tick send cap gone, only happens during a sustained
+  // summarizer outage (the bucket otherwise drains every tick via removeConsumed). That makes an
+  // actual trim the ONLY moment speech is silently lost, and exactly the moment the operator most
+  // needs to know it happened, not just suspect it. Comparing chunk counts before/after -- rather
+  // than reading any internal state off trimBucket -- keeps this honest even if trimBucket's own
+  // implementation changes later: it only ever fires on an observed drop, never a guess.
+  function noteSpeechDropped(droppedChunkCount) {
+    const chunkWord = droppedChunkCount === 1 ? 'chunk' : 'chunks';
+    updateStatus(
+      ctx,
+      `Speech dropped: the transcript buffer filled and the oldest ${droppedChunkCount} ${chunkWord} of speech were discarded before being summarized.`,
+      { level: 'dropped' }
+    );
+  }
+
+  // Mirrors noteTranscriptActivity's wasSilent recovery guard: only recover the rail to a plain
+  // status if THIS condition is the one actually showing (ctx.state.railStatusLevel IS the source
+  // of truth -- no separate "active" flag to fall out of sync with it). Without that check,
+  // recovering after a higher-ranked persistent condition (e.g. a fatal 'problem') has since taken
+  // over the rail would wrongly clobber it back to "Listening." the moment the summarizer
+  // succeeds again.
+  function clearSpeechDroppedAlert() {
+    if (ctx.state.railStatusLevel !== 'dropped') return;
+    updateStatus(ctx, ctx.state.listening ? 'Listening.' : 'Manual mode.', {
+      level: ctx.state.listening ? 'listening' : 'manual'
+    });
+  }
+
+  // In-flight text is text that has been handed to the summarizer but NOT yet removed from the
+  // bucket -- it only leaves ctx.state.transcriptChunks on a successful response (INV-11). Dimming
+  // it here, rather than removing it early, is what makes that invariant visible to the operator:
+  // if the call fails or pause interrupts it, the same chunks un-dim on the very next render
+  // because inFlightChunks is cleared in summarizeCurrentText's `finally` (every exit path, success
+  // included) and nothing here treats "in flight" as "gone." No second source of truth -- the match
+  // below is keyed on `at` + a text-prefix check, the exact same rule removeConsumed itself uses, so
+  // this can never disagree with what the bucket will actually drain.
+  function inFlightPrefixLength(chunk) {
+    const hit = (ctx.state.inFlightChunks || []).find(
+      (item) => item.at === chunk.at && chunk.text.startsWith(item.text)
+    );
+    return hit ? hit.text.length : 0;
+  }
+
+  function renderRailTranscript(container, chunks, preview) {
+    container.textContent = '';
+    chunks.forEach((chunk, index) => {
+      const text = normalizeText(chunk.text);
+      if (!text) return;
+      const dimLength = inFlightPrefixLength(chunk);
+      if (index > 0) container.appendChild(documentImpl.createTextNode(' '));
+      if (dimLength > 0) {
+        const dimmed = documentImpl.createElement('span');
+        dimmed.className = 'transcriptChunk--inFlight';
+        dimmed.textContent = text.slice(0, dimLength);
+        container.appendChild(dimmed);
+        const rest = normalizeText(text.slice(dimLength));
+        if (rest) container.appendChild(documentImpl.createTextNode(' ' + rest));
+      } else {
+        container.appendChild(documentImpl.createTextNode(text));
+      }
+    });
+    if (preview) {
+      if (chunks.length) container.appendChild(documentImpl.createTextNode(' '));
+      container.appendChild(documentImpl.createTextNode(preview));
+    }
+  }
+
   function showRecentTranscript() {
-    ctx.state.transcriptChunks = trimBucket(ctx.state.transcriptChunks);
+    const beforeTrim = ctx.state.transcriptChunks;
+    const trimmed = trimBucket(beforeTrim);
+    if (trimmed.length < beforeTrim.length) {
+      noteSpeechDropped(beforeTrim.length - trimmed.length);
+    }
+    ctx.state.transcriptChunks = trimmed;
     const preview = bucketText(ctx.state.transcriptChunks, ctx.state.transcriptPreview);
     if (ctx.dom.liveTranscript) {
       ctx.dom.liveTranscript.textContent = preview;
     }
     if (ctx.dom.railTranscript) {
-      ctx.dom.railTranscript.textContent = preview;
+      if (documentImpl?.createElement && ctx.state.inFlightChunks?.length) {
+        renderRailTranscript(
+          ctx.dom.railTranscript,
+          ctx.state.transcriptChunks,
+          normalizeText(ctx.state.transcriptPreview)
+        );
+      } else {
+        ctx.dom.railTranscript.textContent = preview;
+      }
       if (typeof ctx.dom.railTranscript.scrollHeight === 'number') {
         ctx.dom.railTranscript.scrollTop = ctx.dom.railTranscript.scrollHeight;
       }
@@ -286,7 +375,11 @@ export function createRuntime(ctx, deps = {}) {
     noteTranscriptActivity();
 
     if (event.type === 'final') {
-      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text);
+      // Tag the chunk with the mode active right now, when the words were actually captured --
+      // not whatever mode happens to be selected later when this backlogged text is finally
+      // summarized. Reading ctx.state.mode at summarize time let backlogged Information-mode
+      // announcements drain and get labelled as Speaker once the operator had since switched modes.
+      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text, nowFn(), ctx.state.mode);
       ctx.state.transcriptPreview = '';
     } else if (event.type === 'partial') {
       ctx.state.transcriptPreview = normalizeText(event.text);
@@ -307,6 +400,14 @@ export function createRuntime(ctx, deps = {}) {
       onStatus: (text, { level: statedLevel } = {}) => {
         const level = statedLevel || transcriptionStatusLevel(text);
         updateStatus(ctx, text, level ? { level } : undefined);
+      },
+      // Only the demo driver's scripted scenarios use this: each entry names the mode the real
+      // summarizer must be in while it processes that entry's text (INV: a scenario is only truly
+      // covered if it is actually summarized in the mode it belongs to). Other drivers ignore it.
+      onModeChange: (mode) => {
+        if (!mode || mode === ctx.state.mode) return;
+        ctx.state.mode = mode;
+        updateModeButtons(ctx);
       },
       fetchImpl,
       setTimeoutFn,
@@ -337,11 +438,83 @@ export function createRuntime(ctx, deps = {}) {
     return summarizationDriver;
   }
 
+  // Thin progress line at the top of the operator's live-transcript preview (#railTranscript,
+  // Steve's ask 2026-07-19): purely informational -- it lets the operator see the moment a
+  // summarize tick absorbs text, without adding a second status channel. Deliberately driven off
+  // the SAME setInterval that fires summarizeCurrentText (see startLoop below), never a parallel
+  // rAF/timer of its own -- a bar with its own clock is exactly the kind of thing that quietly
+  // drifts out of sync with the real tick and starts lying (INV-10's cardinal sin, applied to a
+  // new surface).
+  function restartTranscriptProgressBar(durationSeconds) {
+    const track = ctx.dom.railTranscriptProgress;
+    const fill = ctx.dom.railTranscriptProgressFill;
+    if (!track || !fill) return;
+    track.dataset.state = 'running';
+    fill.style.transitionDuration = '0s';
+    fill.style.width = '0%';
+    // Force a reflow so the browser commits the 0% state before re-enabling the transition --
+    // otherwise the width jump straight to 100% below would be collapsed into the same frame and
+    // never actually animate.
+    void fill.offsetWidth;
+    fill.style.transitionDuration = `${durationSeconds}s`;
+    fill.style.width = '100%';
+  }
+
+  // A scheduled tick found the previous summarize call still in flight (the exact condition
+  // noteSkippedSummarizeTick reports as 'behind' -- Janus's summarizeInFlight flag is read here,
+  // not re-derived). The wall is now behind schedule, so silently restarting a fresh, healthy-
+  // looking sweep would be dishonest; freezing the bar full (in the same blue as the 'behind' rail
+  // dot) says "this cycle overran" instead.
+  function freezeTranscriptProgressBarOverrun() {
+    const track = ctx.dom.railTranscriptProgress;
+    const fill = ctx.dom.railTranscriptProgressFill;
+    if (!track || !fill) return;
+    track.dataset.state = 'overrun';
+    fill.style.transitionDuration = '0s';
+    fill.style.width = '100%';
+  }
+
+  // Paused or stopped: no tick is coming, so the bar must not keep sweeping as though work were
+  // in progress. Called from the one place the loop's real clock actually stops
+  // (pauseActiveTranscription) so this can never drift out of sync with whether ticks are firing.
+  function idleTranscriptProgressBar() {
+    const track = ctx.dom.railTranscriptProgress;
+    const fill = ctx.dom.railTranscriptProgressFill;
+    if (!track || !fill) return;
+    track.dataset.state = 'idle';
+    fill.style.transitionDuration = '0s';
+    fill.style.width = '0%';
+  }
+
   function startLoop() {
     clearInterval(ctx.state.loopHandle);
     const intervalSeconds = ctx.state.effectiveIntervalSeconds || ctx.state.summaryIntervalSeconds;
-    ctx.state.loopHandle = setInterval(() => summarizeCurrentText(), intervalSeconds * 1000);
+    ctx.state.loopHandle = setInterval(() => {
+      // startListening() calls startLoop() unconditionally even while paused (the mic can be on
+      // with AI paused -- summarizeCurrentText's own `if (ctx.state.paused) return;` is what makes
+      // that safe). Mirror that same guard here first: a paused tick is not real work, so the bar
+      // must read idle, never mid-sweep or overrun.
+      if (ctx.state.paused) {
+        idleTranscriptProgressBar();
+      } else if (ctx.state.summarizeInFlight) {
+        // Read the exact flag summarizeCurrentText is about to check itself: if it's already set,
+        // this tick is about to be skipped (noteSkippedSummarizeTick), so the bar freezes instead
+        // of restarting a fresh sweep over a cycle that's already overrunning.
+        freezeTranscriptProgressBarOverrun();
+      } else {
+        restartTranscriptProgressBar(intervalSeconds);
+      }
+      summarizeCurrentText();
+    }, intervalSeconds * 1000);
     ctx.state.loopHandle.unref?.();
+    // The first period of this (re)established schedule starts counting now, at the true zero
+    // point of the interval -- re-syncs the bar immediately whenever startLoop runs, which is
+    // exactly the set of moments (interval change, resume, backoff/recovery) that already call it.
+    if (ctx.state.paused) {
+      idleTranscriptProgressBar();
+    } else {
+      restartTranscriptProgressBar(intervalSeconds);
+    }
   }
 
   function clearSummarizeFailureAlert() {
@@ -364,6 +537,16 @@ export function createRuntime(ctx, deps = {}) {
     const hadBackoff = Boolean(ctx.state.effectiveIntervalSeconds);
     ctx.state.effectiveIntervalSeconds = null;
     clearSummarizeFailureAlert();
+    // A successful summarize call is the honest signal that the outage which was filling the
+    // buffer (and forcing trimBucket to drop the oldest speech) has genuinely ended -- see
+    // clearSpeechDroppedAlert. Doing this here, not in showRecentTranscript, means the "Speech
+    // dropped" note only clears on confirmed recovery, never merely because the bucket happens to
+    // sit under the cap for one tick.
+    clearSpeechDroppedAlert();
+    // Likewise, a successful call is the honest signal that a 'behind' skip streak is over -- see
+    // clearWallBehindAlert. (In practice the recoveredLevel status update further below already
+    // clears any active persistent note on success; this is the explicit, self-documenting path.)
+    clearWallBehindAlert();
     if (hadBackoff && ctx.state.listening && !ctx.state.paused) {
       startLoop();
     }
@@ -387,59 +570,129 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
+  // How many consecutive scheduled ticks may find the previous summarize call still in flight
+  // before the rail says so. A single skip is not sticky-worthy on its own -- a call that runs
+  // marginally past one interval and finishes on the very next tick is normal jitter, not a
+  // condition worth interrupting the operator over (the same "don't cry wolf on a single blip"
+  // reasoning as SILENCE_WATCHDOG_MS). Two consecutive skips means the wall is now running more
+  // than one full interval behind schedule, which is honestly worth surfacing.
+  const WALL_BEHIND_SKIP_THRESHOLD = 2;
+
+  // Called every time a scheduled (or manual) summarize attempt finds the previous one still
+  // running -- the only observable symptom of a slow provider call quietly falling behind the
+  // fixed-interval loop, since skipped ticks otherwise leave no trace at all. Guarded on
+  // railStatusLevel (not a separate flag) so a repeat skip while already showing 'behind' does not
+  // keep rewriting the note, and so nothing here can escalate past a higher-ranked condition (e.g.
+  // a fatal 'problem') already on the rail -- updateStatus's own LEVEL_RANK guard (view.js) blocks
+  // that regardless.
+  function noteSkippedSummarizeTick() {
+    ctx.state.skippedSummarizeTicks = (ctx.state.skippedSummarizeTicks || 0) + 1;
+    if (ctx.state.skippedSummarizeTicks >= WALL_BEHIND_SKIP_THRESHOLD && ctx.state.railStatusLevel !== 'behind') {
+      updateStatus(
+        ctx,
+        'Running behind: summarizing is taking longer than the update interval, so the display is behind the room.',
+        { level: 'behind' }
+      );
+    }
+  }
+
+  // Called whenever a summarize attempt actually gets to run (the in-flight guard did not skip
+  // it) -- the skip streak that led to 'behind' is over regardless of whether this attempt goes on
+  // to succeed or fail, so the counter resets unconditionally. The VISIBLE note is deliberately
+  // NOT cleared here: clearing it merely because a new attempt started, before knowing whether it
+  // succeeds, would be optimistic rather than honest -- a call that starts late and then fails
+  // leaves the wall exactly as behind as before. The note only clears on confirmed success, via
+  // resetSummarizeBackoff below (same reasoning as clearSpeechDroppedAlert).
+  function resetSkippedSummarizeTicks() {
+    ctx.state.skippedSummarizeTicks = 0;
+  }
+
+  // Mirrors clearSpeechDroppedAlert's guard: only recover the rail if 'behind' is the level
+  // actually showing, so this never clobbers a higher-ranked condition that has since taken over.
+  function clearWallBehindAlert() {
+    if (ctx.state.railStatusLevel !== 'behind') return;
+    updateStatus(ctx, ctx.state.listening ? 'Listening.' : 'Manual mode.', {
+      level: ctx.state.listening ? 'listening' : 'manual'
+    });
+  }
+
   async function summarizeCurrentText(text) {
-    if (ctx.state.paused || ctx.state.summarizeInFlight) return;
+    if (ctx.state.paused) return;
+    if (ctx.state.summarizeInFlight) {
+      noteSkippedSummarizeTick();
+      return;
+    }
+    resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
+    let sendMode = ctx.state.mode;
     let recent;
     if (text) {
       recent = normalizeText(text);
     } else {
       const { consumable } = partitionBucket(ctx.state.transcriptChunks);
-      // Only the oldest chunks that fit the send cap, and those exact chunks are what gets consumed
-      // below. Handing bucketText the whole set let it slice to the last 1000 characters while
-      // removeConsumed still removed all of them, so the head of a backlog was consumed without ever
-      // being sent -- speech that never reached the wall at all.
-      consumedChunks = takeSendableChunks(consumable, BUCKET_SEND_MAX_CHARS);
-      // Send only the text that will actually be consumed below. The bucket's
-      // remainder (an unfinished trailing sentence) and the live preview are
-      // intentionally excluded: sending them let the model summarize a
-      // fragment, splitting one sentence across two display cards, and the
-      // fragment's tail came back around next tick and got summarized again
-      // on its own. buildSummarizePrompt has no reliable way to mark "context,
-      // do not summarize" — it's one flat transcript field — so rather than
-      // depend on the model obeying an instruction, keep what's sent and what's
-      // consumed the same set.
-      recent = bucketText(consumedChunks, '', {
-        maxChars: BUCKET_SEND_MAX_CHARS
-      });
+      // The whole oldest contiguous mode run, not the oldest ~1000 characters -- lag is now bounded
+      // at one card, whatever the volume, and the run's own text (built by takeOldestModeRun itself
+      // from these exact chunks) is what gets sent below, so "sent" and "consumed" are provably the
+      // same set. A later mode in the bucket ends the run early: one summarize call must never span
+      // two modes, since its prompt carries a single `Mode:` line.
+      const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode });
+      consumedChunks = run.chunks;
+      sendMode = run.mode;
+      recent = run.text;
     }
     if (!recent || recent === ctx.state.lastSentText) return;
+
+    // The one-slot rolling-window memory: the previously sent block, held separately from the
+    // bucket's own lifetime so it can be handed to the summarizer as distinct labelled context
+    // (see .agent/rolling-window-brief.md). Two SEPARATE fields, not a concatenation -- the prompt
+    // seat renders "previous, for context only" and "new, summarize this" under distinct labels,
+    // and our dedupe only rejects an exact line match, so a concatenated blob would let the model
+    // re-summarize old content in different words and sail past that dedupe as a "new" card.
+    // Omitted entirely on a mode change: carrying prayer text as context into an information
+    // summary invites exactly the cross-mode confusion the mode-run split just fixed.
+    const previousBlock =
+      ctx.state.lastSentBlock && ctx.state.lastSentBlock.mode === sendMode
+        ? ctx.state.lastSentBlock.text
+        : '';
+
     ctx.state.summarizeInFlight = true;
     updateStatus(ctx, 'Summarizing...');
+    // Dim rather than remove: these chunks are still in the bucket (INV-11 only drains it on
+    // success) and stay visible until this call resolves one way or the other. Set BEFORE the
+    // await, so the dim shows the moment the call goes out, not once it comes back.
+    if (consumedChunks?.length) {
+      ctx.state.inFlightChunks = consumedChunks;
+      showRecentTranscript();
+    }
 
     try {
       const driver = await ensureSummarizationDriver();
       const result = await driver.summarize({
-        mode: ctx.state.mode,
+        mode: sendMode,
         recentTranscript: recent,
-        visibleLines: ctx.state.transcriptItems.slice(-5).map((item) => item.text),
+        previousBlock,
+        visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
         maxWords: ctx.state.summaryMaxWords
       });
 
       resetSummarizeBackoff();
 
       if (ctx.state.paused) return;
-      // The bucket only drains on success while unpaused, so a failed or
-      // pause-interrupted request re-sends the same sentences next tick.
+      // The bucket only drains, and the previous-block slot only advances, on success while
+      // unpaused -- a failed or pause-interrupted request re-sends the same sentences next tick
+      // and does not shift the rolling window forward under it (INV-11).
       ctx.state.lastSentText = recent;
+      ctx.state.lastSentBlock = { text: recent, mode: sendMode };
       if (consumedChunks?.length) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
         showRecentTranscript();
       }
       const recoveredLevel = ctx.state.listening ? 'listening' : 'manual';
       if (result.line) {
-        addLine(result.line, { source: 'ai', mode: ctx.state.mode });
+        // Labelled from the CHUNK's own mode (sendMode), not ctx.state.mode -- backlogged speech
+        // must read under the mode it was actually said in, even if the operator has since switched.
+        addLine(result.line, { source: 'ai', mode: sendMode });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
@@ -456,6 +709,15 @@ export function createRuntime(ctx, deps = {}) {
       );
     } finally {
       ctx.state.summarizeInFlight = false;
+      // Every exit path -- success, failure, or the early `if (ctx.state.paused) return;` above --
+      // lands here. On success the chunks are already gone from the bucket (removeConsumed ran
+      // above), so clearing this and re-rendering is a no-op for them; on failure or a
+      // pause-interrupted response they were never removed, so this un-dims the exact same text,
+      // proving INV-11 rather than merely asserting it.
+      if (ctx.state.inFlightChunks?.length) {
+        ctx.state.inFlightChunks = [];
+        showRecentTranscript();
+      }
     }
   }
 
@@ -546,6 +808,7 @@ export function createRuntime(ctx, deps = {}) {
   async function pauseActiveTranscription() {
     clearInterval(ctx.state.loopHandle);
     ctx.state.loopHandle = null;
+    idleTranscriptProgressBar();
     if (transcriptionDriver) {
       await transcriptionDriver.stop();
     }

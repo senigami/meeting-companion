@@ -320,6 +320,140 @@ test('runtime pauses and resumes the active transcription driver', async () => {
   });
 });
 
+test('starting to listen begins the live-transcript progress bar sweep for the configured interval', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+    assert.equal(elements.railTranscriptProgressFill.style.width, '100%');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+  });
+});
+
+test('changing the update interval mid-session re-syncs the progress bar to the new duration', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+
+    runtime.setSummaryInterval(9);
+
+    // A bar still counting down to the OLD duration after the operator moved the slider would be a
+    // lie about the cadence actually in effect -- this must reflect the new interval immediately.
+    assert.equal(ctx.state.summaryIntervalSeconds, 9);
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '9s');
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+  });
+});
+
+test('pausing AI stops the progress bar sweep honestly instead of leaving it running', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+
+    await runtime.togglePauseAi();
+
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'idle');
+    assert.equal(elements.railTranscriptProgressFill.style.width, '0%');
+
+    await runtime.togglePauseAi();
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+  });
+});
+
+test('stopping listening idles the progress bar', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+
+    await runtime.stopListening();
+
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'idle');
+  });
+});
+
+test('a scheduled tick that finds the previous summarize call still in flight freezes the progress bar instead of restarting a fresh sweep', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  // Capture the actual callback runtime.js hands to the real setInterval, so the tick can be fired
+  // synchronously without waiting on a real timer.
+  const originalSetInterval = global.setInterval;
+  let capturedTick = null;
+  global.setInterval = (fn, ms) => {
+    capturedTick = fn;
+    return originalSetInterval(() => {}, ms);
+  };
+
+  try {
+    await withRuntimeHarness({
+      createTranscriptionDriverFn: () => driver,
+      createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+    }, async ({ ctx, elements, runtime }) => {
+      await runtime.startListening();
+      assert.equal(elements.railTranscriptProgress.dataset.state, 'running');
+      assert.equal(typeof capturedTick, 'function');
+
+      // Simulate the in-flight guard: a slow summarize call is still running when the next tick fires.
+      ctx.state.summarizeInFlight = true;
+      capturedTick();
+
+      assert.equal(elements.railTranscriptProgress.dataset.state, 'overrun');
+      assert.equal(elements.railTranscriptProgressFill.style.width, '100%');
+
+      clearInterval(ctx.state.loopHandle);
+    });
+  } finally {
+    global.setInterval = originalSetInterval;
+  }
+});
+
 test('stopping active transcription returns the rail indicator to manual', async () => {
   const driver = {
     id: 'browser',
@@ -399,6 +533,36 @@ test('a driver that states its own status level is believed over the prose class
     assert.equal(elements.status.textContent, dropped);
     assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), true);
     assert.equal(elements.railStatusWord.textContent, 'Problem');
+  });
+});
+
+test('the transcription driver is given a mode setter it can use to change the active summarization mode', async () => {
+  let capturedOnModeChange = null;
+  const driver = {
+    id: 'demo',
+    label: 'Demo',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedOnModeChange = deps.onModeChange;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'demo', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(typeof capturedOnModeChange, 'function');
+    assert.equal(ctx.state.mode, 'speaker');
+
+    capturedOnModeChange('information');
+    assert.equal(ctx.state.mode, 'information');
+
+    capturedOnModeChange('song');
+    assert.equal(ctx.state.mode, 'song');
   });
 });
 
@@ -801,6 +965,211 @@ test('a summarize success consumes complete sentences from the bucket and keeps 
   });
 });
 
+// Minimal DOM stand-in for the in-flight dimming tests below: showRecentTranscript builds
+// spans/text nodes directly via documentImpl.createElement/createTextNode rather than assigning
+// textContent, so exercising that path needs a container that actually accepts appendChild and
+// element nodes that record their own className/textContent (a flat string via `elements.*
+// .textContent`, as the other tests use, can't distinguish "dimmed" from "not dimmed").
+function fakeRailDom() {
+  function makeContainer() {
+    let children = [];
+    return {
+      // Real DOM semantics: assigning .textContent replaces all children with a single text
+      // node (or none, for ''). showRecentTranscript relies on this to clear stale spans before
+      // re-rendering -- a stub that only recorded the string without also dropping `children`
+      // would leave previous renders' dimmed spans behind and fail every un-dim assertion below.
+      get textContent() {
+        return children.map((c) => c.textContent).join('');
+      },
+      set textContent(value) {
+        children = value ? [{ nodeType: 3, textContent: value }] : [];
+      },
+      scrollTop: 0,
+      scrollHeight: 0,
+      get children() {
+        return children;
+      },
+      appendChild(node) {
+        children.push(node);
+      }
+    };
+  }
+  const documentImpl = {
+    createElement(tag) {
+      return { tag, className: '', textContent: '', children: [], appendChild(node) { this.children.push(node); } };
+    },
+    createTextNode(text) {
+      return { nodeType: 3, textContent: text };
+    }
+  };
+  return { documentImpl, container: makeContainer() };
+}
+
+// Flattens the rendered rail-transcript node tree into [{ text, dimmed }] segments in order, so
+// tests can assert both the visible text and which parts of it are dimmed without depending on
+// the internal DOM shape.
+function readRailSegments(container) {
+  return container.children
+    .filter((node) => node.textContent.trim() !== '')
+    .map((node) => ({
+      text: node.textContent.trim(),
+      dimmed: node.className === 'transcriptChunk--inFlight'
+    }));
+}
+
+// Flushes the microtask queue enough times for `await ensureSummarizationDriver()` and the
+// subsequent `await driver.summarize(...)` call to actually reach the driver -- summarizeCurrentText
+// awaits before ever calling into the stalling driver below, so asserting the in-flight/dimmed
+// state right after calling it (with no await at all) would run before the driver's promise
+// executor has even been invoked.
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+test('in-flight text (sent to the summarizer, not yet consumed) is dimmed on the rail the moment the call goes out', async () => {
+  let resolveSummarize;
+  const stallingDriver = {
+    id: 'openai',
+    summarize: () => new Promise((resolve) => { resolveSummarize = resolve; })
+  };
+  const now = Date.now();
+  const { documentImpl, container } = fakeRailDom();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => stallingDriver,
+    documentImpl,
+    elementOverrides: { railTranscript: container },
+    stateOverrides: {
+      transcriptChunks: [{ text: 'welcome everyone to the meeting.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pending = runtime.summarizeCurrentText();
+    await flushMicrotasks();
+
+    // Dimmed the moment the call is sent -- before the response comes back.
+    assert.equal(ctx.state.inFlightChunks.length, 1);
+    const segments = readRailSegments(container);
+    assert.equal(segments.length, 1);
+    assert.equal(segments[0].dimmed, true);
+    assert.equal(segments[0].text, 'welcome everyone to the meeting.');
+
+    resolveSummarize({ line: '' });
+    await pending;
+    // Success: the bucket drained it, so it is gone entirely -- not merely un-dimmed.
+    assert.equal(ctx.state.inFlightChunks.length, 0);
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+    assert.equal(readRailSegments(container).length, 0);
+  });
+});
+
+test('in-flight text un-dims (stays visible, not removed) when the summarize call fails', async () => {
+  let rejectSummarize;
+  const failingDriver = {
+    id: 'openai',
+    summarize: () => new Promise((_resolve, reject) => { rejectSummarize = reject; })
+  };
+  const now = Date.now();
+  const { documentImpl, container } = fakeRailDom();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => failingDriver,
+    documentImpl,
+    elementOverrides: { railTranscript: container },
+    stateOverrides: {
+      transcriptChunks: [{ text: 'welcome everyone to the meeting.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pending = runtime.summarizeCurrentText();
+    await flushMicrotasks();
+    assert.equal(readRailSegments(container)[0].dimmed, true);
+
+    rejectSummarize(new Error('network down'));
+    await pending;
+
+    // Never consumed (INV-11) -- still fully present, and no longer dimmed, proving the text
+    // that was "in flight" is the same text that comes back, not a promise taken on faith.
+    assert.equal(ctx.state.inFlightChunks.length, 0);
+    assert.deepEqual(ctx.state.transcriptChunks.map((c) => c.text), ['welcome everyone to the meeting.']);
+    const segments = readRailSegments(container);
+    assert.equal(segments.length, 1);
+    assert.equal(segments[0].dimmed, false);
+    assert.equal(segments[0].text, 'welcome everyone to the meeting.');
+  });
+});
+
+test('in-flight text un-dims when paused mid-flight, before the (too-late) response arrives', async () => {
+  let resolveSummarize;
+  const stallingDriver = {
+    id: 'openai',
+    summarize: () => new Promise((resolve) => { resolveSummarize = resolve; })
+  };
+  const now = Date.now();
+  const { documentImpl, container } = fakeRailDom();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => stallingDriver,
+    documentImpl,
+    elementOverrides: { railTranscript: container },
+    stateOverrides: {
+      transcriptChunks: [{ text: 'welcome everyone to the meeting.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pending = runtime.summarizeCurrentText();
+    await flushMicrotasks();
+    assert.equal(readRailSegments(container)[0].dimmed, true);
+
+    ctx.state.paused = true;
+    resolveSummarize({ line: '' });
+    await pending;
+
+    // Paused before the response landed -- the early `if (ctx.state.paused) return;` guard means
+    // this was never consumed either, so it must read exactly like the failure case above.
+    assert.equal(ctx.state.inFlightChunks.length, 0);
+    assert.deepEqual(ctx.state.transcriptChunks.map((c) => c.text), ['welcome everyone to the meeting.']);
+    assert.equal(readRailSegments(container)[0].dimmed, false);
+  });
+});
+
+test('only the in-flight (oldest mode run) portion dims -- a later chunk in a different mode is held back and stays undimmed', async () => {
+  let resolveSummarize;
+  const stallingDriver = {
+    id: 'openai',
+    summarize: () => new Promise((resolve) => { resolveSummarize = resolve; })
+  };
+  const now = Date.now();
+  const { documentImpl, container } = fakeRailDom();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => stallingDriver,
+    documentImpl,
+    elementOverrides: { railTranscript: container },
+    stateOverrides: {
+      // A mode boundary ends the oldest run early (takeOldestModeRun) -- only the leading
+      // 'speaker' chunk is sent; the 'information' chunk after it is never part of this call.
+      transcriptChunks: [
+        { text: 'welcome everyone to the meeting.', at: now - 30000, mode: 'speaker' },
+        { text: 'The potluck is Saturday.', at: now, mode: 'information' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pending = runtime.summarizeCurrentText();
+    await flushMicrotasks();
+
+    assert.deepEqual(ctx.state.inFlightChunks.map((c) => c.text), ['welcome everyone to the meeting.']);
+    const segments = readRailSegments(container);
+    assert.equal(segments.length, 2);
+    assert.equal(segments[0].text, 'welcome everyone to the meeting.');
+    assert.equal(segments[0].dimmed, true);
+    assert.equal(segments[1].text, 'The potluck is Saturday.');
+    assert.equal(segments[1].dimmed, false, 'a chunk in a different mode was never sent, so it must not dim');
+
+    resolveSummarize({ line: '' });
+    await pending;
+  });
+});
+
 test('the summarize payload excludes an unfinished trailing sentence', async () => {
   let sentText = null;
   const succeedingDriver = {
@@ -902,6 +1271,283 @@ test('a summarize failure consumes nothing so the same text retries later', asyn
   });
 });
 
+test('a backlog well over 1000 characters is sent and consumed as one card, with nothing dropped from the head', async () => {
+  let sentText = null;
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+  const chunkA = `A speaker gives a very long announcement about the schedule for next week. ${'word '.repeat(120)}.`.trim();
+  const chunkB = `A second complete sentence continues the announcement with more detail. ${'more '.repeat(120)}.`.trim();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: chunkA, at: now - 5000, mode: 'speaker' },
+        { text: chunkB, at: now - 1000, mode: 'speaker' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    assert.ok(chunkA.length + chunkB.length > 1000, 'fixture must exceed the old 1000-char send cap');
+
+    await runtime.summarizeCurrentText();
+
+    // Sent-set equals consumed-set, asserted on the actual strings: everything pending went out in
+    // one call, and everything that went out is exactly what got consumed -- nothing left over
+    // pretending to be "not yet sent," and no silent slicing of the head.
+    assert.equal(sentText, `${chunkA} ${chunkB}`);
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+    assert.equal(ctx.state.lastSentText, sentText);
+  });
+});
+
+test('lag stays bounded at one card across several ticks of a fast speaker, not a growing backlog', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: '' })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'First utterance of the meeting is complete.', at: now - 9000, mode: 'speaker' },
+        { text: 'Second utterance also lands before the first tick.', at: now - 6000, mode: 'speaker' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+
+    // More speech arrives after the drain, at the volume a fast speaker produces between ticks.
+    ctx.state.transcriptChunks.push(
+      { text: 'Third utterance arrives after the first tick drained everything.', at: now - 3000, mode: 'speaker' },
+      { text: 'Fourth utterance keeps the bucket from ever emptying on its own.', at: now - 1000, mode: 'speaker' }
+    );
+    ctx.state.lastSentText = null;
+    await runtime.summarizeCurrentText();
+
+    // The whole pending run drained again in one card -- the bucket never accumulates a queue.
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+  });
+});
+
+test('a chunk captured before a mode change is summarized under, and labelled with, its own mode', async () => {
+  let sentMode = null;
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ mode }) => {
+      sentMode = mode;
+      return { line: 'Info announcement summarized correctly.' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      // The chunk was captured while mode was 'information'; the operator has since switched to
+      // 'speaker', which is what ctx.state.mode reads now. The card must still be summarized and
+      // labelled 'information' -- the mode active when the words were said, not read at drain time.
+      mode: 'speaker',
+      transcriptChunks: [{ text: 'A brief information announcement.', at: now - 1000, mode: 'information' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(sentMode, 'information');
+    assert.equal(ctx.state.transcriptItems.at(-1).mode, 'information');
+    assert.equal(ctx.state.mode, 'speaker');
+  });
+});
+
+test('one summarize call never receives text spanning two modes', async () => {
+  let sentText = null;
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'First speaker sentence.', at: now - 3000, mode: 'speaker' },
+        { text: 'Second speaker sentence.', at: now - 2000, mode: 'speaker' },
+        { text: 'An information announcement.', at: now - 1000, mode: 'information' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(sentText, 'First speaker sentence. Second speaker sentence.');
+    // The later mode's chunk is untouched, ready for its own call next tick.
+    assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['An information announcement.']);
+  });
+});
+
+test('the rolling window sends A, then A+B, then B+C, then C+D across four ticks, on the actual strings', async () => {
+  const seen = [];
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript, previousBlock }) => {
+      seen.push({ recentTranscript, previousBlock });
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: { transcriptChunks: [] }
+  }, async ({ ctx, runtime }) => {
+    const ticks = ['A.', 'B.', 'C.', 'D.'];
+    for (const text of ticks) {
+      ctx.state.transcriptChunks.push({ text, at: now, mode: 'speaker' });
+      ctx.state.lastSentText = null;
+      await runtime.summarizeCurrentText();
+    }
+
+    assert.deepEqual(seen, [
+      { recentTranscript: 'A.', previousBlock: '' },
+      { recentTranscript: 'B.', previousBlock: 'A.' },
+      { recentTranscript: 'C.', previousBlock: 'B.' },
+      { recentTranscript: 'D.', previousBlock: 'C.' }
+    ]);
+  });
+});
+
+test('a mode change omits the previous block entirely', async () => {
+  const seen = [];
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript, previousBlock }) => {
+      seen.push({ recentTranscript, previousBlock });
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      mode: 'speaker',
+      transcriptChunks: [{ text: 'A speaker sentence.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    assert.equal(seen[0].previousBlock, '');
+
+    ctx.state.mode = 'information';
+    ctx.state.transcriptChunks.push({ text: 'An information announcement.', at: now, mode: 'information' });
+    ctx.state.lastSentText = null;
+    await runtime.summarizeCurrentText();
+
+    // The previous block was sent under 'speaker'; this call's mode is 'information', so the
+    // previous block must be omitted rather than carried across the mode boundary as context.
+    assert.equal(seen[1].recentTranscript, 'An information announcement.');
+    assert.equal(seen[1].previousBlock, '');
+  });
+});
+
+test('a failed call does not advance the previous-block slot and consumes nothing', async () => {
+  let shouldFail = true;
+  const flakyDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript, previousBlock }) => {
+      if (shouldFail) throw new Error('network down');
+      return { line: '', recentTranscript, previousBlock };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => flakyDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'First block.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    // Failed: nothing consumed, slot never set.
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+    assert.ok(!ctx.state.lastSentBlock);
+
+    shouldFail = false;
+    let capturedPreviousBlock = 'not set';
+    flakyDriver.summarize = async ({ recentTranscript, previousBlock }) => {
+      capturedPreviousBlock = previousBlock;
+      return { line: '' };
+    };
+    await runtime.summarizeCurrentText();
+
+    // Retry succeeds: the same text that failed before is what finally goes out, with no
+    // previous block (there was never a successful prior send to remember).
+    assert.equal(capturedPreviousBlock, '');
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+    assert.deepEqual(ctx.state.lastSentBlock, { text: 'First block.', mode: 'speaker' });
+  });
+});
+
+test('nothing is consumed twice across the four-tick rolling sequence', async () => {
+  const consumedTotals = [];
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: '' })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: { transcriptChunks: [] }
+  }, async ({ ctx, runtime }) => {
+    const ticks = ['A.', 'B.', 'C.', 'D.'];
+    for (const text of ticks) {
+      ctx.state.transcriptChunks.push({ text, at: now, mode: 'speaker' });
+      ctx.state.lastSentText = null;
+      await runtime.summarizeCurrentText();
+      consumedTotals.push(ctx.state.transcriptChunks.length);
+    }
+
+    // Each tick's newly pushed chunk is fully drained by the end of that same tick -- nothing
+    // accumulates, and nothing is left behind to be consumed again on a later tick.
+    assert.deepEqual(consumedTotals, [0, 0, 0, 0]);
+  });
+});
+
+test('visible lines carries the last ten summaries, not five', async () => {
+  let seenVisibleLines = null;
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ visibleLines }) => {
+      seenVisibleLines = visibleLines;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptItems: Array.from({ length: 12 }, (_, i) => ({ text: `Line ${i}`, mode: 'speaker', source: 'ai' })),
+      transcriptChunks: [{ text: 'New block.', at: now, mode: 'speaker' }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+    assert.equal(seenVisibleLines.length, 10);
+    assert.deepEqual(seenVisibleLines, Array.from({ length: 10 }, (_, i) => `Line ${i + 2}`));
+  });
+});
+
 test('overlapping summarize calls are serialized by the in-flight guard', async () => {
   let resolveFirst;
   let calls = 0;
@@ -928,6 +1574,170 @@ test('overlapping summarize calls are serialized by the in-flight guard', async 
     resolveFirst();
     await Promise.all([first, second]);
     assert.equal(calls, 1);
+  });
+});
+
+test('a bucket trim during a sustained outage marks the rail "Speech dropped", and a later successful summarize clears it', async () => {
+  const succeedingDriver = { id: 'openai', summarize: async () => ({ line: '' }) };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      listening: true,
+      // Two chunks totalling just over BUCKET_MAX_CHARS (8000): trimBucket must drop the oldest
+      // one to get back under the cap -- the only way this repo ever loses speech (INV-13). The
+      // newest chunk ends with terminal punctuation so partitionBucket treats it as consumable
+      // immediately (otherwise, as the newest and still-unsettled chunk, it would sit in the
+      // unconsumable remainder and the summarize call below would have nothing to send).
+      transcriptChunks: [
+        { text: 'a'.repeat(5000), at: now - 20000 },
+        { text: `${'b'.repeat(4999)}.`, at: now - 1000 }
+      ]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.showRecentTranscript();
+
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+    assert.equal(ctx.state.railStatusLevel, 'dropped');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-dropped'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Speech dropped');
+    assert.match(elements.railNote.textContent, /✂/);
+    assert.match(elements.railNote.textContent, /Speech dropped/);
+    assert.match(elements.railNote.textContent, /oldest 1 chunk/);
+
+    // The trim condition genuinely ends only once the summarizer is confirmed working again --
+    // never merely because the bucket happens to sit under the cap for one tick.
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-dropped'), false);
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+    assert.equal(elements.railNote.textContent, '');
+  });
+});
+
+test('a bucket trim never clobbers a confirmed problem already showing on the rail', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      listening: true,
+      transcriptChunks: [
+        { text: 'a'.repeat(5000), at: Date.now() - 20000 },
+        { text: 'b'.repeat(5000), at: Date.now() - 1000 }
+      ]
+    }
+  }, async ({ ctx, elements, runtime }) => {
+    updateStatus(ctx, 'Microphone stopped. Switch to manual lines.', { level: 'problem' });
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
+
+    runtime.showRecentTranscript();
+
+    // The trim still happened (the data really was dropped from the bucket), but a confirmed
+    // fatal condition (INV-10) outranks an unconfirmed-by-comparison data-loss note on the
+    // single-slot rail display -- see LEVEL_RANK in view.js.
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+    assert.equal(ctx.state.railStatusLevel, 'problem');
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
+  });
+});
+
+test('a summarize call running longer than the update interval marks the rail "Running behind", and a later completed tick clears it', async () => {
+  let resolveFirst;
+  let calls = 0;
+  const driver = {
+    id: 'openai',
+    summarize: () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          resolveFirst = () => resolve({ line: '' });
+        });
+      }
+      return Promise.resolve({ line: '' });
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { listening: true }
+  }, async ({ ctx, elements, runtime }) => {
+    const first = runtime.summarizeCurrentText('first pass');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Tick 2: the previous call is still in flight -- one skip, not yet sticky-worthy (mirrors
+    // SILENCE_WATCHDOG_MS's "don't cry wolf on a single blip" reasoning).
+    await runtime.summarizeCurrentText('tick two');
+    assert.notEqual(ctx.state.railStatusLevel, 'behind');
+
+    // Tick 3: a second consecutive skip -- the wall is now more than one full interval behind.
+    await runtime.summarizeCurrentText('tick three');
+    assert.equal(ctx.state.railStatusLevel, 'behind');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-behind'), true);
+    assert.equal(elements.railStatusWord.textContent, 'Running behind');
+    assert.match(elements.railNote.textContent, /⏳/);
+    assert.match(elements.railNote.textContent, /Running behind/);
+
+    // The stalled call finally resolving successfully is the confirmed proof the wall has caught
+    // up -- clearing here, not merely because a later tick started, is the honest version: a call
+    // that starts late and then FAILS must leave "Running behind" exactly as it was (see the next
+    // test), so recovery has to be gated on success, not on attempt.
+    resolveFirst();
+    await first;
+    assert.equal(calls, 1);
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-behind'), false);
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+    assert.equal(elements.railNote.textContent, '');
+  });
+});
+
+test('a "Running behind" note is NOT cleared by a late attempt that goes on to fail -- only by one that succeeds', async () => {
+  let resolveFirst;
+  let rejectSecond;
+  let calls = 0;
+  const driver = {
+    id: 'openai',
+    summarize: () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          resolveFirst = () => resolve({ line: '' });
+        });
+      }
+      return new Promise((_resolve, reject) => {
+        rejectSecond = () => reject(new Error('provider still unhappy'));
+      });
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { listening: true }
+  }, async ({ ctx, runtime }) => {
+    const first = runtime.summarizeCurrentText('first pass');
+    await new Promise((resolve) => setImmediate(resolve));
+    await runtime.summarizeCurrentText('tick two');
+    await runtime.summarizeCurrentText('tick three');
+    assert.equal(ctx.state.railStatusLevel, 'behind');
+
+    resolveFirst();
+    await first;
+    assert.equal(ctx.state.railStatusLevel, 'listening', 'the stalled call succeeded, so this clears normally');
+
+    // Now force a fresh, genuinely late-and-failing attempt: two skipped ticks re-arm "behind",
+    // then the attempt that finally gets to run fails instead of succeeding.
+    const second = runtime.summarizeCurrentText('tick four');
+    await new Promise((resolve) => setImmediate(resolve));
+    await runtime.summarizeCurrentText('tick five');
+    await runtime.summarizeCurrentText('tick six');
+    assert.equal(ctx.state.railStatusLevel, 'behind');
+
+    rejectSecond();
+    await second;
+    assert.equal(calls, 2);
+    // The attempt started (proving the loop wasn't permanently stuck) but then FAILED, so the
+    // wall really is still behind -- the note must still be showing, not optimistically cleared.
+    assert.equal(ctx.state.railStatusLevel, 'behind');
   });
 });
 

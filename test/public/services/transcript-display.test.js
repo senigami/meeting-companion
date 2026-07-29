@@ -55,3 +55,114 @@ test('a title or initial does not end a sentence, so no card ever reads just "Br
     ['We began with a hymn.', 'Then the bishop spoke.']
   );
 });
+
+test('a dotted time-of-day abbreviation does not sever the clause that follows it', () => {
+  // The exact bug seen live on the wall: "a.m." was splitting into "a." + "m.", and even after
+  // those merged back into one token, the following lowercase clause ("in the chapel.") was left
+  // as its own stranded card, severing the funeral's location from the funeral.
+  assert.deepEqual(
+    segmentTranscriptText('The funeral service for Tom is Thursday at 11:00 a.m. in the chapel.'),
+    ['The funeral service for Tom is Thursday at 11:00 a.m. in the chapel.']
+  );
+});
+
+test('p.m. keeps its lowercase continuation on the same card', () => {
+  assert.deepEqual(
+    segmentTranscriptText('The meeting starts at 3 p.m. in the main hall.'),
+    ['The meeting starts at 3 p.m. in the main hall.']
+  );
+});
+
+test('e.g. and i.e. keep their lowercase continuation on the same card', () => {
+  assert.deepEqual(
+    segmentTranscriptText('See the bulletin, e.g. the calendar on page two.'),
+    ['See the bulletin, e.g. the calendar on page two.']
+  );
+  assert.deepEqual(
+    segmentTranscriptText('Please review, i.e. read the whole memo, before Friday.'),
+    ['Please review, i.e. read the whole memo, before Friday.']
+  );
+});
+
+test('a genuinely new sentence after a.m./p.m. still splits, because it starts with a capital', () => {
+  // "Bring" is a new, capitalized sentence -- the lowercase-continuation guard must not eat it.
+  assert.deepEqual(
+    segmentTranscriptText('The potluck starts at 6 p.m. Bring a dish to share.'),
+    ['The potluck starts at 6 p.m.', 'Bring a dish to share.']
+  );
+});
+
+test('no split-off fragment ever begins a card in lowercase', () => {
+  // A raw, punctuation-light run where a period lands mid-clause (no known abbreviation involved)
+  // must still keep the lowercase tail attached to its sentence rather than starting its own card.
+  assert.deepEqual(
+    segmentTranscriptText('The item was marked ready. even though the paperwork was still open.'),
+    ['The item was marked ready. even though the paperwork was still open.']
+  );
+});
+
+test('one AI response is one card, even the funeral line that used to orphan its location', () => {
+  const items = createTranscriptItems({
+    text: 'The funeral service for Tom is Thursday at 11:00 a.m. in the chapel.',
+    mode: 'information',
+    source: 'ai',
+    createdAt: 1
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, 'The funeral service for Tom is Thursday at 11:00 a.m. in the chapel.');
+});
+
+test('a two-sentence AI response is one card, not two -- one model response, one card', () => {
+  const items = createTranscriptItems({
+    text: 'Welcome everyone. Please sit down.',
+    mode: 'information',
+    source: 'ai',
+    createdAt: 1
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, 'Welcome everyone. Please sit down.');
+});
+
+test('multi-sentence RAW/manual input still splits into one card per sentence (regression)', () => {
+  const items = createTranscriptItems({
+    text: 'Welcome everyone. Please sit down.',
+    mode: 'information',
+    source: 'manual',
+    createdAt: 123
+  });
+
+  assert.equal(items.length, 2);
+  assert.equal(items[0].text, 'Welcome everyone.');
+  assert.equal(items[1].text, 'Please sit down.');
+});
+
+test('lowercase-continuation guard still holds for raw/manual text', () => {
+  const items = createTranscriptItems({
+    text: 'The item was marked ready. even though the paperwork was still open.',
+    mode: 'information',
+    source: 'manual',
+    createdAt: 1
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, 'The item was marked ready. even though the paperwork was still open.');
+});
+
+test('an over-length AI response still gets width-wrapped by the runaway-length safety bound', () => {
+  const runawayLine =
+    'This is a runaway model response that ignored its own word limit and kept going on and on ' +
+    'well past what any obedient fourteen-word line would ever produce, so it must still be ' +
+    'wrapped for legibility even though it is a single sentence with no internal punctuation break.';
+
+  const items = createTranscriptItems({
+    text: runawayLine,
+    mode: 'information',
+    source: 'ai',
+    createdAt: 1
+  });
+
+  assert.ok(items.length > 1, 'a runaway AI line must still be width-wrapped');
+  assert.ok(items.every((item) => item.text.length <= 240));
+});

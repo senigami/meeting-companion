@@ -238,11 +238,27 @@ html.is-resizing-rail .railResizeHandle::before {
   --rail-status-color: #ffd60a;
 }
 
+.railStatusDot.is-level-dropped {
+  /* chrome literal: a distinct orange -- confirmed data loss (INV-13), so it reads as more urgent
+     than the unconfirmed silence gold, but a different hue from the fatal problem-red since the
+     app is still running and listening, not stopped. */
+  --rail-status-color: #ff9f0a;
+}
+
+.railStatusDot.is-level-behind {
+  /* chrome literal: a distinct blue -- a confirmed but non-destructive scheduling fact (no speech
+     lost, the wall is just late), so it deliberately reads as neither red/orange (loss) nor
+     gold (unconfirmed) but its own calm, informational hue. */
+  --rail-status-color: #5ac8fa;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .railStatusDot.is-level-listening,
   .railStatusDot.is-level-paused,
   .railStatusDot.is-level-manual,
   .railStatusDot.is-level-problem,
+  .railStatusDot.is-level-dropped,
+  .railStatusDot.is-level-behind,
   .railStatusDot.is-level-silence {
     animation: railStatusPulse 480ms ease-out;
   }
@@ -296,6 +312,25 @@ html.is-resizing-rail .railResizeHandle::before {
      4.89:1 for .is-problem's #ff453a (same formula reproduced that figure exactly). Comfortably
      passes WCAG AA (4.5:1) for this 12px text. */
   color: #ffd60a;
+  font-weight: 600;
+}
+
+.railNote.is-dropped {
+  /* chrome literal: matches --rail-status-color for .is-level-dropped. #ff9f0a against
+     --chrome-bg (#1e1e1e) computes to ~8.1:1 by the WCAG relative-luminance formula (hand
+     calculation, not yet re-verified live in-browser the way .is-problem/.is-silence's figures
+     were) -- comfortably clears AA (4.5:1) for 12px text, an orange distinct from the problem-red,
+     matching this being confirmed data loss (INV-13). */
+  color: #ff9f0a;
+  font-weight: 600;
+}
+
+.railNote.is-behind {
+  /* chrome literal: matches --rail-status-color for .is-level-behind. #5ac8fa against
+     --chrome-bg (#1e1e1e) computes to ~8.8:1 by the WCAG relative-luminance formula (hand
+     calculation, not yet re-verified live in-browser) -- comfortably clears AA (4.5:1) for 12px
+     text, a calm informational blue since no speech has been lost here, only delayed. */
+  color: #5ac8fa;
   font-weight: 600;
 }
 
