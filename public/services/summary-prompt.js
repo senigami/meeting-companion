@@ -129,7 +129,11 @@ speaker used one, write what it means instead of what they said.
 Name the person rather than writing "he", "she", or "they", unless the name is on a visible line
 directly above.
 One idea per line. Active voice. Do not join two thoughts with "and" or a semicolon.
-Maximum ${wordLimit} words, and fewer whenever fewer will do.
+Maximum ${wordLimit} words, and fewer whenever fewer will do. Count the words in your line before
+returning it: if it is longer than ${wordLimit} words, cut whole words from the end until it is
+not, rather than returning it as written. Never cut a name, date, time, hymn number, scripture
+reference, or assignment to make room -- if the line cannot hold ${wordLimit} words AND every
+required detail verbatim, drop a surrounding word instead, never the detail.
 Do not add information.
 If nothing new or useful was communicated, return an empty string.
 Do not repeat what a visible line already says.

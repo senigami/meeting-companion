@@ -253,7 +253,7 @@ export function createAudioConditioner({
     rawStream = inputStream;
     bypassed = true;
 
-    if (currentSettings.audioBypassForTest) {
+    if (!currentSettings.audioConditioningEnabled) {
       diagnostic('Audio processing bypassed by setting; transcription receives the raw microphone stream.');
       return rawStream;
     }

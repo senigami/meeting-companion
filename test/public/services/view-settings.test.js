@@ -149,6 +149,6 @@ test('audio settings defaults match the brief exactly', () => {
     audioBrowserAgc: true,
     audioBrowserNoiseSuppression: false,
     audioBrowserEchoCancel: false,
-    audioBypassForTest: false
+    audioConditioningEnabled: false
   });
 });

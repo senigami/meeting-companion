@@ -171,11 +171,24 @@ function makeFakeContext({ withDestination = true, withSource = true } = {}) {
   return ctx;
 }
 
-test('connect returns the raw stream unchanged when audioBypassForTest is set (real bypass)', () => {
+test('connect returns the raw stream unchanged by default (audioConditioningEnabled unset -- the shipped default)', () => {
   const rawStream = { id: 'raw' };
   const conditioner = createAudioConditioner({
     audioContextFactory: () => makeFakeContext(),
-    settings: { audioBypassForTest: true },
+    settings: {},
+    now: () => 0
+  });
+  const result = conditioner.connect(rawStream);
+  assert.equal(result, rawStream);
+  assert.doesNotThrow(() => conditioner.readLevels());
+  conditioner.close();
+});
+
+test('connect returns the raw stream unchanged when audioConditioningEnabled is explicitly false (real bypass)', () => {
+  const rawStream = { id: 'raw' };
+  const conditioner = createAudioConditioner({
+    audioContextFactory: () => makeFakeContext(),
+    settings: { audioConditioningEnabled: false },
     now: () => 0
   });
   const result = conditioner.connect(rawStream);
@@ -186,7 +199,11 @@ test('connect returns the raw stream unchanged when audioBypassForTest is set (r
 
 test('connect returns the raw stream when no AudioContext factory is available', () => {
   const rawStream = { id: 'raw' };
-  const conditioner = createAudioConditioner({ audioContextFactory: undefined, settings: {}, now: () => 0 });
+  const conditioner = createAudioConditioner({
+    audioContextFactory: undefined,
+    settings: { audioConditioningEnabled: true },
+    now: () => 0
+  });
   const result = conditioner.connect(rawStream);
   assert.equal(result, rawStream);
 });
@@ -195,7 +212,7 @@ test('connect returns the raw stream when AudioContext construction throws', () 
   const rawStream = { id: 'raw' };
   const conditioner = createAudioConditioner({
     audioContextFactory: () => { throw new Error('not allowed'); },
-    settings: {},
+    settings: { audioConditioningEnabled: true },
     now: () => 0
   });
   const result = conditioner.connect(rawStream);
@@ -206,18 +223,18 @@ test('connect returns the raw stream when MediaStreamAudioDestinationNode is una
   const rawStream = { id: 'raw' };
   const conditioner = createAudioConditioner({
     audioContextFactory: () => makeFakeContext({ withDestination: false }),
-    settings: {},
+    settings: { audioConditioningEnabled: true },
     now: () => 0
   });
   const result = conditioner.connect(rawStream);
   assert.equal(result, rawStream);
 });
 
-test('connect builds the graph and returns the conditioned destination stream when everything is available', () => {
+test('connect builds the graph and returns the conditioned destination stream when conditioning is enabled and everything is available', () => {
   const rawStream = { id: 'raw' };
   const conditioner = createAudioConditioner({
     audioContextFactory: () => makeFakeContext(),
-    settings: { audioProcessingPreset: 'normal' },
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'normal' },
     now: () => 0
   });
   const result = conditioner.connect(rawStream);
@@ -230,7 +247,7 @@ test('update() re-tunes live without needing a new connect() call, and never thr
   const rawStream = { id: 'raw' };
   const conditioner = createAudioConditioner({
     audioContextFactory: () => makeFakeContext(),
-    settings: { audioProcessingPreset: 'gentle' },
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
     now: () => 0
   });
   conditioner.connect(rawStream);
@@ -239,7 +256,7 @@ test('update() re-tunes live without needing a new connect() call, and never thr
 
   const bypassConditioner = createAudioConditioner({
     audioContextFactory: () => makeFakeContext(),
-    settings: { audioBypassForTest: true },
+    settings: { audioConditioningEnabled: false },
     now: () => 0
   });
   bypassConditioner.connect(rawStream);
@@ -250,7 +267,7 @@ test('measurement loop: a fully silent signal reads IDLE, never LOW, after a rea
   const ctx = makeFakeContext();
   const conditioner = createAudioConditioner({
     audioContextFactory: () => ctx,
-    settings: { audioProcessingPreset: 'gentle' },
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
     now: () => Date.now(),
     onDiagnostics: () => {}
   });
@@ -274,7 +291,7 @@ test('measurement loop: a near-full-scale signal registers a clip and CLIPPING c
   });
   const conditioner = createAudioConditioner({
     audioContextFactory: () => ctx,
-    settings: { audioProcessingPreset: 'gentle' },
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
     now: () => Date.now(),
     onDiagnostics: () => {}
   });

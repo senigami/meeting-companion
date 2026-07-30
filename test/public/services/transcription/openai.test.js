@@ -326,7 +326,7 @@ test('MediaRecorder receives the conditioned stream when a real AudioContext-lik
     const conditionedStream = { id: 'conditioned', getTracks: () => [] };
     const driver = createOpenAITranscriptionDriver({
       chunkMs: 3500,
-      audioSettings: { audioProcessingPreset: 'gentle' },
+      audioSettings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
       audioContextFactory: () => makeFakeConditionedContext(conditionedStream)
     });
     await driver.start({ currentMode: 'speaker' });
@@ -336,11 +336,25 @@ test('MediaRecorder receives the conditioned stream when a real AudioContext-lik
   });
 });
 
-test('MediaRecorder receives the raw stream, a genuine passthrough, when audioBypassForTest is set', async () => {
+test('MediaRecorder receives the raw stream, a genuine passthrough, when audioConditioningEnabled is false', async () => {
   await withFakeNavigatorAndRecorder(async (getRecorder) => {
     const driver = createOpenAITranscriptionDriver({
       chunkMs: 3500,
-      audioSettings: { audioBypassForTest: true },
+      audioSettings: { audioConditioningEnabled: false },
+      audioContextFactory: () => makeFakeConditionedContext({ id: 'conditioned-should-not-be-used' })
+    });
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+    assert.notEqual(recorder.stream?.id, 'conditioned-should-not-be-used');
+    await driver.stop();
+  });
+});
+
+test('MediaRecorder receives the raw stream by default -- audioConditioningEnabled unset is the shipped bypass default', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: {},
       audioContextFactory: () => makeFakeConditionedContext({ id: 'conditioned-should-not-be-used' })
     });
     await driver.start({ currentMode: 'speaker' });

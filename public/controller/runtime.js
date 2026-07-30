@@ -10,6 +10,7 @@ import {
 import { fetchWithTimeout } from '../services/fetch-timeout.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
+  AUDIO_SETTINGS_KEYS,
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds,
@@ -65,7 +66,7 @@ const STORAGE = {
   audioBrowserAgc: 'audioBrowserAgc',
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
-  audioBypassForTest: 'audioBypassForTest'
+  audioConditioningEnabled: 'audioConditioningEnabled'
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
@@ -388,9 +389,37 @@ export function createRuntime(ctx, deps = {}) {
     showRecentTranscript();
   }
 
+  // Pulls the nine ctx.state.audio* values into the plain object the driver expects, keyed from
+  // AUDIO_SETTINGS_KEYS (view-settings.js) rather than a fourth hand-typed literal -- three copies
+  // of these key names already exist (AUDIO_SETTINGS_DEFAULTS, and the two STORAGE maps in this
+  // file and start-app.js) and a name added to one but not the others is exactly the defect class
+  // Cato's gate caught upstream (summarizationSourceChosen, 2026-07-xx).
+  function buildAudioSettings() {
+    const settings = {};
+    for (const key of AUDIO_SETTINGS_KEYS) settings[key] = ctx.state[key];
+    return settings;
+  }
+
   function buildTranscriptionDriver() {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
+      audioSettings: buildAudioSettings(),
+      // Only `openai.js`'s driver reads these two; other drivers ignore unknown options. The
+      // constraints-granted report fires once per start() call, so it is safe to surface through
+      // the existing (non-rail) #status text -- passing no `level` means updateStatus only writes
+      // ctx.dom.status.textContent and never touches the operator rail, which is Marlow's surface.
+      // Every other diagnostic from this module (measurement-failure fallbacks, graph-setup
+      // failures, the audio-shedding backlog warning) can recur every ~500ms under sustained
+      // failure -- routing those to the rail would be exactly the per-chunk spam INV-10 exists to
+      // prevent, so they go to console only until Marlow designs a dedicated, throttled surface
+      // for them. That handoff is not built here.
+      onAudioDiagnostics: ({ message } = {}) => {
+        if (!message) return;
+        console.warn('[audio]', message);
+        if (message.startsWith('Microphone constraints granted')) {
+          updateStatus(ctx, message);
+        }
+      },
       // A driver may state its own level. Sniffing prose with transcriptionStatusLevel() was the
       // only channel until now, and it silently misses anything phrased outside its regex -- a
       // driver shedding audio to catch up says something serious in words the classifier does not

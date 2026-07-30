@@ -8,15 +8,16 @@ import { TERMINAL_END } from '../transcript-bucket.js';
 //
 // NOT: this is not an offline AI summarizer. It never invents or paraphrases.
 // It selects the earliest complete sentence that was actually said and has not
-// been shown yet, one per tick, in the order spoken, and shortens it only at a
-// clause boundary if it exceeds the shared display word limit. If nothing
-// complete is available yet it says so and waits for the next tick rather than
-// emitting a fragment.
+// been shown yet, one per tick, in the order spoken, and shortens it, if it
+// exceeds the shared display word limit, at whichever boundary keeps more of
+// what was actually said -- see fitToWordLimit below. If nothing complete is
+// available yet it says so and waits for the next tick rather than emitting a
+// fragment.
 
-// A clause boundary is the only place this may shorten a long sentence. Cutting at a comma, a
-// semicolon or a dash leaves something that still reads as a phrase someone said; cutting at an
-// arbitrary word does not. No ellipsis is ever added -- an earlier version truncated at 72
-// characters with a "..." and it looked like the line had been mangled rather than shortened.
+// A clause boundary (comma, semicolon, dash) or a trimmed word boundary are the only two places
+// this may shorten a long sentence -- see fitToWordLimit for how it picks between them. Either way
+// no ellipsis is ever added -- an earlier version truncated at 72 characters with a "..." and it
+// looked like the line had been mangled rather than shortened.
 const CLAUSE_BREAK = /[,;:—-]\s+/g;
 
 // Only true non-words are dropped from the front of a sentence. An earlier version also stripped
@@ -50,11 +51,42 @@ function wordCount(text) {
   return String(text).trim().split(/\s+/).filter(Boolean).length;
 }
 
+// Function words that must never be the last word on a card: a reader who lands on "...in your
+// thoughts and prayers over the" is left holding an unresolved fragment, which is exactly the
+// working-memory cost the topic-first contract exists to avoid. Trimmed only off the END of a cut
+// this function makes -- never off the front (stripFillerOpener owns that) and never mid-sentence,
+// since the words are only ever dangling because a card boundary landed after them, not because the
+// speaker actually ended on one.
+const DANGLING_TAIL_WORD = /^(a|an|the|and|but|or|nor|so|yet|for|because|if|that|which|who|whom|whose|when|while|since|although|though|unless|until|in|on|at|to|of|with|over|under|about|from|into|onto|upon|than|by|during|through|before|after|between|among|without|within|throughout|against|along|across|around|near)$/i;
+
+function trimDanglingTail(words) {
+  const trimmed = [...words];
+  // Keep at least two words: a dangling function word is a worse ending than an early cut, but an
+  // empty card is worse than either, so trimming never runs the line all the way to nothing.
+  while (trimmed.length > 2 && DANGLING_TAIL_WORD.test(trimmed[trimmed.length - 1].replace(/[,;:—-]+$/, ''))) {
+    trimmed.pop();
+  }
+  return trimmed;
+}
+
+function stripTrailingClausePunctuation(text) {
+  return text.replace(/[,;:—-]+$/, '').trim();
+}
+
 // Brings a sentence inside SUMMARY_MAX_WORDS, which is the same limit the real summarizers are
-// instructed to hold. Prefers the longest run of whole clauses that fits; only if even the first
-// clause is too long does it fall back to a word-boundary cut. This is where the demo differs
-// honestly from a real summarizer: a model would rewrite the sentence shorter, and this cannot, so
-// it keeps the opening of what was actually said rather than inventing a shorter version of it.
+// instructed to hold. Two candidates are built and the one that keeps more of what was actually
+// said wins:
+//  - the longest run of whole clauses that fits (reads as a phrase someone said, at the cost of
+//    sometimes being far shorter than the budget -- an early short clause used to win outright,
+//    which is how "So this week we want to remember our friends..." collapsed to a whole card
+//    reading just "So this week");
+//  - a word-boundary cut at the limit, with any trailing function word (a preposition, article,
+//    conjunction, or relative pronoun) trimmed off the end -- the earlier version kept it, which is
+//    how a card ended on "...in your thoughts and prayers over the".
+// Ties go to the clause boundary, since it is the cleaner cut when both keep the same amount of the
+// sentence. This is where the demo differs honestly from a real summarizer: a model would rewrite
+// the sentence shorter, and this cannot, so it keeps the opening of what was actually said rather
+// than inventing a shorter version of it.
 function fitToWordLimit(sentence, maxWords = SUMMARY_MAX_WORDS) {
   if (wordCount(sentence) <= maxWords) return sentence;
 
@@ -64,15 +96,20 @@ function fitToWordLimit(sentence, maxWords = SUMMARY_MAX_WORDS) {
   // Always slice from the start of the sentence rather than stitching clause pieces together, so
   // the kept text is byte-for-byte what was said -- an earlier stitch dropped the comma out of
   // "Before we begin, a warm welcome..." while reassembling it.
-  let best = '';
+  let bestClause = '';
   for (const match of body.matchAll(CLAUSE_BREAK)) {
     const run = body.slice(0, match.index).trim();
     if (!run || wordCount(run) > maxWords) break;
-    best = run;
+    bestClause = run;
   }
 
-  if (best) return best;
-  return body.trim().split(/\s+/).filter(Boolean).slice(0, maxWords).join(' ');
+  const bodyWords = body.trim().split(/\s+/).filter(Boolean);
+  const wordSliceCandidate = stripTrailingClausePunctuation(
+    trimDanglingTail(bodyWords.slice(0, maxWords)).join(' ')
+  );
+
+  if (wordCount(wordSliceCandidate) > wordCount(bestClause)) return wordSliceCandidate;
+  return bestClause || wordSliceCandidate;
 }
 
 // Returns the earliest unshown complete sentence, brought inside the word limit. ONE sentence, not

@@ -100,6 +100,16 @@ export function clampAudioBoolean(value, fallback) {
   return fallback;
 }
 
+// audioConditioningEnabled defaults to false: the conditioning graph in
+// public/services/audio-processing.js has never run against real hardware, and this app's real
+// end user is a Deaf adult relying on the transcript in a live, un-repeatable meeting -- an
+// untested Web Audio graph between the mic and the recorder can only degrade what he cannot
+// sanity-check. Defaulting to disabled restores exactly the pre-wiring capture behaviour (raw
+// stream straight to the recorder) and makes the graph opt-in once someone verifies it in a real
+// browser/room. The other eight values stay configured (not neutered) so switching this one flag
+// is all a tested rollout needs. See .agent/janus-audio-wiring-20260729.md for the full reasoning
+// and what remains an ask-first call (the browser-level AGC/noise-suppression/echo-cancel
+// constraint values, which are a room-acoustics judgment, not a data-safety one).
 export const AUDIO_SETTINGS_DEFAULTS = {
   audioProcessingPreset: 'gentle',
   audioHighPassEnabled: true,
@@ -109,5 +119,11 @@ export const AUDIO_SETTINGS_DEFAULTS = {
   audioBrowserAgc: true,
   audioBrowserNoiseSuppression: false,
   audioBrowserEchoCancel: false,
-  audioBypassForTest: false
+  audioConditioningEnabled: false
 };
+
+// Single source of truth for the nine audio-settings key names, so any call site that needs to
+// pluck ctx.state.audio* into a plain settings object (e.g. runtime.js's buildTranscriptionDriver)
+// derives the list from here instead of hand-typing a fourth copy that can drift from this table,
+// STORAGE (start-app.js), and STORAGE (runtime.js).
+export const AUDIO_SETTINGS_KEYS = Object.keys(AUDIO_SETTINGS_DEFAULTS);

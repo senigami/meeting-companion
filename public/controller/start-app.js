@@ -53,7 +53,7 @@ const STORAGE = {
   audioBrowserAgc: 'audioBrowserAgc',
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
-  audioBypassForTest: 'audioBypassForTest'
+  audioConditioningEnabled: 'audioConditioningEnabled'
 };
 
 export function startApp() {
@@ -106,7 +106,7 @@ export function startApp() {
       audioBrowserAgc: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserAgc), AUDIO_SETTINGS_DEFAULTS.audioBrowserAgc),
       audioBrowserNoiseSuppression: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserNoiseSuppression), AUDIO_SETTINGS_DEFAULTS.audioBrowserNoiseSuppression),
       audioBrowserEchoCancel: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserEchoCancel), AUDIO_SETTINGS_DEFAULTS.audioBrowserEchoCancel),
-      audioBypassForTest: clampAudioBoolean(localStorage.getItem(STORAGE.audioBypassForTest), AUDIO_SETTINGS_DEFAULTS.audioBypassForTest)
+      audioConditioningEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioConditioningEnabled), AUDIO_SETTINGS_DEFAULTS.audioConditioningEnabled)
     },
     dom: {
       display: $('display'),

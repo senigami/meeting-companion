@@ -536,6 +536,83 @@ test('a driver that states its own status level is believed over the prose class
   });
 });
 
+test('buildTranscriptionDriver passes the nine ctx.state.audio* values through as audioSettings', async () => {
+  let capturedDeps = null;
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptionSource: 'openai',
+      openAiReady: true,
+      audioProcessingPreset: 'normal',
+      audioHighPassEnabled: false,
+      audioHighPassHz: 120,
+      audioCompressorEnabled: false,
+      audioLimiterEnabled: false,
+      audioBrowserAgc: false,
+      audioBrowserNoiseSuppression: true,
+      audioBrowserEchoCancel: true,
+      audioConditioningEnabled: true
+    },
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ runtime }) => {
+    await runtime.startListening();
+
+    assert.deepEqual(capturedDeps.audioSettings, {
+      audioProcessingPreset: 'normal',
+      audioHighPassEnabled: false,
+      audioHighPassHz: 120,
+      audioCompressorEnabled: false,
+      audioLimiterEnabled: false,
+      audioBrowserAgc: false,
+      audioBrowserNoiseSuppression: true,
+      audioBrowserEchoCancel: true,
+      audioConditioningEnabled: true
+    });
+    assert.equal(typeof capturedDeps.onAudioDiagnostics, 'function');
+  });
+});
+
+test('the once-per-start microphone-constraints diagnostic reaches #status without touching the rail; other diagnostics do not', async () => {
+  let capturedDeps = null;
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'openai', openAiReady: true },
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    const priorLevel = elements.railStatusWord.textContent;
+    capturedDeps.onAudioDiagnostics({ message: 'Microphone constraints granted: autoGainControl=true' });
+    assert.equal(elements.status.textContent, 'Microphone constraints granted: autoGainControl=true');
+    assert.equal(elements.railStatusWord.textContent, priorLevel);
+
+    capturedDeps.onAudioDiagnostics({ message: 'Level measurement failed (x); AGC paused, capture continues.' });
+    assert.equal(elements.status.textContent, 'Microphone constraints granted: autoGainControl=true');
+  });
+});
+
 test('the transcription driver is given a mode setter it can use to change the active summarization mode', async () => {
   let capturedOnModeChange = null;
   const driver = {

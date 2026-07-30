@@ -61,16 +61,33 @@ test('holds the shared 14-word display limit, shortening a long sentence at a cl
   assert.ok(!result.line.includes('\u2026'));
 });
 
-test('falls back to a word-boundary cut only when even the first clause is too long', async () => {
+test('falls back to a word-boundary cut when even the first clause is too long, trimming a dangling function word off the end', async () => {
   const summarizer = createDemoSummarizer();
   const result = await summarizer.summarize({
     recentTranscript: 'The speaker described a very long and detailed story about a mission trip to a small village where the community gathered to help.',
     visibleLines: []
   });
 
-  assert.equal(result.line.split(/\s+/).length, SUMMARY_MAX_WORDS);
+  // The raw 14-word slice would end on the preposition "to" ("...a mission trip to"); trimming the
+  // dangling function word off the end leaves 13 words ending on a noun instead.
+  assert.equal(result.line, 'The speaker described a very long and detailed story about a mission trip');
+  assert.ok(result.line.split(/\s+/).length < SUMMARY_MAX_WORDS);
   assert.ok(!result.line.includes('...'));
   assert.ok('The speaker described a very long and detailed story about a mission trip to a small village where the community gathered to help.'.startsWith(result.line));
+});
+
+test('prefers a fuller word-boundary cut over a short early clause, so an opening clause does not swallow the whole card', async () => {
+  const summarizer = createDemoSummarizer();
+  const result = await summarizer.summarize({
+    recentTranscript: 'So this week, we want to remember our friends and family serving away from home and keep them in our thoughts and prayers.',
+    visibleLines: []
+  });
+
+  // The first clause ("So this week") is only 3 words -- accepting it outright would waste most of
+  // the card, which is the bug this replaced. Never ends on a dangling function word either.
+  assert.notEqual(result.line, 'So this week');
+  assert.ok(result.line.split(/\s+/).length >= 10);
+  assert.ok(!/\b(a|an|the|and|but|or|so|because|if|to|of|with|from|over|under|about)$/i.test(result.line));
 });
 
 test('respects a passed maxWords rather than always using the shared default', async () => {
