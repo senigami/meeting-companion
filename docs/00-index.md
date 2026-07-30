@@ -13,6 +13,7 @@
 | [docs/05-code-organization.md](05-code-organization.md) | Folder layout, module boundaries, and mirrored test layout. |
 | [docs/06-test-strategy.md](06-test-strategy.md) | What is unit-tested, what is verified manually, and where tests live. |
 | [docs/07-ai-and-privacy.md](07-ai-and-privacy.md) | Browser/OpenAI source model, prompt rules, and privacy defaults. |
+| [docs/backlog.md](backlog.md) | Captured ideas not yet started, written to become GitHub issues. Not a spec — nothing there is agreed behavior. |
 
 ## Product Summary
 
