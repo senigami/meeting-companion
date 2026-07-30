@@ -18,13 +18,20 @@ export function createRecordingSessionId(at = Date.now()) {
 // chunk's own capture timestamp (already unique per chunk -- see appendUniqueChunk/nowFn in
 // runtime.js) so a summary record's consumedIds can point back at the exact chunks it drained,
 // without inventing a second id scheme.
-export function buildChunkRecord({ at, mode, text }) {
+// `inferred` (default false) marks a record whose text was NOT what the speech engine reported --
+// currently only the sentence-end-on-silence follow-up in runtime.js, which appends a period after
+// SENTENCE_END_SILENCE_MS of no recognition events and re-queues a record sharing the same `id` so
+// it can be tied back to the original, byte-verbatim spoken record. Never silently fabricate text
+// into these recordings without this flag -- they are the evidence used to compare microphones and
+// prompts, and an unmarked inferred character would poison that comparison.
+export function buildChunkRecord({ at, mode, text, inferred = false }) {
   return {
     t: 'chunk',
     at: new Date(at).toISOString(),
     id: String(at),
     mode: mode || null,
-    text: text || ''
+    text: text || '',
+    inferred: Boolean(inferred)
   };
 }
 

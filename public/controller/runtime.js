@@ -44,6 +44,7 @@ import {
 } from './view.js';
 import {
   BUCKET_SETTLE_MS,
+  TERMINAL_END,
   bucketText,
   partitionBucket,
   removeConsumed,
@@ -104,6 +105,29 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // genuinely unplugged mic or a silently-crashed speech engine is caught within under a minute
 // instead of running the rest of the service showing a calm, wrong "Listening."
 const SILENCE_WATCHDOG_MS = 45000;
+
+// Steve's ruling (2026-07-30): a period should be inserted after 3 seconds of no audio. Chrome's
+// Web Speech API frequently never punctuates an utterance at all, so without this,
+// partitionBucket's own punctuation rule holds the newest chunk hostage for the full
+// BUCKET_SETTLE_MS (20s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
+// chunk arrives and appears to start a fresh sentence while the unpunctuated tail from before it
+// is still sitting unsent. Exported (not a buried literal) because Ansel may revise the number
+// after measuring real pause lengths.
+//
+// The substitution Steve cleared: "no audio" is not observable on this path (Chrome exposes no
+// levels for its own internal mic), so the trigger is "3 seconds with no new recognition event of
+// any kind, partial or final" -- Chrome emits partials continuously while it hears speech, so
+// absence of events is a sound proxy for silence here. Real audio-level silence detection stays
+// out of scope for this path; the OpenAI path, which owns its own capture, can do better later.
+export const SENTENCE_END_SILENCE_MS = 3000;
+
+// Poll cadence for the sentence-end check above -- deliberately finer than
+// SILENCE_CHECK_INTERVAL_MS's 5s, since a 3s trigger polled only every 5s would frequently fire
+// 2-8s late. Bundled into the SAME start/stop lifecycle as the silence watchdog
+// (startSilenceWatchdog/stopSilenceWatchdog) rather than given its own start/stop call sites, so
+// there is exactly one place that decides "we are live and should be watching the event stream,"
+// not two watchdogs that could independently drift out of sync about whether they are running.
+const SENTENCE_END_CHECK_INTERVAL_MS = 500;
 
 // ~20Hz, matching the conditioner's own measurement cadence (audio-processing.js) -- fast enough
 // to read as live, not so fast it burns cycles on a settings pane nobody is actively watching.
@@ -417,15 +441,62 @@ export function createRuntime(ctx, deps = {}) {
     scheduleSilenceCheck();
   }
 
+  function scheduleSentenceEndCheck() {
+    ctx.state.sentenceEndTimer = setTimeoutFn(checkSentenceEndSilence, SENTENCE_END_CHECK_INTERVAL_MS);
+    ctx.state.sentenceEndTimer?.unref?.();
+  }
+
+  // Punctuates the newest transcript chunk once SENTENCE_END_SILENCE_MS has passed with no new
+  // recognition event (partial or final) -- see the constant's own comment above for the why.
+  // Deliberately does NOT touch BUCKET_SETTLE_MS or partitionBucket's punctuation rule: this only
+  // makes chunks legitimately end in terminal punctuation so that existing rule fires on them
+  // exactly as it would for a sentence Chrome punctuated itself.
+  //
+  // Idempotent by construction, not by a separate flag: once this appends ".", the very next call
+  // sees a chunk that already matches TERMINAL_END and returns before touching it again -- the
+  // same test partitionBucket itself uses, so this can never disagree with what "already ended"
+  // means there.
+  function checkSentenceEndSilence() {
+    // Mirrors checkSilence's own guard exactly (never fires while paused or stopped). Deliberately
+    // has no separate replay/live check: startSilenceWatchdog -- which is the only place this timer
+    // is scheduled -- is itself only ever called once the driver has confirmed it is a live
+    // capture, so a replay session never starts this timer in the first place, and no fabricated
+    // sentence end can leak into replayed/recorded data.
+    if (!ctx.state.listening || ctx.state.paused) return;
+    scheduleSentenceEndCheck();
+
+    const chunks = ctx.state.transcriptChunks;
+    const newest = chunks[chunks.length - 1];
+    if (!newest) return;
+    const text = normalizeText(newest.text);
+    if (!text || TERMINAL_END.test(text)) return;
+
+    const lastEventAt = ctx.state.lastTranscriptEventAt || nowFn();
+    if (nowFn() - lastEventAt < SENTENCE_END_SILENCE_MS) return;
+
+    const endedText = `${text}.`;
+    ctx.state.transcriptChunks = [...chunks.slice(0, -1), { ...newest, text: endedText }];
+    // Debugging/tuning recorder (ADR-0004): a SECOND record for the same chunk id, not a rewrite of
+    // the first -- the original buildChunkRecord already queued in handleTranscriptEvent stays
+    // byte-verbatim to what was actually spoken. This follow-up record shares that id (so a reader
+    // can tie the two together) and is marked `inferred: true` so nobody mistakes the appended
+    // period for something the speaker said.
+    queueRecord(() => buildChunkRecord({ at: newest.at, mode: newest.mode, text: endedText, inferred: true }));
+    showRecentTranscript();
+  }
+
   function startSilenceWatchdog() {
     stopSilenceWatchdog();
     ctx.state.lastTranscriptEventAt = nowFn();
     scheduleSilenceCheck();
+    scheduleSentenceEndCheck();
   }
 
   function stopSilenceWatchdog() {
     clearTimeoutFn(ctx.state.silenceWatchdogTimer);
     ctx.state.silenceWatchdogTimer = null;
+    clearTimeoutFn(ctx.state.sentenceEndTimer);
+    ctx.state.sentenceEndTimer = null;
   }
 
   function forgiveSilenceGap() {

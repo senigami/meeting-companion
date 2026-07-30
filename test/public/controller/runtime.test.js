@@ -3124,3 +3124,165 @@ test('a final drain on Stop still ends a run at a mode boundary -- one summarize
     assert.deepEqual(ctx.state.transcriptChunks.map((c) => c.text), ['the potluck is Saturday']);
   });
 });
+
+function createSentenceEndHarness() {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 1000;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback, delay) => {
+    const id = { callback, delay };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+  const runNext = (delay) => {
+    const index = scheduled.findIndex((item) => item.delay === delay);
+    if (index === -1) return false;
+    const [next] = scheduled.splice(index, 1);
+    next.callback();
+    return true;
+  };
+  const advance = (ms) => {
+    currentTime += ms;
+  };
+
+  return { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance, getTime: () => currentTime };
+}
+
+test('sentence-end-on-silence appends a period to the newest chunk after 3s of no recognition events', async () => {
+  const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.handleTranscriptEvent({ type: 'final', text: 'the young man went away' });
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away');
+
+    // Advance in 500ms steps to 2500ms elapsed -- still short of the 3s threshold.
+    for (let i = 0; i < 5; i += 1) {
+      advance(500);
+      runNext(500);
+    }
+    assert.equal(
+      ctx.state.transcriptChunks.at(-1).text,
+      'the young man went away',
+      'must not punctuate before 3s of silence'
+    );
+
+    // Cross the 3s threshold.
+    advance(500);
+    runNext(500);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away.');
+
+    // Idempotence: further ticks must never append a second period.
+    advance(500);
+    runNext(500);
+    advance(500);
+    runNext(500);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away.');
+  });
+});
+
+test('a partial arriving before the 3s threshold resets the sentence-end clock', async () => {
+  const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.handleTranscriptEvent({ type: 'final', text: 'we welcome our visitors' });
+
+    // 2.9s of silence -- not enough to end the sentence.
+    advance(2900);
+    runNext(500);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors');
+
+    // A partial arrives right before the threshold and resets the clock.
+    runtime.handleTranscriptEvent({ type: 'partial', text: 'we welcome our visitors and' });
+    advance(2900);
+    runNext(500);
+    assert.equal(
+      ctx.state.transcriptChunks.at(-1).text,
+      'we welcome our visitors',
+      'the partial must have reset the 3s clock, not merely delayed it'
+    );
+
+    // Now the full 3s has actually elapsed since the partial.
+    advance(200);
+    runNext(500);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors.');
+  });
+});
+
+test('sentence-end-on-silence never fires while paused or not listening', async () => {
+  const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.handleTranscriptEvent({ type: 'final', text: 'a line still mid sentence' });
+    await runtime.togglePauseAi();
+
+    advance(5000);
+    // No sentence-end timer should even be scheduled once paused (stopSilenceWatchdog clears it).
+    assert.equal(runNext(500), false);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'a line still mid sentence');
+  });
+});
+
+test('inferred sentence-end punctuation is recorded as a follow-up record sharing the spoken chunk\'s id, not a silent rewrite of it', async () => {
+  const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn,
+    stateOverrides: { recordingEnabled: true, recordingQueue: [] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.handleTranscriptEvent({ type: 'final', text: 'the offering will be received' });
+
+    const spokenRecord = ctx.state.recordingQueue.find((record) => record.t === 'chunk');
+    assert.equal(spokenRecord.text, 'the offering will be received');
+    assert.equal(spokenRecord.inferred, false);
+
+    advance(3000);
+    runNext(500);
+
+    const chunkRecords = ctx.state.recordingQueue.filter((record) => record.t === 'chunk');
+    assert.equal(chunkRecords.length, 2, 'the original spoken record must stay, plus one inferred follow-up');
+    assert.equal(chunkRecords[0].text, 'the offering will be received', 'the spoken record must never be rewritten');
+    assert.equal(chunkRecords[1].id, chunkRecords[0].id, 'the follow-up shares the spoken chunk\'s id');
+    assert.equal(chunkRecords[1].text, 'the offering will be received.');
+    assert.equal(chunkRecords[1].inferred, true);
+    assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the offering will be received.');
+  });
+});
