@@ -3,9 +3,11 @@ node_modules/
 .DS_Store
 
 # Debugging/tuning recordings (ADR-0004): local-only, per-session transcript + summary logs used to
-# replay a real meeting against prompt changes. Never published -- this is a record of what was said
-# at a church service (names, illness, funerals, prayer requests). The directory is created and
-# written to only by server/session-recorder.js, and this line must exist before that code can run.
+# replay a real meeting against prompt changes. Ignored for repo hygiene rather than secrecy -- the
+# meeting is public and already streamed, so this is not sensitive data (ADR-0004 "Sensitivity and
+# retention"); committing these would just bloat the repo and make every diff noisy. The directory is
+# created and written to only by server/session-recorder.js, and this line must exist before that
+# code can run.
 recordings/
 
 # Everything under .claude/ is local by default: agent identities, the OD decision log, and the hooks

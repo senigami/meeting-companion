@@ -13,7 +13,7 @@
 | [docs/05-code-organization.md](05-code-organization.md) | Folder layout, module boundaries, and mirrored test layout. |
 | [docs/06-test-strategy.md](06-test-strategy.md) | What is unit-tested, what is verified manually, and where tests live. |
 | [docs/07-ai-and-privacy.md](07-ai-and-privacy.md) | Browser/OpenAI source model, prompt rules, and privacy defaults. |
-| [docs/backlog.md](backlog.md) | Captured ideas not yet started, written to become GitHub issues. Not a spec — nothing there is agreed behavior. |
+| [docs/backlog.md](backlog.md) | A pointer only. Open work lives in GitHub issues; this records what became of the five ideas it used to hold. Not a spec. |
 
 ## Product Summary
 
@@ -31,7 +31,7 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 | AI wiring | Standardized source registry with browser, OpenAI, and Claude drivers | Lets the app swap or add sources without changing the UI contract. |
 | Transcription default | Browser first | Keeps the default path local and avoids sending audio unless the helper selects OpenAI. |
 | Summary source | OpenAI and Claude | The server already centralizes prompt policy and can reject vague lines consistently. |
-| Storage | No audio persistence, ever. Transcript and summary text is recorded to one local gitignored file per session (ADR-0004) | Keeps the tool private and easy to run on a church laptop, while making summary quality measurable instead of guessed at. The recording never leaves the machine and never enters the repo. |
+| Storage | No audio persistence, ever. Transcript and summary text is recorded to one local gitignored file per session (ADR-0004), kept until used for tuning and then deleted | Keeps the app simple to run on a church laptop while making summary quality measurable instead of guessed at. The transcript is not sensitive (the meeting is public and streamed), so the recording is treated as disposable debugging output rather than as something to protect or to archive. |
 
 ## Assumed conventions - confirm these
 
