@@ -1,12 +1,12 @@
 # Data Model
 
-> **TL;DR:** There is no database. The model is the client runtime state, short transcript chunks, and the small JSON payloads sent to the server.
+> **TL;DR:** There is no database. The model is the client runtime state, short transcript chunks, the small JSON payloads sent to the server, and — as of ADR-0004 — one local, gitignored NDJSON recording file per session, written for debugging/tuning rather than as a database.
 
 ## Overview
 
 The app keeps its working state in memory in the browser. A small amount of user preference state is stored in `localStorage` so the helper does not have to reset font size on every refresh.
 
-The server keeps no durable business data. It only receives JSON payloads for config, provider-key management, transcription, and summarization, then returns compact JSON responses.
+The server keeps no durable business data beyond the session recording described below. It only receives JSON payloads for config, provider-key management, transcription, and summarization, then returns compact JSON responses.
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
@@ -34,6 +34,8 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
 | `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
 | `providerKeys` | `Record<'openai' | 'claude', { configured: boolean, origin: string, label: string, masked: string }>` | Masked provider configuration status returned by the server. |
+| `recordingEnabled` | `boolean` | Whether the ADR-0004 debugging/tuning session recorder is armed; persisted in `localStorage`, defaults `true`. |
+| `recordingSessionId` | `string` | The current session's recording filename stem (`recordings/<id>.ndjson`), derived from a capture-time timestamp. |
 
 ## Transcript item shape
 
@@ -61,6 +63,38 @@ Transcript chunks are stored as:
 
 Only recent chunks are used to build the summary input. Old chunks are pruned opportunistically, not persisted.
 
+## Session recording file shape (ADR-0004)
+
+`server/session-recorder.js` appends one line of JSON per record to `recordings/<sessionId>.ndjson`
+(gitignored, never in the repo). This is a debugging/tuning instrument, not a durable business
+record: it has no viewer, is not human-facing, and audio is never written to it (ADR-0003 still
+governs audio). Two record shapes share the file, correlated by chunk `id`:
+
+```json
+{ "t": "chunk", "at": "2026-07-29T12:00:00.000Z", "id": "1710000000000", "mode": "speaker", "text": "..." }
+```
+
+```json
+{
+  "t": "summary",
+  "at": "2026-07-29T12:00:01.000Z",
+  "mode": "speaker",
+  "consumedIds": ["1710000000000"],
+  "hadPreviousBlock": false,
+  "sent": "...",
+  "returned": "...",
+  "provider": "openai",
+  "ok": true,
+  "error": null,
+  "latencyMs": 812,
+  "wasShortened": false
+}
+```
+
+`consumedIds` is how a summary record ties back to the exact chunk record(s) it drained. A write
+failure (full disk, bad path, missing directory) degrades to `{ ok: false, error }` and never
+throws into the live transcription/summarize path.
+
 ## API payload shapes
 
 The server accepts and returns these JSON shapes:
@@ -73,6 +107,7 @@ The server accepts and returns these JSON shapes:
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |
 | `POST /api/provider/test` | `{ provider, apiKey }` | `{ ok: true }` or `{ error }` |
+| `POST /api/recording/append` | `{ sessionId, records }` | `{ ok: true, written }` or `{ ok: false, error }` |
 
 ## Related specs
 

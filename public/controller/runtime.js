@@ -44,6 +44,7 @@ import {
   isProviderConfigured,
   isSourceConfigured
 } from './provider-availability.js';
+import { buildChunkRecord, buildSummaryRecord } from '../services/session-recording.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -66,7 +67,10 @@ const STORAGE = {
   audioBrowserAgc: 'audioBrowserAgc',
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
-  audioConditioningEnabled: 'audioConditioningEnabled'
+  audioConditioningEnabled: 'audioConditioningEnabled',
+  // Must stay in sync with start-app.js's own STORAGE map -- same gotcha this file's comment above
+  // already documents for summarizationSourceChosen.
+  recordingEnabled: 'recordingEnabled'
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
@@ -380,8 +384,21 @@ export function createRuntime(ctx, deps = {}) {
       // not whatever mode happens to be selected later when this backlogged text is finally
       // summarized. Reading ctx.state.mode at summarize time let backlogged Information-mode
       // announcements drain and get labelled as Speaker once the operator had since switched modes.
-      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text, nowFn(), ctx.state.mode);
+      const capturedAt = nowFn();
+      // Read once and reused for both the bucket chunk and its recorded twin below, so the two can
+      // never disagree about which mode the words were captured under.
+      const capturedMode = ctx.state.mode;
+      const beforeLength = ctx.state.transcriptChunks.length;
+      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text, capturedAt, capturedMode);
       ctx.state.transcriptPreview = '';
+      // Debugging/tuning recorder (ADR-0004): only queue a record when appendUniqueChunk actually
+      // appended one -- it silently no-ops on an exact-duplicate final, and recording a chunk that
+      // was never added to the bucket would desync the correlation key from what summarizeCurrentText
+      // actually consumes. Uses the SAME capturedAt/capturedMode the bucket chunk itself was tagged
+      // with, so the recorded id always matches the bucket's own.
+      if (ctx.state.transcriptChunks.length > beforeLength) {
+        queueRecord(() => buildChunkRecord({ at: capturedAt, mode: capturedMode, text: event.text }));
+      }
     } else if (event.type === 'partial') {
       ctx.state.transcriptPreview = normalizeText(event.text);
     }
@@ -534,6 +551,9 @@ export function createRuntime(ctx, deps = {}) {
         restartTranscriptProgressBar(intervalSeconds);
       }
       summarizeCurrentText();
+      // Fire-and-forget: flushRecordingQueue never throws (see its own definition) and this loop
+      // must never wait on it -- a slow or failing recording write must not delay the next tick.
+      flushRecordingQueue();
     }, intervalSeconds * 1000);
     ctx.state.loopHandle.unref?.();
     // The first period of this (re)established schedule starts counting now, at the true zero
@@ -645,6 +665,90 @@ export function createRuntime(ctx, deps = {}) {
     });
   }
 
+  // Debugging/tuning recorder (ADR-0004): reflects whether appends are ACTUALLY succeeding, not
+  // merely whether recording was requested -- INV-10's "the indicator must be truthful" doctrine,
+  // applied to this surface. Looked up by id rather than through ctx.dom, since this is a minimal,
+  // deliberately separate surface from Marlow's operator-rail status classifier (view.js), not a
+  // redesign of it.
+  function updateRecordingIndicator() {
+    const el = typeof document !== 'undefined' ? document.getElementById('recordingIndicator') : null;
+    if (!el) return;
+    if (!ctx.state.recordingEnabled) {
+      el.textContent = 'Not recording.';
+      el.dataset.state = 'off';
+      return;
+    }
+    if (ctx.state.recordingOk === false) {
+      el.textContent = 'Recording stopped: could not write to the local session file.';
+      el.dataset.state = 'failed';
+      return;
+    }
+    el.textContent = 'Recording session to a local file.';
+    el.dataset.state = 'on';
+  }
+
+  function setRecordingEnabled(nextEnabled) {
+    ctx.state.recordingEnabled = Boolean(nextEnabled);
+    localStorage.setItem(STORAGE.recordingEnabled, String(ctx.state.recordingEnabled));
+    if (!ctx.state.recordingEnabled) {
+      // Nothing queued while off should later leak out the moment it's re-enabled.
+      ctx.state.recordingQueue = [];
+    } else {
+      // A fresh "on" is worth trusting again until proven otherwise -- the next flush will correct
+      // this immediately if writes are still failing.
+      ctx.state.recordingOk = null;
+    }
+    updateRecordingIndicator();
+  }
+
+  // Batches whatever chunk/summary records have queued since the last tick into one request,
+  // rather than a fetch per chunk during a live meeting. NEVER throws and NEVER awaited by its
+  // caller -- a failed or slow write here must be invisible to the transcription/summarize loop,
+  // which is the one non-negotiable this whole instrument answers to. A failure degrades to
+  // "recording stopped" (surfaced via updateRecordingIndicator) and nothing else.
+  // The single entry point for queueing a record, and the only one any call site should use.
+  //
+  // ADR-0004's "never damages a meeting" constraint covers the SHAPING of a record, not just the
+  // network write. Building a record is pure and ought not to throw, but the call sites sit in two
+  // places where a throw would do real harm rather than merely losing a record: inside
+  // handleTranscriptEvent, where it would drop live speech; and inside summarizeCurrentText's catch
+  // block, where escaping would skip the failure counting below it and the operator would never get
+  // the "Problem" escalation for a provider that genuinely is failing. Either one turns a debugging
+  // instrument into an INV-10 lie -- a status surface that is wrong about what is broken -- so the
+  // recorder swallows its own faults here and stays silent about them.
+  function queueRecord(build) {
+    if (!ctx.state.recordingEnabled) return;
+    try {
+      ctx.state.recordingQueue.push(build());
+    } catch (_error) {
+      // Deliberately silent: a recorder that cannot even shape a record has nothing useful to say to
+      // the operator mid-meeting, and the flush indicator already reports whether writes are landing.
+    }
+  }
+
+  async function flushRecordingQueue() {
+    const queue = ctx.state.recordingQueue;
+    if (!Array.isArray(queue) || !queue.length) return;
+    const batch = queue.splice(0, queue.length);
+    try {
+      const response = await fetchImpl('/api/recording/append', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: ctx.state.recordingSessionId, records: batch })
+      });
+      const ok = Boolean(response?.ok);
+      if (ok !== ctx.state.recordingOk) {
+        ctx.state.recordingOk = ok;
+        updateRecordingIndicator();
+      }
+    } catch (_error) {
+      if (ctx.state.recordingOk !== false) {
+        ctx.state.recordingOk = false;
+        updateRecordingIndicator();
+      }
+    }
+  }
+
   async function summarizeCurrentText(text) {
     if (ctx.state.paused) return;
     if (ctx.state.summarizeInFlight) {
@@ -659,16 +763,41 @@ export function createRuntime(ctx, deps = {}) {
     if (text) {
       recent = normalizeText(text);
     } else {
-      const { consumable } = partitionBucket(ctx.state.transcriptChunks);
-      // The whole oldest contiguous mode run, not the oldest ~1000 characters -- lag is now bounded
-      // at one card, whatever the volume, and the run's own text (built by takeOldestModeRun itself
-      // from these exact chunks) is what gets sent below, so "sent" and "consumed" are provably the
-      // same set. A later mode in the bucket ends the run early: one summarize call must never span
-      // two modes, since its prompt carries a single `Mode:` line.
-      const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode });
-      consumedChunks = run.chunks;
-      sendMode = run.mode;
-      recent = run.text;
+      // Wrapped because this runs OUTSIDE the provider try/catch below and the only caller is a
+      // fire-and-forget setInterval tick. A throw here used to surface as nothing at all: an unhandled
+      // rejection in the console, no status change, and a rail still reading "Listening" while not one
+      // card would ever be produced again. Silence is the worst available response, so a bucket fault
+      // is reported through the same failure path a dead provider uses (INV-10) -- the operator is
+      // told something is wrong even though we cannot tell them it is our bug rather than the model's.
+      try {
+        const { consumable } = partitionBucket(ctx.state.transcriptChunks);
+        // The whole oldest contiguous mode run, not the oldest ~1000 characters -- lag is now bounded
+        // at one card, whatever the volume, and the run's own text (built by takeOldestModeRun itself
+        // from these exact chunks) is what gets sent below, so "sent" and "consumed" are provably the
+        // same set. A later mode in the bucket ends the run early: one summarize call must never span
+        // two modes, since its prompt carries a single `Mode:` line.
+        const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode });
+        consumedChunks = run.chunks;
+        sendMode = run.mode;
+        recent = run.text;
+      } catch (error) {
+        // The bucket is deliberately NOT drained or trimmed here. Whatever is in it is the only copy
+        // of those words, and discarding them to recover from our own fault would lose real speech.
+        ctx.state.summarizeFailureCount = (ctx.state.summarizeFailureCount || 0) + 1;
+        if (ctx.state.summarizeFailureCount === 3) {
+          escalateSummarizeFailure();
+        }
+        // Mirrors the provider-failure path below rather than forcing 'problem' on the first fault:
+        // the rail's escalation rule is Marlow's, and a one-off is a blip there for the same reason it
+        // is here. A bucket fault is deterministic, so it will recur each tick and reach the threshold
+        // within seconds anyway -- no need to special-case it.
+        updateStatus(
+          ctx,
+          `Could not prepare the transcript: ${error?.message || error}`,
+          ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
+        );
+        return;
+      }
     }
     if (!recent || recent === ctx.state.lastSentText) return;
 
@@ -695,6 +824,7 @@ export function createRuntime(ctx, deps = {}) {
       showRecentTranscript();
     }
 
+    const summarizeStartedAt = nowFn();
     try {
       const driver = await ensureSummarizationDriver();
       const result = await driver.summarize({
@@ -704,6 +834,23 @@ export function createRuntime(ctx, deps = {}) {
         visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
         maxWords: ctx.state.summaryMaxWords
       });
+
+      // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
+      // independent of the INV-11 consume/pause logic below -- a call that succeeded but landed
+      // during a pause is still real evidence about the provider and the prompt, so it is recorded
+      // regardless of the early `if (ctx.state.paused) return;` a few lines down.
+      queueRecord(() => buildSummaryRecord({
+        at: nowFn(),
+        mode: sendMode,
+        consumedIds: (consumedChunks || []).map((chunk) => chunk.at),
+        hadPreviousBlock: Boolean(previousBlock),
+        sent: recent,
+        returned: result.line || '',
+        provider: ctx.state.summarizationSource,
+        ok: true,
+        latencyMs: nowFn() - summarizeStartedAt,
+        wasShortened: result.wasShortened
+      }));
 
       resetSummarizeBackoff();
 
@@ -727,6 +874,18 @@ export function createRuntime(ctx, deps = {}) {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
       }
     } catch (error) {
+      queueRecord(() => buildSummaryRecord({
+        at: nowFn(),
+        mode: sendMode,
+        consumedIds: (consumedChunks || []).map((chunk) => chunk.at),
+        hadPreviousBlock: Boolean(previousBlock),
+        sent: recent,
+        returned: '',
+        provider: ctx.state.summarizationSource,
+        ok: false,
+        error: String(error?.message || error).slice(0, 200),
+        latencyMs: nowFn() - summarizeStartedAt
+      }));
       ctx.state.summarizeFailureCount = (ctx.state.summarizeFailureCount || 0) + 1;
       if (ctx.state.summarizeFailureCount === 3) {
         escalateSummarizeFailure();
@@ -1100,11 +1259,20 @@ export function createRuntime(ctx, deps = {}) {
     );
   }
 
+  // The indicator must be right from the first frame, not merely once a toggle or a tick runs it --
+  // otherwise a page load with recording on by default would show nothing until the first summarize
+  // tick, an honest-looking gap that is itself a small dishonesty (INV-10).
+  updateRecordingIndicator();
+
   return {
     addLine,
     cancelClearArm,
     clearLines,
     handleTranscriptEvent,
+    setRecordingEnabled,
+    // Exposed so a test (or a future replay/diagnostics tool) can trigger a flush deterministically
+    // instead of waiting on the real setInterval inside startLoop.
+    flushRecordingQueue,
     deleteProviderKey,
     focusProviderKey: openSettingsForProvider,
     isTypingTarget,

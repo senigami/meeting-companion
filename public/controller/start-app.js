@@ -34,6 +34,7 @@ import {
 } from './view.js';
 import { createRuntime } from './runtime.js';
 import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
+import { createRecordingSessionId } from '../services/session-recording.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -53,7 +54,8 @@ const STORAGE = {
   audioBrowserAgc: 'audioBrowserAgc',
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
-  audioConditioningEnabled: 'audioConditioningEnabled'
+  audioConditioningEnabled: 'audioConditioningEnabled',
+  recordingEnabled: 'recordingEnabled'
 };
 
 export function startApp() {
@@ -106,7 +108,17 @@ export function startApp() {
       audioBrowserAgc: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserAgc), AUDIO_SETTINGS_DEFAULTS.audioBrowserAgc),
       audioBrowserNoiseSuppression: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserNoiseSuppression), AUDIO_SETTINGS_DEFAULTS.audioBrowserNoiseSuppression),
       audioBrowserEchoCancel: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserEchoCancel), AUDIO_SETTINGS_DEFAULTS.audioBrowserEchoCancel),
-      audioConditioningEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioConditioningEnabled), AUDIO_SETTINGS_DEFAULTS.audioConditioningEnabled)
+      audioConditioningEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioConditioningEnabled), AUDIO_SETTINGS_DEFAULTS.audioConditioningEnabled),
+      // Debugging/tuning session recorder (ADR-0004, backlog items 2-3): on by default -- Steve's
+      // explicit, twice-made call, since a default-off instrument gets no data unless someone
+      // remembers to arm it, and this never leaves the machine (recordings/ is gitignored, server
+      // binds loopback-only). #recordingIndicator (index.html) is the truthful, always-visible sign
+      // that it is actually happening; recordingOk starts null (unproven) rather than true, so the
+      // indicator's first real signal always comes from an actual write, never an assumption.
+      recordingEnabled: localStorage.getItem(STORAGE.recordingEnabled) !== 'false',
+      recordingSessionId: createRecordingSessionId(),
+      recordingQueue: [],
+      recordingOk: null
     },
     dom: {
       display: $('display'),
@@ -299,6 +311,13 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.closeViewPanel.addEventListener('click', () => setViewPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.quickPanelToggle?.addEventListener('click', () => setQuickPanelOpen(ctx, !ctx.state.quickPanelOpen, { focusReturn: false }));
   ctx.dom.quickPanelBackdrop?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
+  const recordingEnabledInput = $('recordingEnabledInput');
+  if (recordingEnabledInput) {
+    recordingEnabledInput.checked = ctx.state.recordingEnabled;
+    recordingEnabledInput.addEventListener('change', (event) => {
+      runtime.setRecordingEnabled(event.target.checked);
+    });
+  }
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
   ctx.dom.settingsPanel?.addEventListener('close', () => runtime.setSettingsOpen(false, { focusReturn: true }));

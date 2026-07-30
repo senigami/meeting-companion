@@ -32,7 +32,11 @@ export function createClaudeSummarizer({
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
       if (!line && data.reason) onStatus(data.reason);
-      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }) };
+      return {
+        line,
+        prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }),
+        wasShortened: Boolean(data.wasShortened)
+      };
     }
   };
 }

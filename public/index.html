@@ -208,6 +208,23 @@
           <section id="alertsSection" class="settingsCard alertCard" data-settings-section="alerts">
             <div class="section-label">Alerts</div>
             <p id="apiWarning" class="alertMessage" role="status"></p>
+
+            <!--
+              Debugging/tuning session recording (ADR-0004): local-only, per-session ndjson log of both
+              transcript chunks and summarize calls, used to replay a real meeting against prompt
+              changes. This is a separate, minimal surface owned by Janus (data-integrity) -- it
+              deliberately does NOT reuse the operator rail's status classifier
+              (#railStatus/#railStatusWord), which is Marlow's surface. #recordingIndicator's text is
+              the truthful, live signal: it reflects whether appends are actually succeeding, not
+              merely whether the checkbox is checked.
+            -->
+            <div class="section-label">Session recording (debugging)</div>
+            <label class="settingsCheckboxRow" for="recordingEnabledInput">
+              <input type="checkbox" id="recordingEnabledInput" checked />
+              <span>Record this session's transcript and summaries to a local file, for prompt tuning</span>
+            </label>
+            <p id="recordingIndicator" class="alertMessage" role="status" data-state="on">Recording session</p>
+            <p class="field-note">Saved only to this computer, under <code>recordings/</code>, never sent anywhere else. Turn off to stop.</p>
           </section>
 
           <section class="settingsCard settingsViewCard" data-settings-section="timing">

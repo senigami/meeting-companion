@@ -2,6 +2,12 @@ node_modules/
 .env
 .DS_Store
 
+# Debugging/tuning recordings (ADR-0004): local-only, per-session transcript + summary logs used to
+# replay a real meeting against prompt changes. Never published -- this is a record of what was said
+# at a church service (names, illness, funerals, prayer requests). The directory is created and
+# written to only by server/session-recorder.js, and this line must exist before that code can run.
+recordings/
+
 # Everything under .claude/ is local by default: agent identities, the OD decision log, and the hooks
 # that enforce our own working discipline. Default-deny on purpose — twice in one day a rule that
 # listed what to hide missed something new (gate records in .agent/, then the decision log), and a

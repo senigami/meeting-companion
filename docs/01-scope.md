@@ -25,11 +25,12 @@ The speech and summary behavior is intentionally narrow. Speaker mode summarizes
 - A two-tier visual design: the TV display keeps its own established look, while all operator chrome (rail, Settings, manual bar) shares a separate dark, flat, macOS-desktop-app design language.
 - Keyboard shortcuts for the helper workflow.
 - Local storage only for UI preferences. Provider keys stay on the local server for the running session.
+- A local, gitignored debugging/tuning recording of transcript text and summarize calls, on by default with a truthful visible indicator, never a user-facing feature (ADR-0004). Audio is not part of it.
 
 ## Out of scope
 
-- Multiple speakers, multi-user accounts, or saved session history.
-- Audio recording or transcript archiving by default.
+- Multiple speakers, multi-user accounts, or saved session history as a user-facing feature.
+- Audio recording, in any form (ADR-0003, which ADR-0004 deliberately did not touch).
 - A cloud dashboard, synchronization, or remote collaboration.
 - Mobile-first responsive design beyond basic usability on the laptop helper screen.
 - Next.js, React, or a broader application shell.

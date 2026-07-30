@@ -74,8 +74,12 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
 
   let line = cleanModelLine(completion.choices?.[0]?.message?.content || '');
   if (!shouldAcceptModelLine(line, visibleLines)) line = '';
+  const beforeShorten = line;
   line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
-  return { line };
+  // Measures whether shortenToLimit actually had to change the accepted line, not merely whether the
+  // line was long -- the recording instrument's (ADR-0004) only direct evidence that the prompt-side
+  // length fix in 909fe1e is doing anything, versus a prediction with no measurement behind it.
+  return { line, wasShortened: line !== beforeShorten };
 }
 
 async function summarizeWithClaude({
@@ -124,6 +128,7 @@ async function summarizeWithClaude({
     : '';
   let line = cleanModelLine(output);
   if (!shouldAcceptModelLine(line, visibleLines)) line = '';
+  const beforeShorten = line;
   line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
-  return { line };
+  return { line, wasShortened: line !== beforeShorten };
 }

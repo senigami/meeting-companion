@@ -32,10 +32,32 @@ Generic UI icons are not part of the AI pipeline. They can come from Lucide or t
 ## Privacy rules
 
 - Do not save audio by default.
-- Do not save transcript history by default.
+- Do not save transcript history by default, with one explicit, superseding exception below.
 - Keep the UI usable in manual-only mode when OpenAI is unavailable.
 - Limit provider calls to the current task context rather than sending a long history.
 - Do not display full API keys in plain text by default.
+
+## Debugging/tuning session recording (ADR-0004)
+
+An explicit, owner-authorized exception to "do not save transcript history by default": both sides of
+the pipeline -- incoming transcription chunks and outgoing summarize calls -- are recorded, together,
+to a local ndjson file, so a real meeting can be replayed against prompt changes and summary quality
+measured instead of guessed at. See
+[docs/decisions/0004-session-recording-for-tuning.md](decisions/0004-session-recording-for-tuning.md)
+for the full decision.
+
+- Recording is ON by default (a default-off instrument gets no data), with a visible, truthful
+  indicator in Settings whenever it is active -- see `#recordingIndicator` in `public/index.html` and
+  `updateRecordingIndicator`/`setRecordingEnabled` in `public/controller/runtime.js`.
+- Files live under `recordings/` (gitignored), one per app session, and never leave the machine: the
+  write path is a localhost-only Express route (`/api/recording/append` in `server.js`) backed by
+  `server/session-recorder.js`, which never throws and degrades to `{ ok: false }` on any failure.
+- A recording failure must never interrupt transcription or summarization -- the client
+  (`flushRecordingQueue` in `runtime.js`) treats any failed or rejected append as "recording stopped,"
+  reflected honestly in the indicator, and nothing else.
+- `scripts/replay-recording.js` reads a session file back and prints the correlated chunk/summary
+  pairs. It does not re-drive the live pipeline from a recording -- that (a full replay transcription
+  source) is a separate, larger piece of work tracked in `docs/backlog.md` item 2 and is not built yet.
 
 ## Related specs
 

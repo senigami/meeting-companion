@@ -9,6 +9,7 @@ import { listAvailableSources } from './public/services/registry.js';
 import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
+import { createSessionRecorder } from './server/session-recorder.js';
 
 const MAIN_FILE = fileURLToPath(import.meta.url);
 
@@ -20,7 +21,8 @@ export function createApp({
   anthropicModel = DEFAULT_ANTHROPIC_MODEL,
   fetchImpl = fetch,
   listAvailableSourcesFn = listAvailableSources,
-  providerKeyStore = createProviderKeyStore()
+  providerKeyStore = createProviderKeyStore(),
+  sessionRecorder = createSessionRecorder()
 } = {}) {
   const app = express();
 
@@ -168,6 +170,32 @@ export function createApp({
       // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
       console.error(safeErrorDetail(error));
       res.status(500).json({ error: 'Provider test failed.' });
+    }
+  });
+
+  // Debugging/tuning instrument (ADR-0004): appends a batch of chunk/summary records to a local,
+  // gitignored ndjson file so a real meeting can be replayed against prompt changes. Localhost-only
+  // (this app never binds off loopback without ALLOW_REMOTE_HOST=true -- see resolveHost), so this
+  // is not a new external network surface. A write failure degrades to { ok: false } and is never
+  // thrown -- the client is expected to treat that as "recording stopped," never as a reason to
+  // interrupt transcription or summarization.
+  app.post('/api/recording/append', async (req, res) => {
+    try {
+      const { sessionId = '', records = [] } = req.body || {};
+      const result = await sessionRecorder.appendRecords(sessionId, records);
+      if (!result.ok) {
+        // No `records` content or raw error object in the response -- recorded text is at least as
+        // sensitive as a provider key (INV-12's discipline extended to this surface).
+        return res.status(400).json({ ok: false, error: safeErrorDetail(result.error || 'write failed') });
+      }
+      res.json({ ok: true, written: result.written });
+    } catch (error) {
+      // sessionRecorder.appendRecords is documented to never throw, but this route must survive
+      // even if that contract is ever violated (a bad injected recorder in a test, a future
+      // regression) -- an uncaught rejection here would hang the request rather than degrading to
+      // "recording stopped," which is the one thing this whole instrument must never do.
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ ok: false, error: safeErrorDetail(error) });
     }
   });
 

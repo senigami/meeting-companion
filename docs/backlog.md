@@ -49,6 +49,11 @@ showing controls that silently do nothing (INV-10).
 
 ## 2. Record the incoming transcription text with timestamps
 
+**Status: shipped 2026-07-30 (ADR-0004), except the replay source.** The recording half is built and
+tested. What is explicitly NOT built is the part that makes this a *test* source: a transcription driver
+that reads a session file back at its original timing and re-drives the live pipeline from it.
+`scripts/replay-recording.js` only reads and correlates. That remainder is the real issue to open.
+
 **Why:** Every test of the summarization pipeline so far has used either the scripted demo corpus or a
 live meeting nobody can replay. A timestamped log of real incoming transcription text would give a real
 corpus that can be replayed deterministically against prompt changes.
@@ -80,6 +85,12 @@ the pipeline exactly as it happened.
 ---
 
 ## 3. Record the summary output with timestamps, for post-meeting analysis
+
+**Status: shipped 2026-07-30 (ADR-0004).** Both sides land in one file, correlated by chunk id, with
+`wasShortened` as the measurement that settles whether the prompt-side length fix in `909fe1e` actually
+fires. Nothing has been recorded from a real meeting or a live provider yet, so the instrument exists but
+has measured nothing. Two questions it deliberately left open: no retention or cleanup policy, and the
+file is not encrypted.
 
 **Why:** We have twice been wrong about summary quality in ways only a side-by-side would have caught —
 a mid-word clamp mistaken for a model artifact, and an invented hymn number that a paired harness found
@@ -136,13 +147,21 @@ it is the item most likely to need a decision reversed later.
 Small, recorded, none currently reachable in a way that harms a meeting. Grouped here so they are not
 lost, and each should become its own issue rather than being fixed in a bundle.
 
-- **`shortenToLimit` returns unbounded output when the input contains no whitespace at all**
-  (`public/services/text.js`). A 400-character single token passes through a 140-character limit
-  untouched. The whole-word preference is deliberate, but it wants a sanity ceiling. Execution-verified.
-- **`shortenToLimit` returns an empty string when `lastSpace === 0`.** Unreachable from the server path
-  because `cleanModelLine` trims first. The fix is `lastSpace <= 0`.
-- **`takeOldestModeRun` can throw outside the `try` in `summarizeCurrentText`**, producing a silent
-  unhandled rejection every tick. Reachable only with a single chunk over 8000 characters.
+- ~~**`shortenToLimit` returns unbounded output when the input contains no whitespace at all.**~~ Fixed
+  2026-07-30: an unbreakable word may now overshoot the limit by up to `UNBREAKABLE_WORD_FACTOR` (2x)
+  and is hard-cut past that, on the reasoning that a token orders of magnitude over the limit is not a
+  long word but malformed output, and is owed no courtesy. Covered by `test/public/services/text.test.js`.
+- ~~**`shortenToLimit` returns an empty string when `lastSpace === 0`.**~~ Fixed 2026-07-30, and the
+  proposed one-character fix (`lastSpace <= 0`) turned out to be insufficient on its own: a whitespace
+  *run* at the start puts the last-whole-word slice inside that run, which no guard on the `=== 0` case
+  catches. Leading whitespace is now stripped at the top of the function instead, where it cannot corrupt
+  any of the indices the three-tier search reasons about. The test that caught this is worth keeping.
+- ~~**`takeOldestModeRun` can throw outside the `try` in `summarizeCurrentText`.**~~ Fixed 2026-07-30.
+  Narrower than recorded here — it runs before `summarizeInFlight` is set, so it could never wedge the
+  loop — but worse in one respect: the only caller is a fire-and-forget `setInterval` tick, so the throw
+  surfaced as nothing at all, leaving a rail reading "Listening" while no card would ever be produced
+  again. The bucket read is now wrapped and reports through the same failure path a dead provider uses.
+  The bucket is deliberately not drained on that path: those words are the only copy.
 - **Recurring audio diagnostics have no operator surface.** They currently go to the console only, which
   was the right call over spamming the rail every ~500ms, but it means a degrading microphone reports
   itself to nobody watching. Wants a throttled surface on the status rail. Named handoff to the

@@ -31,7 +31,14 @@ export function createOpenAISummarizer({
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
       if (!line && data.reason) onStatus(data.reason);
-      return { line, prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }) };
+      return {
+        line,
+        prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }),
+        // Passed straight through from server/summarization.js's own before/after shortenToLimit
+        // comparison -- the recording instrument's (ADR-0004) measurement of whether the prompt-side
+        // length fix in 909fe1e actually fires, not just whether the line happened to be long.
+        wasShortened: Boolean(data.wasShortened)
+      };
     }
   };
 }

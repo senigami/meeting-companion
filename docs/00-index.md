@@ -1,6 +1,6 @@
 # Meeting Companion Display Specs
 
-> **TL;DR:** This repo is a tiny local Express app for live church accessibility support. Specs and code are jointly authoritative; when they drift, fix the drift explicitly in the same change. Related decisions: [ADR-0001](decisions/0001-local-express-static-app.md), [ADR-0002](decisions/0002-modular-source-registry.md), [ADR-0003](decisions/0003-no-audio-storage-by-default.md).
+> **TL;DR:** This repo is a tiny local Express app for live church accessibility support. Specs and code are jointly authoritative; when they drift, fix the drift explicitly in the same change. Related decisions: [ADR-0001](decisions/0001-local-express-static-app.md), [ADR-0002](decisions/0002-modular-source-registry.md), [ADR-0003](decisions/0003-no-audio-storage-by-default.md), [ADR-0004](decisions/0004-session-recording-for-tuning.md).
 
 ## Document Index
 
@@ -31,7 +31,7 @@ The operator surface is intentionally slim so it can be scanned under pressure. 
 | AI wiring | Standardized source registry with browser, OpenAI, and Claude drivers | Lets the app swap or add sources without changing the UI contract. |
 | Transcription default | Browser first | Keeps the default path local and avoids sending audio unless the helper selects OpenAI. |
 | Summary source | OpenAI and Claude | The server already centralizes prompt policy and can reject vague lines consistently. |
-| Storage | No transcript or audio persistence by default | Keeps the tool private and easy to run on a church laptop. |
+| Storage | No audio persistence, ever. Transcript and summary text is recorded to one local gitignored file per session (ADR-0004) | Keeps the tool private and easy to run on a church laptop, while making summary quality measurable instead of guessed at. The recording never leaves the machine and never enters the repo. |
 
 ## Assumed conventions - confirm these
 

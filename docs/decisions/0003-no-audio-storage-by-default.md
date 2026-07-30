@@ -4,7 +4,7 @@
 
 ## Status
 
-Accepted
+Accepted, and superseded in part by [ADR-0004](0004-session-recording-for-tuning.md) (2026-07-29): transcript and summary TEXT is now recorded to a local gitignored file for tuning. This ADR still governs audio, which is never persisted, and still governs the principle that nothing is synced off the machine. The "Decision" section below is retained verbatim as the original record; read it together with ADR-0004.
 
 ## Date
 
