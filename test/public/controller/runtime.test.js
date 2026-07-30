@@ -988,6 +988,10 @@ test('a summarize success after failures clears the alert, resets the counter, a
     createSummarizationDriverFn: () => flakyDriver,
     stateOverrides: {
       summaryIntervalSeconds: 5,
+      // A key IS configured here (unlike the escalation test above) -- this scenario is a
+      // recovering rate limit/outage, not a missing key, so buildAlerts' separate "no key
+      // configured" alert must not still be lit once the summarize-failure alert clears below.
+      openAiReady: true,
       transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
     }
   }, async ({ ctx, elements, runtime }) => {
@@ -1010,6 +1014,88 @@ test('a summarize success after failures clears the alert, resets the counter, a
     assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
     assert.equal(elements.railStatusDot.classList.contains('is-level-manual'), true);
     assert.equal(elements.railStatusWord.textContent, 'Manual');
+  });
+});
+
+test('clearing a summarize-failure alert must not blank an unrelated still-live "no key configured" alert (regression)', async () => {
+  // Before the fix, clearSummarizeFailureAlert blanked apiWarning/alertsSection unconditionally
+  // on a successful summarize, destroying any other alert buildAlerts still had reason to show.
+  // Here openAiReady defaults to false (see runtime-test-helpers.js), so a "no key configured"
+  // alert is live independently of the summarize failures. If a successful summarize after prior
+  // failures silently cleared that warning, an operator would believe summaries are fine when
+  // OpenAI has no key and summaries are actually dead.
+  let callCount = 0;
+  const flakyDriver = {
+    id: 'openai',
+    summarize: async () => {
+      callCount += 1;
+      if (callCount <= 3) {
+        throw new Error('rate limited');
+      }
+      return { line: '' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => flakyDriver,
+    stateOverrides: {
+      summaryIntervalSeconds: 5,
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ runtime, elements }) => {
+    await runtime.summarizeCurrentText('failure one');
+    await runtime.summarizeCurrentText('failure two');
+    await runtime.summarizeCurrentText('failure three');
+    await runtime.summarizeCurrentText('now it works');
+
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.equal(elements.apiWarning.hidden, false);
+    assert.match(elements.apiWarning.textContent, /no key/);
+  });
+});
+
+test('the settings alert badge never disagrees with the alerts section after Settings is reopened (regression)', async () => {
+  // In production, #alertsSection carries data-settings-section="alerts" and is one of the nodes
+  // ctx.dom.settingsSections loops over (see start-app.js); the default test harness omits that
+  // wiring, so it must be modeled explicitly here or this exact regression goes untested. Before
+  // the fix, opening Settings ran setSettingsSection, which hid this same node using buildAlerts
+  // alone -- a real, escalated summarize-failure alert (case (a): a genuine condition, just not
+  // counted by that check) would vanish from the visible alerts area while the badge, written by a
+  // separate direct DOM assignment, stayed lit.
+  const alertsSectionNode = createElement({ hidden: true, dataset: { settingsSection: 'alerts' } });
+  const failingDriver = {
+    id: 'openai',
+    summarize: async () => { throw new Error('rate limited'); }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => failingDriver,
+    elementOverrides: {
+      alertsSection: alertsSectionNode,
+      settingsSections: [alertsSectionNode]
+    },
+    stateOverrides: {
+      summaryIntervalSeconds: 5,
+      openAiReady: true,
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ elements, runtime }) => {
+    await runtime.summarizeCurrentText('f1');
+    await runtime.summarizeCurrentText('f2');
+    await runtime.summarizeCurrentText('f3');
+
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+
+    // Opening (and closing) Settings must never let the badge and the visible alerts area
+    // disagree, no matter how many times setSettingsSection recomputes the section's own
+    // visibility from buildAlerts.
+    runtime.setSettingsOpen(true);
+    assert.equal(elements.settingsAlertBadge.hidden, elements.alertsSection.hidden);
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+
+    runtime.setSettingsOpen(false);
+    assert.equal(elements.settingsAlertBadge.hidden, elements.alertsSection.hidden);
   });
 });
 

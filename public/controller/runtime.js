@@ -796,16 +796,11 @@ export function createRuntime(ctx, deps = {}) {
   function clearSummarizeFailureAlert() {
     if (!ctx.state.summarizeFailureAlertActive) return;
     ctx.state.summarizeFailureAlertActive = false;
-    if (ctx.dom.apiWarning) {
-      ctx.dom.apiWarning.hidden = true;
-      ctx.dom.apiWarning.textContent = '';
-    }
-    if (ctx.dom.alertsSection) {
-      ctx.dom.alertsSection.hidden = true;
-    }
-    if (ctx.dom.settingsAlertBadge) {
-      ctx.dom.settingsAlertBadge.hidden = true;
-    }
+    // Route through syncSettingsPanel (which rebuilds from buildAlerts) rather than writing
+    // apiWarning/alertsSection/settingsAlertBadge here directly -- a second writer for the same
+    // three nodes is exactly how the badge and the visible alerts area drifted apart (see the note
+    // on summarizeFailureAlertActive in buildAlerts, view.js).
+    syncSettingsPanel(ctx);
   }
 
   function resetSummarizeBackoff() {
@@ -829,17 +824,11 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function escalateSummarizeFailure() {
-    if (ctx.dom.apiWarning) {
-      ctx.dom.apiWarning.hidden = false;
-      ctx.dom.apiWarning.textContent = 'AI summaries are failing. Manual lines still work.';
-    }
-    if (ctx.dom.alertsSection) {
-      ctx.dom.alertsSection.hidden = false;
-    }
-    if (ctx.dom.settingsAlertBadge) {
-      ctx.dom.settingsAlertBadge.hidden = false;
-    }
     ctx.state.summarizeFailureAlertActive = true;
+    // See clearSummarizeFailureAlert above: syncSettingsPanel is the single writer for
+    // apiWarning/alertsSection/settingsAlertBadge, driven off buildAlerts, so the badge and the
+    // visible alerts area can never disagree about whether this condition is showing.
+    syncSettingsPanel(ctx);
     ctx.state.effectiveIntervalSeconds = Math.min(ctx.state.summaryIntervalSeconds * 2, 30);
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();

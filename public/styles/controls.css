@@ -185,6 +185,15 @@ html.is-resizing-rail .railResizeHandle::before {
   border: 2px solid var(--chrome-bg);
 }
 
+/* The [hidden] attribute is how runtime.js/view.js turn this badge off (settingsAlertBadge.hidden
+   = ...), but `display: grid` above has equal specificity to the UA's `[hidden] { display: none }`
+   rule and comes later in the cascade, so an author rule with no [hidden] case silently wins and
+   the badge rendered regardless of its hidden state -- the exact status-honesty bug this badge
+   exists to prevent, caused by CSS rather than by the JS that decides when it should show. */
+.settingsAlertBadge[hidden] {
+  display: none;
+}
+
 .badgeIcon {
   width: 11px;
   height: 11px;

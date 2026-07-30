@@ -170,7 +170,6 @@ dialog.settingsOverlay[hidden] {
   overflow: hidden;
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
-  align-items: start;
 }
 
 .settingsNav {
@@ -637,14 +636,18 @@ button.providerOption.active .providerStatus {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     /*
-     * align-items:start (set above for the desktop two-column layout, so
-     * the nav column doesn't stretch to match a taller detail column) has
-     * the opposite effect once this becomes a two-*row* stack: it stops
-     * .settingsDetail from stretching to fill its minmax(0,1fr) row, so it
-     * grows to its content's natural height instead of being capped —
-     * which means its own overflow-y:auto never actually has anything to
-     * clip, and the AI services panel (or any tab with enough content)
-     * can't be scrolled to see everything in it.
+     * .settingsBody no longer sets align-items:start (it was removed from
+     * the desktop rule above because it stopped .settingsDetail from
+     * stretching to fill its minmax(0,1fr) track, so it grew to its
+     * content's natural height instead of being capped -- which meant its
+     * own overflow-y:auto never actually had anything to clip, and the AI
+     * services panel (or any tab with enough content) couldn't be
+     * scrolled to see everything in it). Grid's default is already
+     * align-items:stretch, so this declaration is redundant today; it is
+     * kept here as an explicit guard so that if align-items:start is ever
+     * reintroduced on the desktop two-column rule above, this mobile
+     * override still forces the stacked layout back to stretch instead of
+     * silently reintroducing the same scrolling bug.
      */
     align-items: stretch;
   }

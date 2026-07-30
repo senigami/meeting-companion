@@ -985,6 +985,21 @@ function buildAlerts(ctx) {
     });
   }
 
+  // A confirmed run of summarize failures (escalateSummarizeFailure, three in a row) is a real,
+  // separate condition from "no key configured" above -- it can fire even with a working key
+  // (rate limits, an outage) and even in manual-only/demo setups with no provider selected at all.
+  // It MUST be counted here, in the one function both the badge and the visible alerts list are
+  // built from: this used to be pushed straight onto the DOM by escalateSummarizeFailure/
+  // clearSummarizeFailureAlert, bypassing this list entirely, so re-opening Settings (which
+  // recomputes the alerts SECTION's visibility from this function alone) could hide the section
+  // while the badge -- set by that separate direct write -- stayed lit. One list now drives both.
+  if (ctx.state.summarizeFailureAlertActive) {
+    alerts.push({
+      provider: 'summarize-failure',
+      message: 'AI summaries are failing. Manual lines still work.'
+    });
+  }
+
   return alerts;
 }
 
