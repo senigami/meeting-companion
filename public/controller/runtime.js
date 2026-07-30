@@ -43,6 +43,7 @@ import {
   updateSummaryMaxWordsControl
 } from './view.js';
 import {
+  BUCKET_SETTLE_MS,
   bucketText,
   partitionBucket,
   removeConsumed,
@@ -1114,7 +1115,18 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  async function summarizeCurrentText(text) {
+  // Every call -- the interval tick, a test calling directly, or stopListening's final drain --
+  // is routed through this thin wrapper so the promise of "whatever summarize call is currently
+  // running" is always reachable from ctx.state, not just from whichever caller happens to hold
+  // it. stopListening needs exactly that: it must await the call already in flight (if any)
+  // before starting its own final drain, or the two could race and double-consume the bucket.
+  function summarizeCurrentText(text, options) {
+    const promise = runSummarizeCurrentText(text, options);
+    ctx.state.summarizeCallPromise = promise;
+    return promise;
+  }
+
+  async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS } = {}) {
     if (ctx.state.paused) return;
     if (ctx.state.summarizeInFlight) {
       noteSkippedSummarizeTick();
@@ -1135,7 +1147,7 @@ export function createRuntime(ctx, deps = {}) {
       // is reported through the same failure path a dead provider uses (INV-10) -- the operator is
       // told something is wrong even though we cannot tell them it is our bug rather than the model's.
       try {
-        const { consumable } = partitionBucket(ctx.state.transcriptChunks);
+        const { consumable } = partitionBucket(ctx.state.transcriptChunks, { settleMs });
         // The whole oldest contiguous mode run, not the oldest ~1000 characters -- lag is now bounded
         // at one card, whatever the volume, and the run's own text (built by takeOldestModeRun itself
         // from these exact chunks) is what gets sent below, so "sent" and "consumed" are provably the
@@ -1379,7 +1391,24 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.listening = false;
     stopSilenceWatchdog();
     stopAudioLevelTest();
+    // Clears the loop's interval synchronously (see pauseActiveTranscription), so no further
+    // scheduled tick can start after this point -- only a call already in flight before Stop was
+    // pressed can still be racing us.
     await pauseActiveTranscription();
+    // INV-11's finish line: Stop is the one moment we know for certain the speaker is not
+    // mid-sentence, so it must force a drain that bypasses BUCKET_SETTLE_MS's "still talking"
+    // hold -- otherwise an unpunctuated final chunk (Chrome's Web Speech API routinely fails to
+    // punctuate a closing utterance) sits in the bucket forever, since nothing else will ever
+    // drain it once listening has stopped.
+    //
+    // If a scheduled call was already mid-flight when Stop was pressed, awaiting it here first
+    // (rather than firing the drain in parallel) is what prevents a double-send: that call's own
+    // removeConsumed() will have already run by the time this await resolves, so the drain below
+    // only ever sees whatever text is genuinely still unconsumed.
+    if (ctx.state.summarizeCallPromise) {
+      await ctx.state.summarizeCallPromise;
+    }
+    await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
     if (!ctx.state.paused) {

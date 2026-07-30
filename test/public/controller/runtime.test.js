@@ -2965,3 +2965,162 @@ test('refreshMicReadiness degrades defensibly (never throws) when permissions.qu
     assert.equal(ctx.state.micReady, true);
   });
 });
+
+test('stopping listening forces a final drain that consumes a stranded unpunctuated final chunk', async () => {
+  let sentText = null;
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      // No terminal punctuation and captured "now" -- normally held by partitionBucket's
+      // BUCKET_SETTLE_MS hold as "the speaker may still be mid-sentence." Stop is the one moment
+      // that assumption is known false.
+      transcriptChunks: [{ text: 'and that concludes the closing announcements', at: now }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.stopListening();
+
+    assert.equal(sentText, 'and that concludes the closing announcements');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the stranded chunk must be consumed, not left behind');
+  });
+});
+
+test('stopping listening with an empty bucket fires no summarize call and does not error', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  let called = false;
+  const summarizeDriver = {
+    id: 'openai',
+    summarize: async () => {
+      called = true;
+      return { line: '' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => summarizeDriver,
+    stateOverrides: { transcriptChunks: [] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await assert.doesNotReject(runtime.stopListening());
+
+    assert.equal(called, false, 'an empty bucket must not fire a pointless summarize call');
+  });
+});
+
+test('stopping listening while a summarize call is already in flight does not double-send the final chunk', async () => {
+  let resolveSummarize;
+  const calls = [];
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const stallingDriver = {
+    id: 'openai',
+    summarize: ({ recentTranscript }) => {
+      calls.push(recentTranscript);
+      return new Promise((resolve) => { resolveSummarize = resolve; });
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => stallingDriver,
+    stateOverrides: {
+      // First (punctuated, so eligible right away) chunk starts an in-flight call; the second
+      // (unpunctuated, freshly captured) chunk is the one that only Stop's final drain can reach.
+      transcriptChunks: [
+        { text: 'Welcome everyone to the meeting.', at: now - 30000 },
+        { text: 'and now for the closing prayer', at: now }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+
+    // Kick off the in-flight call directly (mirrors the interval tick) before Stop is pressed.
+    const inFlight = runtime.summarizeCurrentText();
+    await flushMicrotasks();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0], 'Welcome everyone to the meeting.');
+    const resolveFirst = resolveSummarize;
+
+    // stopListening must await that in-flight call before running its own final drain -- racing
+    // the two would risk sending the second chunk twice or sending it while still uncorrelated.
+    const stopping = runtime.stopListening();
+    await flushMicrotasks();
+    assert.equal(calls.length, 1, 'the final drain must not fire until the in-flight call has resolved');
+
+    resolveFirst({ line: '' });
+    await inFlight;
+    await flushMicrotasks();
+    assert.equal(calls.length, 2, 'the final drain must run exactly once, after the in-flight call resolves');
+    assert.equal(calls[1], 'and now for the closing prayer');
+
+    resolveSummarize({ line: '' });
+    await stopping;
+
+    assert.equal(ctx.state.transcriptChunks.length, 0);
+  });
+});
+
+test('a final drain on Stop still ends a run at a mode boundary -- one summarize call never spans two modes', async () => {
+  const calls = [];
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript, mode }) => {
+      calls.push({ recentTranscript, mode });
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [
+        { text: 'welcome everyone to the meeting', at: now - 1000, mode: 'speaker' },
+        { text: 'the potluck is Saturday', at: now, mode: 'information' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.stopListening();
+
+    assert.equal(calls.length, 1, 'only the oldest mode run may be sent in one call, even on a final drain');
+    assert.equal(calls[0].recentTranscript, 'welcome everyone to the meeting');
+    assert.equal(calls[0].mode, 'speaker');
+    // The later, different-mode chunk is left in the bucket rather than folded into that call.
+    assert.deepEqual(ctx.state.transcriptChunks.map((c) => c.text), ['the potluck is Saturday']);
+  });
+});
