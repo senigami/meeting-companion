@@ -826,12 +826,12 @@ test('renderReadyCheck marks the microphone row red with a plain fix when browse
   }
 });
 
-test('renderReadyCheck marks the microphone row green when browser speech is available', () => {
+test('renderReadyCheck marks the microphone row green when browser speech is available and the mic has been verified ready', () => {
   const originalWindow = global.window;
   global.window = { SpeechRecognition: function SpeechRecognition() {} };
 
   try {
-    const ctx = createReadyCheckCtx({ transcriptionSource: 'browser', openAiReady: false });
+    const ctx = createReadyCheckCtx({ transcriptionSource: 'browser', openAiReady: false, micReady: true });
 
     renderReadyCheck(ctx);
 
@@ -843,12 +843,12 @@ test('renderReadyCheck marks the microphone row green when browser speech is ava
   }
 });
 
-test('renderReadyCheck marks the microphone row green when the selected transcription source is OpenAI and ready, even without browser speech', () => {
+test('renderReadyCheck marks the microphone row green when the selected transcription source is OpenAI and the mic has been verified ready, even without browser speech', () => {
   const originalWindow = global.window;
   global.window = {};
 
   try {
-    const ctx = createReadyCheckCtx({ transcriptionSource: 'openai', openAiReady: true });
+    const ctx = createReadyCheckCtx({ transcriptionSource: 'openai', openAiReady: true, micReady: true });
 
     renderReadyCheck(ctx);
 
@@ -925,7 +925,7 @@ test('renderReadyCheck marks the TV display row green with no fix text', () => {
   }
 });
 
-test('renderReadyCheck reflects an all-green state when browser speech is available and both providers are ready', () => {
+test('renderReadyCheck reflects an all-green state when browser speech is available, the mic is verified ready, and both providers are ready', () => {
   const originalWindow = global.window;
   global.window = { SpeechRecognition: function SpeechRecognition() {} };
 
@@ -934,7 +934,8 @@ test('renderReadyCheck reflects an all-green state when browser speech is availa
       transcriptionSource: 'browser',
       summarizationSource: 'openai',
       openAiReady: true,
-      anthropicReady: true
+      anthropicReady: true,
+      micReady: true
     });
 
     renderReadyCheck(ctx);
@@ -942,6 +943,70 @@ test('renderReadyCheck reflects an all-green state when browser speech is availa
     assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
     assert.equal(ctx.dom.readyCheckAiDot.classList.contains('is-ready'), true);
     assert.equal(ctx.dom.readyCheckDisplayDot.classList.contains('is-ready'), true);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+// Regression for the 2026-07-30 bug: checkMicReady used to be a pure feature-detect
+// (browserSpeechAvailable()) that never consulted permission or device state, so the row read
+// green in Chrome with mic permission denied and every microphone unplugged.
+test('renderReadyCheck marks the microphone row red when browser speech exists but the mic has not been verified ready (denied permission or no device)', () => {
+  const originalWindow = global.window;
+  global.window = { SpeechRecognition: function SpeechRecognition() {} };
+
+  try {
+    const ctx = createReadyCheckCtx({
+      transcriptionSource: 'browser',
+      micReady: false,
+      micReadyReason: 'denied'
+    });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), false);
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-not-ready'), true);
+    assert.match(ctx.dom.readyCheckMicFix.textContent, /blocked/i);
+    assert.equal(ctx.dom.readyCheckMicFix.hidden, false);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the microphone row red with a "no microphone" fix when permission is fine but no device was found', () => {
+  const originalWindow = global.window;
+  global.window = { SpeechRecognition: function SpeechRecognition() {} };
+
+  try {
+    const ctx = createReadyCheckCtx({
+      transcriptionSource: 'browser',
+      micReady: false,
+      micReadyReason: 'no-device'
+    });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), false);
+    assert.match(ctx.dom.readyCheckMicFix.textContent, /no microphone was found/i);
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
+test('renderReadyCheck marks the microphone row green for the OpenAI transcription source once the mic is verified ready, even though the Web Speech API is absent', () => {
+  const originalWindow = global.window;
+  global.window = {};
+
+  try {
+    const ctx = createReadyCheckCtx({
+      transcriptionSource: 'openai',
+      openAiReady: true,
+      micReady: true
+    });
+
+    renderReadyCheck(ctx);
+
+    assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
   } finally {
     global.window = originalWindow;
   }

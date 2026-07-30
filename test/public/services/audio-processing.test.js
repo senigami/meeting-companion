@@ -3,13 +3,26 @@ import assert from 'node:assert/strict';
 
 import {
   createAudioConditioner,
-  createMicProbe,
+  createMicProbe as createMicProbeReal,
   computeNextGainDb,
   classifyLevel,
   presetParams,
   dbToLinear,
-  NOISE_FLOOR_DBFS
+  percentileDbfs,
+  computeNoiseGate,
+  NOISE_FLOOR_DBFS,
+  AMBIENT_SAMPLE_COUNT,
+  NOISE_GATE_MARGIN_DB
 } from '../../../public/services/audio-processing.js';
+
+// Every existing test in this file predates ambient calibration and never intended to pay for its
+// real ~1.5s sampling window (30 samples * 50ms) -- createMicProbe() defaults to a real setTimeout
+// there. A no-op delayImpl keeps calibration's actual logic under test (via the dedicated
+// calibration tests below, which inject their own synthetic timing) without making every other
+// mic-probe test in this file take 1.5s apiece.
+function createMicProbe(options = {}) {
+  return createMicProbeReal({ delayImpl: () => Promise.resolve(), ...options });
+}
 
 // --- Pure-function AGC math: no Web Audio involved at all -----------------
 
@@ -311,9 +324,10 @@ test('close() tears down without throwing even if it was never connected', () =>
 
 // --- createMicProbe: independent pre-meeting level test -------------------
 
-function makeFakeProbeStream(trackedStops) {
+function makeFakeProbeStream(trackedStops, trackSettings = { autoGainControl: true, noiseSuppression: false, echoCancellation: false }) {
   return {
-    getTracks: () => [{ stop: () => trackedStops.push(true) }]
+    getTracks: () => [{ stop: () => trackedStops.push(true) }],
+    getAudioTracks: () => [{ getSettings: () => trackSettings }]
   };
 }
 
@@ -344,9 +358,91 @@ test('createMicProbe.start() opens getUserMedia with the deviceId constraint mer
   });
 
   const result = await probe.start();
-  assert.deepEqual(result, { ok: true });
-  assert.deepEqual(capturedConstraints, { audio: { deviceId: { exact: 'mic-7' } } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(capturedConstraints, {
+    audio: {
+      autoGainControl: true,
+      noiseSuppression: false,
+      echoCancellation: false,
+      deviceId: { exact: 'mic-7' }
+    }
+  });
   probe.stop();
+});
+
+test('createMicProbe.start() requests the SAME browser constraint triple as the transcription path, driven by audioSettings', async () => {
+  let capturedConstraints = null;
+  const probe = createMicProbe({
+    audioSettings: { audioBrowserAgc: false, audioBrowserNoiseSuppression: true, audioBrowserEchoCancel: true },
+    getUserMediaImpl: async (constraints) => {
+      capturedConstraints = constraints;
+      return makeFakeProbeStream([]);
+    },
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+
+  await probe.start();
+  assert.deepEqual(capturedConstraints.audio, {
+    autoGainControl: false,
+    noiseSuppression: true,
+    echoCancellation: true
+  });
+  probe.stop();
+});
+
+test('createMicProbe.start() reads back the constraints Chrome actually granted via track.getSettings()', async () => {
+  const granted = { autoGainControl: true, noiseSuppression: false, echoCancellation: false };
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([], granted),
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+  const result = await probe.start();
+  assert.deepEqual(result.grantedConstraints, granted);
+  assert.deepEqual(probe.getGrantedConstraints(), granted);
+  probe.stop();
+  assert.equal(probe.getGrantedConstraints(), null, 'cleared on stop');
+});
+
+test('createMicProbe.start() falls back to the unconstrained default when a constrained request is refused (OverconstrainedError)', async () => {
+  let calls = 0;
+  const probe = createMicProbe({
+    deviceId: 'stale-device',
+    getUserMediaImpl: async (constraints) => {
+      calls += 1;
+      if (calls === 1) {
+        const error = new Error('Overconstrained');
+        error.name = 'OverconstrainedError';
+        throw error;
+      }
+      // Fallback request must drop the deviceId constraint but keep the browser constraints.
+      assert.deepEqual(constraints.audio, {
+        autoGainControl: true,
+        noiseSuppression: false,
+        echoCancellation: false
+      });
+      return makeFakeProbeStream([]);
+    },
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+
+  const result = await probe.start();
+  assert.equal(result.ok, true);
+  assert.equal(calls, 2, 'retried once against the unconstrained default');
+  probe.stop();
+});
+
+test('createMicProbe.start() still returns ok:false (never throws) if both the constrained request and the fallback fail', async () => {
+  const probe = createMicProbe({
+    deviceId: 'stale-device',
+    getUserMediaImpl: async () => {
+      const error = new Error('gone');
+      error.name = 'NotFoundError';
+      throw error;
+    }
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /gone/);
 });
 
 test('createMicProbe.start() never throws on getUserMedia failure, returning ok:false with the error message', async () => {
@@ -405,4 +501,144 @@ test('createMicProbe.stop() releases every mic track and is idempotent', async (
 test('createMicProbe.stop() never throws even if it was never started', () => {
   const probe = createMicProbe();
   assert.doesNotThrow(() => probe.stop());
+});
+
+// --- Ambient calibration (backlog #7/#10) ----------------------------------
+
+function dbfsToLinear(db) {
+  return 10 ** (db / 20);
+}
+
+test('percentileDbfs takes the 90th percentile, not the mean or max -- a single loud outlier does not move it', () => {
+  const samples = new Array(29).fill(-30).concat([0]); // 29 quiet ticks, one door-slam spike
+  assert.equal(percentileDbfs(samples, 0.9), -30, 'the rare spike must not drag the floor up');
+});
+
+test('percentileDbfs ignores non-finite samples and returns -Infinity when nothing measured', () => {
+  assert.equal(percentileDbfs([]), -Infinity);
+  assert.equal(percentileDbfs([-Infinity, NaN]), -Infinity);
+});
+
+test('computeNoiseGate adds the fixed margin above ambient when there is room for a LOW band', () => {
+  const { gateDbfs, tooNoisy } = computeNoiseGate(-40);
+  assert.equal(gateDbfs, -40 + NOISE_GATE_MARGIN_DB);
+  assert.equal(tooNoisy, false);
+});
+
+test('computeNoiseGate refuses to gate (tooNoisy) when the margin would erase the LOW band -- never fudges into the gap', () => {
+  // Steve's measured built-in mic: ambient ~-30dBFS, GOOD starts at -24, leaving exactly the
+  // documented ~6dB of headroom the margin consumes entirely.
+  const result = computeNoiseGate(-30);
+  assert.equal(result.tooNoisy, true);
+  assert.equal(result.gateDbfs, null, 'a too-noisy verdict must never hand back a usable gate');
+});
+
+test('computeNoiseGate on an uncalibrated (non-finite) floor reports neither a gate nor tooNoisy -- caller falls back to the default', () => {
+  assert.deepEqual(computeNoiseGate(-Infinity), { gateDbfs: null, tooNoisy: false });
+  assert.deepEqual(computeNoiseGate(NaN), { gateDbfs: null, tooNoisy: false });
+});
+
+test('createMicProbe.start() calibrates against a constant quiet ambient (headset-like) and readLevels uses the calibrated gate, not the fallback', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext({ fill: dbfsToLinear(-60) })
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.calibration.tooNoisy, false);
+  assert.ok(Math.abs(result.calibration.ambientFloorDbfs - -60) < 1e-6);
+  assert.ok(Math.abs(result.calibration.gateDbfs - (-60 + NOISE_GATE_MARGIN_DB)) < 1e-6);
+  assert.equal(result.calibration.sampleCount, AMBIENT_SAMPLE_COUNT);
+  assert.deepEqual(probe.getCalibration(), result.calibration);
+
+  // -60 ambient never crosses -54 (the calibrated gate); a genuinely silent room must still read
+  // as not-speaking, i.e. the calibration is actually being applied, not just measured and ignored.
+  assert.equal(probe.readLevels().speaking, false);
+  probe.stop();
+  assert.equal(probe.getCalibration(), null, 'cleared on stop, same as grantedConstraints');
+});
+
+test('createMicProbe.start() records the granted track\'s real deviceId onto the calibration as resolvedDeviceId', async () => {
+  // Sign-off blocker (2026-07-30): isMicCalibrationValid can only detect a system-default
+  // calibration going stale if the calibration itself records what device '' actually resolved to
+  // at measurement time. This pins that the real id (from track.getSettings(), already read into
+  // grantedConstraints) flows through onto the stored calibration object.
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([], { deviceId: 'headset-real-id', autoGainControl: true, noiseSuppression: false, echoCancellation: false }),
+    audioContextImpl: () => makeFakeProbeContext({ fill: dbfsToLinear(-60) })
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.calibration.resolvedDeviceId, 'headset-real-id');
+});
+
+test('createMicProbe.start() reports tooNoisy for a device whose ambient leaves no room for a LOW band, and readLevels falls back to the fixed default gate', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext({ fill: dbfsToLinear(-30) })
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.calibration.tooNoisy, true);
+  assert.equal(result.calibration.gateDbfs, null);
+
+  // -30 is above NOISE_FLOOR_DBFS (-50), the fallback default, so with no valid calibrated gate the
+  // probe must still fall back to the default rather than block or crash -- speaking reads true off
+  // the fixed floor, which is exactly the mis-classification the too-noisy verdict exists to warn
+  // about in the UI (Steve's ruling: say so, don't silently paper over it).
+  assert.equal(probe.readLevels().speaking, true);
+  probe.stop();
+});
+
+test('createMicProbe.start() falls back cleanly (no calibration) when ambient sampling never produced a finite reading', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext({ fill: 0 }) // rms 0 -> -Infinity, filtered out
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.calibration.ambientFloorDbfs, -Infinity);
+  assert.equal(result.calibration.gateDbfs, null);
+  assert.equal(result.calibration.tooNoisy, false);
+  probe.stop();
+});
+
+test('createMicProbe.start() still resolves (never hangs) if stop() is called mid-calibration', async () => {
+  let resolveDelay;
+  const probe = createMicProbeReal({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext({ fill: dbfsToLinear(-40) }),
+    delayImpl: () => new Promise((resolve) => { resolveDelay = resolve; })
+  });
+  const startPromise = probe.start();
+  // Let the first calibration tick run, then stop mid-loop before the delay ever resolves.
+  await Promise.resolve();
+  probe.stop();
+  resolveDelay?.();
+  const result = await startPromise;
+  assert.equal(result.ok, false);
+});
+
+test('createAudioConditioner honors a per-device calibrated noiseFloorDbfs over the fixed default', async () => {
+  const ctx = makeFakeContext();
+  ctx.createAnalyser = () => ({
+    fftSize: 2048,
+    connect() {},
+    disconnect() {},
+    getFloatTimeDomainData(buffer) {
+      buffer.fill(dbfsToLinear(-35));
+    }
+  });
+  const conditioner = createAudioConditioner({
+    audioContextFactory: () => ctx,
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle', noiseFloorDbfs: -30 },
+    now: () => Date.now(),
+    onDiagnostics: () => {}
+  });
+  conditioner.connect({ id: 'raw' });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  // -35 is below the calibrated gate of -30, so this must read as NOT speaking even though it is
+  // well above the fixed default floor (-50) that would call it speech.
+  assert.equal(conditioner.readLevels().speaking, false);
+  conditioner.close();
 });

@@ -7,7 +7,7 @@
 // No audio or diagnostics are ever written to disk or sent over the network here (ADR-0003 /
 // INV-8 / INV-12) -- everything in this module is in-memory only, for the lifetime of the call.
 
-import { deviceIdConstraint } from './audio-monitor.js';
+import { deviceIdConstraint, browserAudioConstraints } from './audio-monitor.js';
 
 export const AUDIO_PROCESSING_PRESETS = ['off', 'gentle', 'normal'];
 
@@ -16,6 +16,32 @@ export const AUDIO_PROCESSING_PRESETS = ['off', 'gentle', 'normal'];
 // measured RMS is at or below the noise floor, which also satisfies "adapt across speakers, not
 // across syllables" since a mid-sentence pause below the floor just holds the last gain.
 export const NOISE_FLOOR_DBFS = -50;
+
+// Per-device ambient calibration (backlog #7/#10). NOISE_FLOOR_DBFS above is only the fallback for
+// a device that has never been calibrated -- a fixed floor either gates out real speech (a headset
+// whose ambient sits near silence) or lets the room itself read as speech (a laptop mic with noise
+// suppression off, which is what the real capture path requests -- see transcription/openai.js).
+// AMBIENT_SAMPLE_COUNT * AMBIENT_SAMPLE_INTERVAL_MS = ~1.5s, long enough to average past a single
+// cough or door slam without making the mic test feel stuck.
+export const AMBIENT_SAMPLE_COUNT = 30;
+export const AMBIENT_SAMPLE_INTERVAL_MS = 50;
+// A high percentile, not the max: it keeps the steady top of what this room's ambient noise
+// actually does, while a single rare loud outlier (the door slam) falls above enough samples to
+// not move it. A mean would let that same outlier drag the floor up by exactly the amount the
+// percentile is designed to reject.
+export const AMBIENT_PERCENTILE = 0.9;
+// 6dB of headroom above measured ambient before something counts as speech. Chosen as the smallest
+// margin that reliably survives normal ambient variance without spurious triggering; it is also,
+// deliberately, the exact number that makes a device with only ~6dB of headroom between its ambient
+// floor and GOOD (Steve's measured built-in mic) land on the too-noisy verdict below rather than
+// silently getting a gate wedged into the gap.
+export const NOISE_GATE_MARGIN_DB = 6;
+// Must match classifyLevel's GOOD/LOW boundary below -- this is the ceiling a calibrated gate is
+// checked against.
+export const GOOD_FLOOR_DBFS = -24;
+// A LOW ("Too quiet") band narrower than this is not a real reading an operator could act on, just
+// noise in the measurement; treat it as no usable band at all.
+export const MIN_LOW_BAND_DB = 4;
 
 const PRESETS = {
   off: {
@@ -70,11 +96,17 @@ export function linearToDb(linear) {
 // Pure, timer-free core of the AGC: given a measured RMS and the currently-held gain, decides
 // the next gain. Exported standalone so the speech gate and clamping can be tested without any
 // Web Audio mocking at all.
-export function computeNextGainDb({ rmsDbfs, currentGainDb = 0, preset, elapsedMs = MEASUREMENT_INTERVAL_MS }) {
+export function computeNextGainDb({
+  rmsDbfs,
+  currentGainDb = 0,
+  preset,
+  elapsedMs = MEASUREMENT_INTERVAL_MS,
+  noiseFloorDbfs = NOISE_FLOOR_DBFS
+}) {
   const config = typeof preset === 'string' ? presetParams(preset) : preset || PRESETS.gentle;
   if (!config.adapt) return 0;
 
-  const speaking = rmsDbfs > NOISE_FLOOR_DBFS;
+  const speaking = rmsDbfs > noiseFloorDbfs;
   if (!speaking) return currentGainDb; // speech gate: silence never moves gain, in either direction
 
   const desiredGainDb = config.targetRmsDbfs - rmsDbfs;
@@ -86,6 +118,31 @@ export function computeNextGainDb({ rmsDbfs, currentGainDb = 0, preset, elapsedM
   const nextGainDb = currentGainDb + (clampedDesired - currentGainDb) * alpha;
 
   return Math.min(config.maxBoostDb, Math.max(config.maxCutDb, nextGainDb));
+}
+
+// Robust "typical ambient" estimate from a window of measured RMS samples. Pure and timer-free so
+// it can be tested without any real sampling delay.
+export function percentileDbfs(samples, percentile = AMBIENT_PERCENTILE) {
+  const finite = (samples || []).filter((value) => Number.isFinite(value));
+  if (!finite.length) return -Infinity;
+  const sorted = [...finite].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * percentile)));
+  return sorted[index];
+}
+
+// Turns a measured ambient floor into a gate, or an honest refusal to gate at all. Never fudges the
+// threshold into the gap between ambient and GOOD -- see MIN_LOW_BAND_DB above and Steve's ruling
+// in the backlog: a mic check that says "this microphone is too noisy in this room" is a better
+// product than one that silently raises the gate to look healthy.
+export function computeNoiseGate(ambientFloorDbfs, {
+  marginDb = NOISE_GATE_MARGIN_DB,
+  goodFloorDbfs = GOOD_FLOOR_DBFS,
+  minLowBandDb = MIN_LOW_BAND_DB
+} = {}) {
+  if (!Number.isFinite(ambientFloorDbfs)) return { gateDbfs: null, tooNoisy: false };
+  const gateDbfs = ambientFloorDbfs + marginDb;
+  const tooNoisy = gateDbfs >= goodFloorDbfs - minLowBandDb;
+  return { gateDbfs: tooNoisy ? null : gateDbfs, tooNoisy };
 }
 
 export function classifyLevel({ rmsDbfs, peakDbfs, speaking, clippedRecently }) {
@@ -177,6 +234,14 @@ export function createAudioConditioner({
     return presetParams(currentSettings.audioProcessingPreset || 'gentle');
   }
 
+  // Per-device calibrated gate (runtime.js reads it back from localStorage and passes it in as
+  // settings.noiseFloorDbfs); falls back to the fixed default for any device never calibrated, or
+  // whose calibration came back "too noisy" (computeNoiseGate returns gateDbfs: null there on
+  // purpose -- never wedge a gate into a gap that doesn't have room for one).
+  function effectiveNoiseFloorDbfs() {
+    return Number.isFinite(currentSettings.noiseFloorDbfs) ? currentSettings.noiseFloorDbfs : NOISE_FLOOR_DBFS;
+  }
+
   function retuneNodes() {
     if (!ctx) return;
     const preset = currentPreset();
@@ -206,12 +271,13 @@ export function createAudioConditioner({
       lastClipAt = nowMs;
     }
     const clippedRecently = nowMs - lastClipAt <= CLIP_WINDOW_MS;
-    const speaking = rmsDbfs > NOISE_FLOOR_DBFS;
+    const noiseFloorDbfs = effectiveNoiseFloorDbfs();
+    const speaking = rmsDbfs > noiseFloorDbfs;
 
     const elapsedMs = lastTickAt == null ? MEASUREMENT_INTERVAL_MS : nowMs - lastTickAt;
     lastTickAt = nowMs;
 
-    gainDb = computeNextGainDb({ rmsDbfs, currentGainDb: gainDb, preset: currentPreset(), elapsedMs });
+    gainDb = computeNextGainDb({ rmsDbfs, currentGainDb: gainDb, preset: currentPreset(), elapsedMs, noiseFloorDbfs });
     try {
       agcGainNode.gain.setTargetAtTime(dbToLinear(gainDb), ctx.currentTime, currentPreset().timeConstantSeconds);
     } catch {
@@ -344,13 +410,21 @@ export function createAudioConditioner({
 // never throw: a leaked live mic track after the test pane closes would leave the browser's mic
 // indicator lit, which is a privacy-visible bug in an app whose whole premise is "no surprise
 // capture" (ADR-0003).
-export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } = {}) {
+export function createMicProbe({
+  deviceId,
+  audioSettings = {},
+  getUserMediaImpl,
+  audioContextImpl,
+  delayImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
   let stream = null;
   let ctx = null;
   let sourceNode = null;
   let analyserNode = null;
   let analyserBuffer = null;
   let active = false;
+  let grantedConstraints = null;
+  let calibration = null;
 
   function resolveGetUserMedia() {
     if (typeof getUserMediaImpl === 'function') return getUserMediaImpl;
@@ -387,7 +461,46 @@ export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } 
     analyserNode = null;
     analyserBuffer = null;
     ctx = null;
+    grantedConstraints = null;
+    calibration = null;
     releaseTracks();
+  }
+
+  // Samples ambient room noise for AMBIENT_SAMPLE_COUNT ticks (~1.5s) right after the graph opens,
+  // while nobody has necessarily started speaking yet -- the mic test is already sampling audio at
+  // this point regardless, so this adds no new capture, just a window of measurements before we
+  // trust any of them as "the floor." Best-effort: a transient analyser read failure just yields one
+  // fewer sample rather than aborting the whole test.
+  async function calibrateAmbientFloor() {
+    const samples = [];
+    for (let i = 0; i < AMBIENT_SAMPLE_COUNT; i += 1) {
+      if (i > 0) await delayImpl(AMBIENT_SAMPLE_INTERVAL_MS);
+      if (!active || !analyserNode || !analyserBuffer) break; // stop() fired mid-calibration
+      try {
+        analyserNode.getFloatTimeDomainData(analyserBuffer);
+        const { rmsDbfs } = rmsAndPeakDbfs(analyserBuffer);
+        if (Number.isFinite(rmsDbfs)) samples.push(rmsDbfs);
+      } catch {
+        // best-effort only
+      }
+    }
+    const ambientFloorDbfs = percentileDbfs(samples);
+    const { gateDbfs, tooNoisy } = computeNoiseGate(ambientFloorDbfs);
+    // resolvedDeviceId records what the browser actually granted (track.getSettings().deviceId,
+    // read into grantedConstraints above, before this calibration ever runs) -- the one piece of
+    // real device identity available when `deviceId` requested was '' (system default). "Default"
+    // is a moving target: the physical device behind it can change (a headset unplugged, the
+    // built-in mic becoming default) without the requested id ever changing, so isMicCalibrationValid
+    // needs this to detect that the device this calibration measured is gone, not just that '' is
+    // still ''.
+    calibration = {
+      ambientFloorDbfs,
+      gateDbfs,
+      tooNoisy,
+      measuredAt: Date.now(),
+      sampleCount: samples.length,
+      resolvedDeviceId: grantedConstraints?.deviceId || null
+    };
   }
 
   async function start() {
@@ -396,10 +509,35 @@ export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } 
       return { ok: false, error: 'Microphone access is not available in this browser.' };
     }
 
+    // Same three browser-level constraints (AGC/noise-suppression/echo-cancel) the real
+    // transcription path requests, from the same shared builder -- otherwise this test measures a
+    // different microphone than the one the meeting will actually use.
+    const constraints = { ...browserAudioConstraints(audioSettings), ...deviceIdConstraint(deviceId) };
     try {
-      stream = await getUserMedia({ audio: { ...deviceIdConstraint(deviceId) } });
+      stream = await getUserMedia({ audio: constraints });
     } catch (error) {
-      return { ok: false, error: error?.message || 'Could not open the microphone.' };
+      // Mirrors the transcription path's fallback (transcription/openai.js): a saved device id can
+      // go stale or a constraint can be refused outright, and a mic TEST that dies over this is
+      // worse than one that degrades to the unconstrained default and says so.
+      if (deviceId && (error?.name === 'OverconstrainedError' || error?.name === 'NotFoundError')) {
+        try {
+          stream = await getUserMedia({ audio: browserAudioConstraints(audioSettings) });
+        } catch (fallbackError) {
+          return { ok: false, error: fallbackError?.message || 'Could not open the microphone.' };
+        }
+      } else {
+        return { ok: false, error: error?.message || 'Could not open the microphone.' };
+      }
+    }
+
+    // Diagnostic readback only, never trust that asking for a constraint means the browser/device
+    // honoured it (macOS and Bluetooth stacks quietly refuse them) -- same honesty openai.js's
+    // reportGrantedConstraints applies to the real capture path.
+    try {
+      const track = stream.getAudioTracks?.()?.[0];
+      grantedConstraints = track?.getSettings?.() || null;
+    } catch {
+      grantedConstraints = null;
     }
 
     const audioContextFactory = resolveAudioContext();
@@ -416,11 +554,17 @@ export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } 
       analyserBuffer = new Float32Array(analyserNode.fftSize);
       sourceNode.connect(analyserNode);
       active = true;
-      return { ok: true };
+      await calibrateAmbientFloor();
+      if (!active) return { ok: false, error: 'Microphone test was stopped.' }; // stop() fired mid-calibration
+      return { ok: true, grantedConstraints, calibration: getCalibration() };
     } catch (error) {
       teardown();
       return { ok: false, error: error?.message || 'Could not measure this microphone.' };
     }
+  }
+
+  function gateDbfsForReadLevels() {
+    return calibration && Number.isFinite(calibration.gateDbfs) ? calibration.gateDbfs : NOISE_FLOOR_DBFS;
   }
 
   function readLevels() {
@@ -431,7 +575,7 @@ export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } 
       return null;
     }
     const { rmsDbfs, peakDbfs } = rmsAndPeakDbfs(analyserBuffer);
-    const speaking = rmsDbfs > NOISE_FLOOR_DBFS;
+    const speaking = rmsDbfs > gateDbfsForReadLevels();
     return {
       rms_dbfs: rmsDbfs,
       peak_dbfs: peakDbfs,
@@ -446,5 +590,13 @@ export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } 
     teardown();
   }
 
-  return { start, readLevels, stop };
+  function getGrantedConstraints() {
+    return grantedConstraints;
+  }
+
+  function getCalibration() {
+    return calibration ? { ...calibration } : null;
+  }
+
+  return { start, readLevels, stop, getGrantedConstraints, getCalibration };
 }

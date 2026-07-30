@@ -16,7 +16,16 @@ import {
   clampSummaryIntervalSeconds,
   clampSummaryMaxWords
 } from '../services/view-settings.js';
-import { listAudioInputs, resolveDeviceId, describeLevels } from '../services/audio-monitor.js';
+import {
+  listAudioInputs,
+  resolveDeviceId,
+  describeLevels,
+  stabilizeMeterDisplay,
+  evaluateMicReadiness,
+  isMicCalibrationValid,
+  describeMicCalibration,
+  MIC_CALIBRATION_MAX_AGE_MS
+} from '../services/audio-monitor.js';
 import { createMicProbe } from '../services/audio-processing.js';
 import {
   flashRailNote,
@@ -104,6 +113,36 @@ function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
   return clean.length > maxChars ? `${clean.slice(0, maxChars)}…` : clean;
 }
 
+// Per-device ambient calibration storage (backlog #7/#10). Keyed by deviceId rather than folded
+// into the STORAGE map above: it is a measurement with its own expiry (isMicCalibrationValid /
+// MIC_CALIBRATION_MAX_AGE_MS), not a fixed operator preference, so one entry per device rather than
+// one entry total. Never stores audio, only the small dBFS numbers computeNoiseGate produced
+// (ADR-0003/INV-8 only bars audio/transcript content, not a measurement like this).
+function micCalibrationStorageKey(deviceId) {
+  return `micCalibration:${deviceId || 'default'}`;
+}
+
+function readStoredMicCalibration(deviceId) {
+  try {
+    const raw = localStorage.getItem(micCalibrationStorageKey(deviceId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredMicCalibration(deviceId, calibration) {
+  try {
+    if (!calibration) {
+      localStorage.removeItem(micCalibrationStorageKey(deviceId));
+      return;
+    }
+    localStorage.setItem(micCalibrationStorageKey(deviceId), JSON.stringify(calibration));
+  } catch {
+    // Best-effort only; a private-browsing quota error must never break the mic test.
+  }
+}
+
 function transcriptionStatusLevel(text) {
   const clean = String(text || '');
   // Transient browser blips (no-speech, aborted) surface as "Speech recognition
@@ -120,6 +159,10 @@ export function createRuntime(ctx, deps = {}) {
   let clearArmTimer = null;
   let micProbe = null;
   let micLevelTimer = null;
+  let micCalibration = null;
+  // Carries stabilizeMeterDisplay()'s opaque state between ticks (dwell/debounce/peak-hold timers).
+  // Reset to null on every probe (re)start and on stop so a new test never inherits a stale latch.
+  let meterStabilizerState = null;
   const {
     createTranscriptionDriverFn = createTranscriptionDriver,
     createSummarizationDriverFn = createSummarizationDriver,
@@ -130,6 +173,10 @@ export function createRuntime(ctx, deps = {}) {
     nowFn = Date.now,
     documentImpl = globalThis.document,
     mediaDevicesImpl = globalThis.navigator?.mediaDevices,
+    // Safari (as of this writing) has no permissions.query support for 'microphone' at all --
+    // refreshMicReadiness's own try/catch is the defensible-degradation path for that; this dep
+    // just makes it fakeable in a test.
+    permissionsImpl = globalThis.navigator?.permissions,
     // Deliberately separate from documentImpl: that dependency doubles as a feature-detection
     // flag elsewhere (renderRailTranscript's `documentImpl?.createElement && ...`), so widening it
     // to support <option> creation would change unrelated behavior. This one dependency exists
@@ -158,6 +205,7 @@ export function createRuntime(ctx, deps = {}) {
     if (provider === 'browser') return updateStatus(ctx, 'Browser speech recognition is not available in this browser.');
     ctx.state.registrationProvider = provider;
     setSettingsOpen(ctx, true);
+    refreshMicReadiness();
     globalThis.requestAnimationFrame?.(() => {
       const target = ctx.dom.serviceRegistrationKeyInput;
       target?.focus?.();
@@ -396,6 +444,9 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   documentImpl?.addEventListener?.('visibilitychange', handleVisibilityChange);
+  // A mic unplugged/replugged mid-session is exactly the moment the Ready check row must stop
+  // lying -- devicechange is the only event that fires for that without polling.
+  mediaDevicesImpl?.addEventListener?.('devicechange', refreshMicReadiness);
 
   function handleTranscriptEvent(event) {
     if (!event?.text) return;
@@ -436,7 +487,49 @@ export function createRuntime(ctx, deps = {}) {
   function buildAudioSettings() {
     const settings = {};
     for (const key of AUDIO_SETTINGS_KEYS) settings[key] = ctx.state[key];
+    // The calibrated gate feeds the AGC's real speech gate (audio-processing.js's
+    // effectiveNoiseFloorDbfs), not just the Settings-pane mic test. isMicCalibrationValid applies
+    // both invalidation rules: the device is gone (checked against the last device list the
+    // Settings pane fetched, cached onto ctx.state.audioDevices by populateAudioDeviceOptions --
+    // this path is synchronous and can't re-enumerate devices itself), or the calibration is older
+    // than MIC_CALIBRATION_MAX_AGE_MS (room noise changes meeting to meeting).
+    const stored = readStoredMicCalibration(ctx.state.audioDeviceId);
+    if (isMicCalibrationValid({ calibration: stored, deviceId: ctx.state.audioDeviceId, devices: ctx.state.audioDevices }) &&
+        Number.isFinite(stored.gateDbfs)) {
+      settings.noiseFloorDbfs = stored.gateDbfs;
+    }
     return settings;
+  }
+
+  // Real readiness for the Settings > Ready check "Microphone" row (docs/backlog.md item 1).
+  // checkMicReady in view.js used to be `browserSpeechAvailable() || ...` -- a feature-detect on
+  // the Web Speech API that says nothing about permission or whether a device exists, so it read
+  // green in Chrome with mic access denied and every microphone unplugged. This is async (permission
+  // state and the device list both are) while renderReadyCheck must stay synchronous, so the
+  // resolved verdict is written onto ctx.state here and the render path only ever reads it.
+  //
+  // Deliberately does NOT call getUserMedia -- that would open a live mic stream (and light the
+  // browser's recording indicator) just to paint a status dot. navigator.permissions.query and
+  // enumerateDevices are the only APIs than can answer "is this ready" without opening anything.
+  async function refreshMicReadiness() {
+    let permissionState = 'unknown';
+    try {
+      if (permissionsImpl?.query) {
+        const status = await permissionsImpl.query({ name: 'microphone' });
+        permissionState = status?.state || 'unknown';
+      }
+    } catch {
+      // Some browsers (Safari) throw on an unrecognized permission name rather than returning
+      // 'prompt'/'denied'/'granted'. Degrade to 'unknown' -- evaluateMicReadiness then falls back
+      // to the device list alone, rather than crashing the settings pane.
+      permissionState = 'unknown';
+    }
+
+    const devices = await listAudioInputs(mediaDevicesImpl);
+    const result = evaluateMicReadiness({ permissionState, devices });
+    ctx.state.micReady = result.ready;
+    ctx.state.micReadyReason = result.reason;
+    syncSettingsPanel(ctx);
   }
 
   // Refreshes the mic picker's <option> list. Device labels are withheld by the browser until
@@ -447,6 +540,8 @@ export function createRuntime(ctx, deps = {}) {
     if (!select) return;
 
     const devices = await listAudioInputs(mediaDevicesImpl);
+    ctx.state.audioDevices = devices; // cached so buildAudioSettings can validate a stored
+    // calibration's device-still-exists rule synchronously, without re-enumerating devices itself.
     const resolvedId = resolveDeviceId(devices, ctx.state.audioDeviceId);
 
     select.innerHTML = '';
@@ -547,17 +642,38 @@ export function createRuntime(ctx, deps = {}) {
 
   function renderAudioLevelMeter(levels) {
     const described = describeLevels(levels);
+    // Readability latch (docs/backlog.md item 1, 2026-07-30 mic test): the raw per-tick reading
+    // flickers between classifications faster than a slow reader can follow, and a "Too loud"
+    // warning could disappear before it was read at all. stabilizeMeterDisplay is pure/DOM-free
+    // (audio-monitor.js) -- this is the one call site that owns the state it threads between ticks.
+    const { display, state } = stabilizeMeterDisplay({ previous: meterStabilizerState, described });
+    meterStabilizerState = state;
     if (ctx.dom.audioLevelBar) {
-      ctx.dom.audioLevelBar.style.width = `${described.rmsPercent}%`;
-      ctx.dom.audioLevelBar.classList.toggle('clipping', described.classification === 'CLIPPING');
+      ctx.dom.audioLevelBar.style.width = `${display.rmsPercent}%`;
+      ctx.dom.audioLevelBar.classList.toggle('clipping', display.clipping);
     }
     if (ctx.dom.audioLevelPeak) {
-      ctx.dom.audioLevelPeak.style.left = `${described.peakPercent}%`;
+      ctx.dom.audioLevelPeak.style.left = `${display.peakPercent}%`;
     }
     // INV-10: describeLevels(null) reports "Not measuring" rather than a blank/zeroed bar, so a
     // probe that never started (or has since stopped) never reads as "silence detected."
-    if (ctx.dom.audioLevelText) ctx.dom.audioLevelText.textContent = described.text;
-    return described;
+    // A too-noisy calibration verdict overrides the per-tick word (never the meter bar itself,
+    // which keeps showing the real reading) -- Steve's ruling: say plainly that this mic can't be
+    // gated reliably in this room, rather than let the meter jump straight from silence to "Good"
+    // and look healthy. Calibration text also bypasses the latch/debounce -- it is already a stable,
+    // deliberately-set verdict, not a per-tick classification.
+    //
+    // Precedence, made explicit after a sign-off finding (2026-07-30): a live warning must always
+    // outrank an advisory. `display.clipping` (CLIPPING, exempted from the debounce in
+    // stabilizeMeterDisplay for the same reason) is the one state the calibration text is never
+    // allowed to paper over -- an instrument that can hide "Too loud" behind a calmer-sounding
+    // sentence is worse than one that shows nothing, because the operator believes what it says.
+    const calibrationText = describeMicCalibration(micCalibration).text;
+    const advisoryMayShow = calibrationText && !display.clipping;
+    if (ctx.dom.audioLevelText) {
+      ctx.dom.audioLevelText.textContent = advisoryMayShow ? calibrationText : display.text;
+    }
+    return display;
   }
 
   // Owns its own getUserMedia + AudioContext, independent of the conditioner and of whether
@@ -566,7 +682,8 @@ export function createRuntime(ctx, deps = {}) {
   // lets an operator check a mic before a meeting starts, exactly like Google Meet's mic test.
   async function startAudioLevelTest() {
     if (ctx.state.audioLevelTestActive) return;
-    micProbe = createMicProbeFn({ deviceId: ctx.state.audioDeviceId });
+    meterStabilizerState = null;
+    micProbe = createMicProbeFn({ deviceId: ctx.state.audioDeviceId, audioSettings: buildAudioSettings() });
     const result = await micProbe.start();
     if (!result?.ok) {
       renderAudioLevelMeter(null);
@@ -574,8 +691,26 @@ export function createRuntime(ctx, deps = {}) {
         ctx.dom.audioLevelText.textContent = result?.error || 'Could not test this microphone.';
       }
       micProbe = null;
+      // A failed probe (e.g. permission just denied at the OS prompt) is itself new readiness
+      // information -- refresh so the Ready check row reflects it without waiting for another
+      // devicechange or settings-reopen.
+      refreshMicReadiness();
       return;
     }
+    // Diagnostic only, matching the honesty the real capture path applies (openai.js's
+    // reportGrantedConstraints) -- surfaced to the console for now. Whether this belongs on a
+    // visible UI surface (e.g. next to the level meter) is Steve's call, not built here; see the
+    // report handed back with this change.
+    if (result.grantedConstraints) {
+      console.info('Mic test constraints granted:', result.grantedConstraints);
+    }
+
+    // Persist the calibration this device just measured (backlog #7/#10) -- written regardless of
+    // tooNoisy: a too-noisy verdict stores gateDbfs: null, so buildAudioSettings's Number.isFinite
+    // check falls back to the fixed default rather than a fudged gate (never block listening on an
+    // uncalibrated -- or unreliably calibratable -- mic).
+    micCalibration = result.calibration || null;
+    if (micCalibration) writeStoredMicCalibration(ctx.state.audioDeviceId, micCalibration);
 
     ctx.state.audioLevelTestActive = true;
     if (ctx.dom.audioLevelTestButton) {
@@ -583,6 +718,7 @@ export function createRuntime(ctx, deps = {}) {
       ctx.dom.audioLevelTestButton.setAttribute('aria-pressed', 'true');
     }
     await populateAudioDeviceOptions();
+    refreshMicReadiness();
     micLevelTimer = setInterval(() => {
       renderAudioLevelMeter(micProbe?.readLevels());
     }, AUDIO_LEVEL_METER_INTERVAL_MS);
@@ -598,6 +734,8 @@ export function createRuntime(ctx, deps = {}) {
     }
     micProbe?.stop();
     micProbe = null;
+    micCalibration = null;
+    meterStabilizerState = null;
     ctx.state.audioLevelTestActive = false;
     if (ctx.dom.audioLevelTestButton) {
       ctx.dom.audioLevelTestButton.textContent = 'Test';
@@ -1548,6 +1686,7 @@ export function createRuntime(ctx, deps = {}) {
     setMode,
     setPanelOpen: (open, options) => {
       if (!open) stopAudioLevelTest();
+      else refreshMicReadiness();
       return setSettingsOpen(ctx, open, options);
     },
     setSummaryInterval,
@@ -1569,13 +1708,16 @@ export function createRuntime(ctx, deps = {}) {
     toggleSettingsOpen: () => {
       const next = !(ctx.state.settingsOpen ?? ctx.state.panelOpen);
       if (!next) stopAudioLevelTest();
+      else refreshMicReadiness();
       return setSettingsOpen(ctx, next);
     },
     setSettingsOpen: (open, options) => {
       if (!open) stopAudioLevelTest();
+      else refreshMicReadiness();
       return setSettingsOpen(ctx, open, options);
     },
     populateAudioDeviceOptions,
+    refreshMicReadiness,
     setAudioDeviceId,
     refreshRecordingList,
     setSelectedRecordingId,

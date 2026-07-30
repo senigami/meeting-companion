@@ -2611,6 +2611,37 @@ test('toggleAudioLevelTest starts the probe, drives the meter from describeLevel
   });
 });
 
+test('a live CLIPPING reading always reaches the operator even when the device is calibrated too-noisy (sign-off blocker, 2026-07-30)', async () => {
+  // Regression guard for the withheld fix: calibrationText used to unconditionally beat display.text
+  // (`calibrationText || display.text`), so a too-noisy verdict permanently hid every real "Too loud"
+  // warning for that device. A meter that can suppress the worst reading it can produce is worse than
+  // one that shows nothing, because the operator believes what it says.
+  const fakeProbe = {
+    async start() {
+      return { ok: true, calibration: { tooNoisy: true, gateDbfs: null, ambientFloorDbfs: -30, measuredAt: Date.now() } };
+    },
+    readLevels() {
+      return { rms_dbfs: -2, peak_dbfs: -1, gain_db: 0, clipCount: 3, classification: 'CLIPPING', speaking: true };
+    },
+    stop() {}
+  };
+
+  await withRuntimeHarness({
+    createMicProbeFn: () => fakeProbe,
+    mediaDevicesImpl: { enumerateDevices: async () => [] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.toggleAudioLevelTest();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(ctx.dom.audioLevelText.textContent, 'Too loud', 'the CLIPPING warning must survive the too-noisy calibration advisory');
+    assert.ok(ctx.dom.audioLevelBar.classList.contains('clipping'));
+
+    // Required, not tidiness: startAudioLevelTest leaves a setInterval running, so a test that never
+    // stops the probe keeps the event loop alive and `node --test` never exits. Omitting this hung
+    // the whole suite rather than failing it.
+    runtime.stopAudioLevelTest();
+  });
+});
+
 test('toggleAudioLevelTest surfaces a probe failure through the readout instead of throwing', async () => {
   const fakeProbe = {
     async start() {
@@ -2863,5 +2894,74 @@ test('an openai driver summarized to a real line reports "listening" on the rail
 
     assert.equal(elements.status.textContent, 'Added: a useful summary line');
     assert.equal(ctx.state.railStatusLevel, 'listening');
+  });
+});
+
+// --- Real mic readiness for the Ready check row (2026-07-30 bug fix) -------
+
+test('refreshMicReadiness marks the mic not-ready on denied permission', async () => {
+  const permissionsImpl = { query: async () => ({ state: 'denied' }) };
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'mic-1', label: 'USB Mic' }]
+  };
+
+  await withRuntimeHarness({ permissionsImpl, mediaDevicesImpl }, async ({ ctx, runtime }) => {
+    await runtime.refreshMicReadiness();
+    assert.equal(ctx.state.micReady, false);
+    assert.equal(ctx.state.micReadyReason, 'denied');
+  });
+});
+
+test('refreshMicReadiness marks the mic not-ready on an empty device list', async () => {
+  const permissionsImpl = { query: async () => ({ state: 'granted' }) };
+  const mediaDevicesImpl = { enumerateDevices: async () => [] };
+
+  await withRuntimeHarness({ permissionsImpl, mediaDevicesImpl }, async ({ ctx, runtime }) => {
+    await runtime.refreshMicReadiness();
+    assert.equal(ctx.state.micReady, false);
+    assert.equal(ctx.state.micReadyReason, 'no-device');
+  });
+});
+
+test('refreshMicReadiness marks the mic not-ready when only the pre-permission blank-id placeholder is listed', async () => {
+  const permissionsImpl = { query: async () => ({ state: 'prompt' }) };
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [{ kind: 'audioinput', deviceId: '', label: '' }]
+  };
+
+  await withRuntimeHarness({ permissionsImpl, mediaDevicesImpl }, async ({ ctx, runtime }) => {
+    await runtime.refreshMicReadiness();
+    assert.equal(ctx.state.micReady, false);
+    assert.equal(ctx.state.micReadyReason, 'no-device');
+  });
+});
+
+test('refreshMicReadiness marks the mic ready with granted permission and a real device', async () => {
+  const permissionsImpl = { query: async () => ({ state: 'granted' }) };
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'mic-1', label: 'USB Mic' }]
+  };
+
+  await withRuntimeHarness({ permissionsImpl, mediaDevicesImpl }, async ({ ctx, runtime }) => {
+    await runtime.refreshMicReadiness();
+    assert.equal(ctx.state.micReady, true);
+  });
+});
+
+test('refreshMicReadiness degrades defensibly (never throws) when permissions.query itself throws', async () => {
+  const permissionsImpl = {
+    query: async () => {
+      throw new Error('unsupported permission name');
+    }
+  };
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'mic-1', label: 'USB Mic' }]
+  };
+
+  await withRuntimeHarness({ permissionsImpl, mediaDevicesImpl }, async ({ ctx, runtime }) => {
+    await assert.doesNotReject(runtime.refreshMicReadiness());
+    // Falls back to the device list alone: a real device is present, so this reads ready rather
+    // than crashing the settings pane or refusing to render a verdict at all.
+    assert.equal(ctx.state.micReady, true);
   });
 });

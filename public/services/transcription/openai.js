@@ -3,7 +3,7 @@ import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 import { createAudioConditioner } from '../audio-processing.js';
-import { deviceIdConstraint } from '../audio-monitor.js';
+import { deviceIdConstraint, browserAudioConstraints } from '../audio-monitor.js';
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -196,11 +196,7 @@ export function createOpenAITranscriptionDriver({
       sessionId += 1;
       const currentSession = sessionId;
 
-      const baseAudioConstraints = {
-        autoGainControl: audioSettings.audioBrowserAgc !== false,
-        noiseSuppression: audioSettings.audioBrowserNoiseSuppression === true,
-        echoCancellation: audioSettings.audioBrowserEchoCancel === true
-      };
+      const baseAudioConstraints = browserAudioConstraints(audioSettings);
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({

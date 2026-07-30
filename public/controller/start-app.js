@@ -103,6 +103,12 @@ export function startApp() {
       summarizationSourceChosen: localStorage.getItem(STORAGE.summarizationSourceChosen) === 'true',
       openAiReady: false,
       anthropicReady: false,
+      // Real mic readiness (permission + a real audioinput device), refreshed asynchronously by
+      // runtime.js#refreshMicReadiness. Starts false/'unknown' -- never claim the mic is ready
+      // before it has actually been checked once (INV-10: a green dot that has never met a
+      // microphone is worse than no dot at all).
+      micReady: false,
+      micReadyReason: 'unknown',
       serverOpenAiReady: false,
       serverAnthropicReady: false,
       providerKeys: {},

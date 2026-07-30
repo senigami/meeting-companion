@@ -667,9 +667,21 @@ export function syncSettingsPanel(ctx) {
   renderReadyCheck(ctx);
 }
 
+// Plain-language, one per distinct not-ready cause (docs/backlog.md item 1) -- each names the next
+// step for a helper under time pressure who is not an audio engineer, rather than one blanket line
+// that describes a browser-capability gap when the real problem is a blocked permission or an
+// unplugged mic.
+const MIC_FIX_TEXT = {
+  unsupported: 'This browser can\'t listen with its own speech recognition. Choose OpenAI transcription or type lines manually.',
+  denied: 'Microphone access is blocked for this browser. Allow it in your browser or system privacy settings, then reopen Settings.',
+  'no-device': 'No microphone was found. Plug one in or check your system sound settings, then reopen Settings.',
+  unknown: 'Microphone hasn\'t been checked yet. Reopen Settings, or click Test, to check it.'
+};
+
 export function renderReadyCheck(ctx) {
-  renderReadyCheckRow(ctx.dom.readyCheckMicDot, ctx.dom.readyCheckMicFix, checkMicReady(ctx), {
-    fix: 'This browser can\'t listen. Choose OpenAI transcription or type lines manually.'
+  const mic = checkMicReady(ctx);
+  renderReadyCheckRow(ctx.dom.readyCheckMicDot, ctx.dom.readyCheckMicFix, mic.ready, {
+    fix: MIC_FIX_TEXT[mic.reason] || ''
   });
 
   const activeSummaryProvider = ctx.state.summarizationSource === 'claude' ? 'claude' : 'openai';
@@ -682,8 +694,18 @@ export function renderReadyCheck(ctx) {
   renderReadyCheckRow(ctx.dom.readyCheckDisplayDot, ctx.dom.readyCheckDisplayFix, true, { fix: '' });
 }
 
+// Real state, not a feature-detect: both the browser-speech and OpenAI transcription paths open
+// a real getUserMedia stream (transcription/openai.js does it too, for the same audio graph the
+// mic test probes), so this row reflects actual permission + device state -- refreshed
+// asynchronously onto ctx.state.micReady/micReadyReason by runtime.js#refreshMicReadiness -- not
+// merely whether the Web Speech API exists. The one case that IS a pure capability gap: the
+// browser transcription source with no Web Speech API at all, which no mic permission can fix.
 function checkMicReady(ctx) {
-  return browserSpeechAvailable() || (ctx.state.transcriptionSource === 'openai' && Boolean(ctx.state.openAiReady));
+  if (ctx.state.transcriptionSource === 'browser' && !browserSpeechAvailable()) {
+    return { ready: false, reason: 'unsupported' };
+  }
+  if (ctx.state.micReady) return { ready: true, reason: null };
+  return { ready: false, reason: ctx.state.micReadyReason || 'unknown' };
 }
 
 function checkAiReady(ctx) {

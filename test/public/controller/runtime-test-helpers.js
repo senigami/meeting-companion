@@ -149,6 +149,7 @@ export function createRuntimeHarness({
   documentImpl,
   createMicProbeFn,
   mediaDevicesImpl,
+  permissionsImpl,
   localStorageValues = {},
   stateOverrides = {},
   elementOverrides = {},
@@ -280,7 +281,8 @@ export function createRuntimeHarness({
     // option creation gets its own narrow dependency instead of widening that flag's meaning.
     createOptionElementFn: () => createFakeOptionElement(),
     ...(createMicProbeFn ? { createMicProbeFn } : {}),
-    ...(typeof mediaDevicesImpl !== 'undefined' ? { mediaDevicesImpl } : {})
+    ...(typeof mediaDevicesImpl !== 'undefined' ? { mediaDevicesImpl } : {}),
+    ...(typeof permissionsImpl !== 'undefined' ? { permissionsImpl } : {})
   });
 
   return {
@@ -308,6 +310,11 @@ export async function withRuntimeHarness(options, callback) {
   try {
     return await callback(harness);
   } finally {
+    // startAudioLevelTest leaves a setInterval running, and a leaked interval keeps the event loop
+    // alive so `node --test` never exits. Stopping it here rather than at the end of each test body
+    // is what makes a FAILING assertion in a mic-test still fail: without this, the throw skips the
+    // test's own cleanup and the whole suite hangs instead of reporting the failure (2026-07-30).
+    try { harness.runtime?.stopAudioLevelTest?.(); } catch {}
     harness.restore();
   }
 }
