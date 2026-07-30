@@ -7,6 +7,8 @@
 // No audio or diagnostics are ever written to disk or sent over the network here (ADR-0003 /
 // INV-8 / INV-12) -- everything in this module is in-memory only, for the lifetime of the call.
 
+import { deviceIdConstraint } from './audio-monitor.js';
+
 export const AUDIO_PROCESSING_PRESETS = ['off', 'gentle', 'normal'];
 
 // Silence must never drive gain upward -- this is the single most important AGC rule. We
@@ -94,7 +96,7 @@ export function classifyLevel({ rmsDbfs, peakDbfs, speaking, clippedRecently }) 
   return 'LOW';
 }
 
-function rmsAndPeakDbfs(samples) {
+export function rmsAndPeakDbfs(samples) {
   let sumSquares = 0;
   let peak = 0;
   for (let i = 0; i < samples.length; i += 1) {
@@ -328,4 +330,121 @@ export function createAudioConditioner({
   }
 
   return { connect, update, readLevels, close };
+}
+
+// A standalone level probe for the pre-meeting mic test (docs/backlog.md item 1). Deliberately NOT
+// wired through createAudioConditioner: conditioning ships bypassed by default
+// (audioConditioningEnabled: false, view-settings.js), which means the conditioner's own
+// readLevels() reports nothing for every real user until someone opts in. A meter hung off the
+// conditioner would be dead on arrival. This probe opens its own getUserMedia and its own
+// AudioContext/AnalyserNode, independent of whether listening is running and independent of the
+// conditioning setting, exactly like Google Meet's mic test does.
+//
+// It measures only -- no gain, no compressor, no persistence. `stop()` must be idempotent and must
+// never throw: a leaked live mic track after the test pane closes would leave the browser's mic
+// indicator lit, which is a privacy-visible bug in an app whose whole premise is "no surprise
+// capture" (ADR-0003).
+export function createMicProbe({ deviceId, getUserMediaImpl, audioContextImpl } = {}) {
+  let stream = null;
+  let ctx = null;
+  let sourceNode = null;
+  let analyserNode = null;
+  let analyserBuffer = null;
+  let active = false;
+
+  function resolveGetUserMedia() {
+    if (typeof getUserMediaImpl === 'function') return getUserMediaImpl;
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    }
+    return null;
+  }
+
+  function resolveAudioContext() {
+    if (typeof audioContextImpl === 'function') return audioContextImpl;
+    if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      return () => new Ctor();
+    }
+    return null;
+  }
+
+  function releaseTracks() {
+    try {
+      stream?.getTracks?.().forEach((track) => track.stop());
+    } catch {
+      // Best-effort only -- a track already stopped or a fake stream in tests must never throw here.
+    }
+    stream = null;
+  }
+
+  function teardown() {
+    active = false;
+    try { sourceNode?.disconnect?.(); } catch {}
+    try { analyserNode?.disconnect?.(); } catch {}
+    try { ctx?.close?.(); } catch {}
+    sourceNode = null;
+    analyserNode = null;
+    analyserBuffer = null;
+    ctx = null;
+    releaseTracks();
+  }
+
+  async function start() {
+    const getUserMedia = resolveGetUserMedia();
+    if (!getUserMedia) {
+      return { ok: false, error: 'Microphone access is not available in this browser.' };
+    }
+
+    try {
+      stream = await getUserMedia({ audio: { ...deviceIdConstraint(deviceId) } });
+    } catch (error) {
+      return { ok: false, error: error?.message || 'Could not open the microphone.' };
+    }
+
+    const audioContextFactory = resolveAudioContext();
+    if (!audioContextFactory) {
+      releaseTracks();
+      return { ok: false, error: 'This browser cannot measure microphone levels.' };
+    }
+
+    try {
+      ctx = audioContextFactory();
+      sourceNode = ctx.createMediaStreamSource(stream);
+      analyserNode = ctx.createAnalyser();
+      analyserNode.fftSize = 2048;
+      analyserBuffer = new Float32Array(analyserNode.fftSize);
+      sourceNode.connect(analyserNode);
+      active = true;
+      return { ok: true };
+    } catch (error) {
+      teardown();
+      return { ok: false, error: error?.message || 'Could not measure this microphone.' };
+    }
+  }
+
+  function readLevels() {
+    if (!active || !analyserNode || !analyserBuffer) return null;
+    try {
+      analyserNode.getFloatTimeDomainData(analyserBuffer);
+    } catch {
+      return null;
+    }
+    const { rmsDbfs, peakDbfs } = rmsAndPeakDbfs(analyserBuffer);
+    const speaking = rmsDbfs > NOISE_FLOOR_DBFS;
+    return {
+      rms_dbfs: rmsDbfs,
+      peak_dbfs: peakDbfs,
+      gain_db: 0, // the probe applies no gain; it only measures
+      clipCount: 0,
+      classification: classifyLevel({ rmsDbfs, peakDbfs, speaking, clippedRecently: peakDbfs >= -0.5 }),
+      speaking
+    };
+  }
+
+  function stop() {
+    teardown();
+  }
+
+  return { start, readLevels, stop };
 }

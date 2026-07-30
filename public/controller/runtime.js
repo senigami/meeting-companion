@@ -16,6 +16,8 @@ import {
   clampSummaryIntervalSeconds,
   clampSummaryMaxWords
 } from '../services/view-settings.js';
+import { listAudioInputs, resolveDeviceId, describeLevels } from '../services/audio-monitor.js';
+import { createMicProbe } from '../services/audio-processing.js';
 import {
   flashRailNote,
   renderDisplay,
@@ -68,6 +70,7 @@ const STORAGE = {
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
   audioConditioningEnabled: 'audioConditioningEnabled',
+  audioDeviceId: 'audioDeviceId',
   // Must stay in sync with start-app.js's own STORAGE map -- same gotcha this file's comment above
   // already documents for summarizationSourceChosen.
   recordingEnabled: 'recordingEnabled'
@@ -86,6 +89,10 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // genuinely unplugged mic or a silently-crashed speech engine is caught within under a minute
 // instead of running the rest of the service showing a calm, wrong "Listening."
 const SILENCE_WATCHDOG_MS = 45000;
+
+// ~20Hz, matching the conditioner's own measurement cadence (audio-processing.js) -- fast enough
+// to read as live, not so fast it burns cycles on a settings pane nobody is actively watching.
+const AUDIO_LEVEL_METER_INTERVAL_MS = 50;
 
 function truncateForStatus(text, maxChars = UNDO_STATUS_MAX_CHARS) {
   const clean = typeof text === 'string' ? text : '';
@@ -106,14 +113,23 @@ export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
   let summarizationDriver = null;
   let clearArmTimer = null;
+  let micProbe = null;
+  let micLevelTimer = null;
   const {
     createTranscriptionDriverFn = createTranscriptionDriver,
     createSummarizationDriverFn = createSummarizationDriver,
+    createMicProbeFn = createMicProbe,
     fetchImpl = fetch,
     setTimeoutFn = setTimeout,
     clearTimeoutFn = clearTimeout,
     nowFn = Date.now,
-    documentImpl = globalThis.document
+    documentImpl = globalThis.document,
+    mediaDevicesImpl = globalThis.navigator?.mediaDevices,
+    // Deliberately separate from documentImpl: that dependency doubles as a feature-detection
+    // flag elsewhere (renderRailTranscript's `documentImpl?.createElement && ...`), so widening it
+    // to support <option> creation would change unrelated behavior. This one dependency exists
+    // only to make an <option> node, real or faked.
+    createOptionElementFn = () => globalThis.document?.createElement('option')
   } = deps;
 
   function clearPendingSelection(provider) {
@@ -417,6 +433,110 @@ export function createRuntime(ctx, deps = {}) {
     return settings;
   }
 
+  // Refreshes the mic picker's <option> list. Device labels are withheld by the browser until
+  // permission has been granted once, so this is called again right after a successful level-test
+  // start -- the first pass shows "Microphone N" placeholders, the second shows real names.
+  async function populateAudioDeviceOptions() {
+    const select = ctx.dom.audioDeviceSelect;
+    if (!select) return;
+
+    const devices = await listAudioInputs(mediaDevicesImpl);
+    const resolvedId = resolveDeviceId(devices, ctx.state.audioDeviceId);
+
+    select.innerHTML = '';
+    const defaultOption = createOptionElementFn();
+    defaultOption.value = '';
+    defaultOption.textContent = 'System default';
+    select.appendChild(defaultOption);
+    for (const device of devices) {
+      const option = createOptionElementFn();
+      option.value = device.deviceId;
+      option.textContent = device.label;
+      select.appendChild(option);
+    }
+    select.value = resolvedId;
+
+    // A saved id that is no longer in the list (the mic got unplugged since last time) falls back
+    // to '' here -- persist the correction so the next reload doesn't keep offering a dead device.
+    if (resolvedId !== ctx.state.audioDeviceId) setAudioDeviceId(resolvedId);
+  }
+
+  function setAudioDeviceId(deviceId) {
+    const next = deviceId || '';
+    if (next === ctx.state.audioDeviceId) return;
+    ctx.state.audioDeviceId = next;
+    localStorage.setItem(STORAGE.audioDeviceId, next);
+  }
+
+  function renderAudioLevelMeter(levels) {
+    const described = describeLevels(levels);
+    if (ctx.dom.audioLevelBar) {
+      ctx.dom.audioLevelBar.style.width = `${described.rmsPercent}%`;
+      ctx.dom.audioLevelBar.classList.toggle('clipping', described.classification === 'CLIPPING');
+    }
+    if (ctx.dom.audioLevelPeak) {
+      ctx.dom.audioLevelPeak.style.left = `${described.peakPercent}%`;
+    }
+    // INV-10: describeLevels(null) reports "Not measuring" rather than a blank/zeroed bar, so a
+    // probe that never started (or has since stopped) never reads as "silence detected."
+    if (ctx.dom.audioLevelText) ctx.dom.audioLevelText.textContent = described.text;
+    return described;
+  }
+
+  // Owns its own getUserMedia + AudioContext, independent of the conditioner and of whether
+  // listening is running (see audio-processing.js's createMicProbe doc comment for why: the
+  // conditioner ships bypassed by default and its readLevels() is dead on arrival). This is what
+  // lets an operator check a mic before a meeting starts, exactly like Google Meet's mic test.
+  async function startAudioLevelTest() {
+    if (ctx.state.audioLevelTestActive) return;
+    micProbe = createMicProbeFn({ deviceId: ctx.state.audioDeviceId });
+    const result = await micProbe.start();
+    if (!result?.ok) {
+      renderAudioLevelMeter(null);
+      if (ctx.dom.audioLevelText) {
+        ctx.dom.audioLevelText.textContent = result?.error || 'Could not test this microphone.';
+      }
+      micProbe = null;
+      return;
+    }
+
+    ctx.state.audioLevelTestActive = true;
+    if (ctx.dom.audioLevelTestButton) {
+      ctx.dom.audioLevelTestButton.textContent = 'Stop test';
+      ctx.dom.audioLevelTestButton.setAttribute('aria-pressed', 'true');
+    }
+    await populateAudioDeviceOptions();
+    micLevelTimer = setInterval(() => {
+      renderAudioLevelMeter(micProbe?.readLevels());
+    }, AUDIO_LEVEL_METER_INTERVAL_MS);
+  }
+
+  // Idempotent and safe to call whether or not a test is running -- called on explicit toggle-off,
+  // on the settings panel closing, and on stopListening, so a probe never keeps a live mic track
+  // open (and the browser's mic indicator lit) after the pane the operator was looking at is gone.
+  function stopAudioLevelTest() {
+    if (micLevelTimer !== null) {
+      clearInterval(micLevelTimer);
+      micLevelTimer = null;
+    }
+    micProbe?.stop();
+    micProbe = null;
+    ctx.state.audioLevelTestActive = false;
+    if (ctx.dom.audioLevelTestButton) {
+      ctx.dom.audioLevelTestButton.textContent = 'Test';
+      ctx.dom.audioLevelTestButton.setAttribute('aria-pressed', 'false');
+    }
+    renderAudioLevelMeter(null);
+  }
+
+  async function toggleAudioLevelTest() {
+    if (ctx.state.audioLevelTestActive) {
+      stopAudioLevelTest();
+      return;
+    }
+    await startAudioLevelTest();
+  }
+
   function buildTranscriptionDriver() {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
@@ -430,10 +550,19 @@ export function createRuntime(ctx, deps = {}) {
       // failure -- routing those to the rail would be exactly the per-chunk spam INV-10 exists to
       // prevent, so they go to console only until Marlow designs a dedicated, throttled surface
       // for them. That handoff is not built here.
-      onAudioDiagnostics: ({ message } = {}) => {
+      // Most audio diagnostics recur every ~500ms while listening, so the console is the right home
+      // for them: putting that on the rail would drown every other message the operator needs. But
+      // deciding which ones DO deserve the rail by matching their opening words was the same prose
+      // sniff the onStatus comment below rightly objects to, and it had already gone wrong once --
+      // "the chosen microphone was unavailable; using the system default instead" is exactly the
+      // kind of thing an operator must be told, since the app just overrode a device they picked on
+      // purpose, and the prefix check sent it to the console alone. The producer now marks a
+      // diagnostic `notable` instead. A throttled surface for the recurring ones is still unbuilt
+      // and belongs to the status-honesty seat; this only fixes the one-shot messages.
+      onAudioDiagnostics: ({ message, notable } = {}) => {
         if (!message) return;
         console.warn('[audio]', message);
-        if (message.startsWith('Microphone constraints granted')) {
+        if (notable) {
           updateStatus(ctx, message);
         }
       },
@@ -681,6 +810,16 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.state.recordingOk === false) {
       el.textContent = 'Recording stopped: could not write to the local session file.';
       el.dataset.state = 'failed';
+      return;
+    }
+    if (ctx.state.recordingOk === null || ctx.state.recordingOk === undefined) {
+      // Armed, but nothing has actually been written yet, so saying "recording to a local file" here
+      // would be a claim we cannot back. ADR-0004 asked for an indicator truthful about whether
+      // writes are LANDING rather than whether recording was requested, and this is precisely the
+      // state where those two answers differ: at page load, and for the whole first quiet stretch of
+      // a meeting, no flush has happened and the very first one may still fail.
+      el.textContent = 'Recording is on. Nothing written yet.';
+      el.dataset.state = 'armed';
       return;
     }
     el.textContent = 'Recording session to a local file.';
@@ -1005,6 +1144,7 @@ export function createRuntime(ctx, deps = {}) {
   async function stopListening() {
     ctx.state.listening = false;
     stopSilenceWatchdog();
+    stopAudioLevelTest();
     await pauseActiveTranscription();
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
@@ -1282,7 +1422,10 @@ export function createRuntime(ctx, deps = {}) {
     setDisplayMargin,
     setFontSize,
     setMode,
-    setPanelOpen: (open, options) => setSettingsOpen(ctx, open, options),
+    setPanelOpen: (open, options) => {
+      if (!open) stopAudioLevelTest();
+      return setSettingsOpen(ctx, open, options);
+    },
     setSummaryInterval,
     setSummaryMaxWords,
     setSummarizationSource,
@@ -1299,8 +1442,19 @@ export function createRuntime(ctx, deps = {}) {
     togglePauseAi,
     undoLine,
     updatePauseButton: () => updatePauseButton(ctx),
-    toggleSettingsOpen: () => setSettingsOpen(ctx, !(ctx.state.settingsOpen ?? ctx.state.panelOpen)),
-    setSettingsOpen: (open, options) => setSettingsOpen(ctx, open, options),
+    toggleSettingsOpen: () => {
+      const next = !(ctx.state.settingsOpen ?? ctx.state.panelOpen);
+      if (!next) stopAudioLevelTest();
+      return setSettingsOpen(ctx, next);
+    },
+    setSettingsOpen: (open, options) => {
+      if (!open) stopAudioLevelTest();
+      return setSettingsOpen(ctx, open, options);
+    },
+    populateAudioDeviceOptions,
+    setAudioDeviceId,
+    toggleAudioLevelTest,
+    stopAudioLevelTest,
     updateSourceButtons: () => updateSourceButtons(ctx),
     syncViewerControls: () => syncViewerControls(ctx),
     saveViewerSettings: () => saveViewerSettings(ctx),

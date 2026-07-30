@@ -229,6 +229,52 @@ dialog.settingsOverlay[hidden] {
   min-height: 0;
 }
 
+.micTestGroup {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--chrome-separator);
+}
+
+.micTestGroup select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--chrome-separator);
+  background: var(--chrome-bg-control);
+  color: inherit;
+}
+
+.audioLevelMeter {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  overflow: hidden;
+}
+
+.audioLevelBar {
+  height: 100%;
+  width: 0%;
+  background: #3fa34d;
+  transition: width 80ms linear;
+}
+
+.audioLevelBar.clipping {
+  background: #d64545;
+}
+
+.audioLevelPeak {
+  position: absolute;
+  top: 0;
+  left: 0%;
+  width: 2px;
+  height: 100%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
 .providerReveal {
   display: grid;
   gap: 0.7rem;

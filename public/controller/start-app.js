@@ -55,6 +55,7 @@ const STORAGE = {
   audioBrowserNoiseSuppression: 'audioBrowserNoiseSuppression',
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
   audioConditioningEnabled: 'audioConditioningEnabled',
+  audioDeviceId: 'audioDeviceId',
   recordingEnabled: 'recordingEnabled'
 };
 
@@ -109,6 +110,11 @@ export function startApp() {
       audioBrowserNoiseSuppression: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserNoiseSuppression), AUDIO_SETTINGS_DEFAULTS.audioBrowserNoiseSuppression),
       audioBrowserEchoCancel: clampAudioBoolean(localStorage.getItem(STORAGE.audioBrowserEchoCancel), AUDIO_SETTINGS_DEFAULTS.audioBrowserEchoCancel),
       audioConditioningEnabled: clampAudioBoolean(localStorage.getItem(STORAGE.audioConditioningEnabled), AUDIO_SETTINGS_DEFAULTS.audioConditioningEnabled),
+      // Raw string, not clamped here: a saved deviceId goes stale the moment a USB mic is
+      // unplugged, and validating it against the current device list is resolveDeviceId's job
+      // (audio-monitor.js), run at the point of use, not at load time when no list exists yet.
+      audioDeviceId: localStorage.getItem(STORAGE.audioDeviceId) || AUDIO_SETTINGS_DEFAULTS.audioDeviceId,
+      audioLevelTestActive: false,
       // Debugging/tuning session recorder (ADR-0004, backlog items 2-3): on by default -- Steve's
       // explicit, twice-made call, since a default-off instrument gets no data unless someone
       // remembers to arm it, and this never leaves the machine (recordings/ is gitignored, server
@@ -203,6 +209,11 @@ export function startApp() {
       startListening: $('startListening'),
       stopListening: $('stopListening'),
       fullscreen: $('fullscreen'),
+      audioDeviceSelect: $('audioDeviceSelect'),
+      audioLevelTestButton: $('audioLevelTestButton'),
+      audioLevelBar: $('audioLevelBar'),
+      audioLevelPeak: $('audioLevelPeak'),
+      audioLevelText: $('audioLevelText'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
       summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
@@ -325,6 +336,13 @@ function bindControlButtons(ctx, runtime) {
     if (event.target !== ctx.dom.settingsPanel) return;
     runtime.setSettingsOpen(false, { focusReturn: true });
   });
+  ctx.dom.audioDeviceSelect?.addEventListener('change', (event) => {
+    runtime.setAudioDeviceId(event.target.value);
+  });
+  ctx.dom.audioLevelTestButton?.addEventListener('click', () => {
+    runtime.toggleAudioLevelTest();
+  });
+  runtime.populateAudioDeviceOptions?.();
 }
 
 function beginSliderAdjustment(fieldEl) {

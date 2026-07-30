@@ -558,7 +558,8 @@ test('buildTranscriptionDriver passes the nine ctx.state.audio* values through a
       audioBrowserAgc: false,
       audioBrowserNoiseSuppression: true,
       audioBrowserEchoCancel: true,
-      audioConditioningEnabled: true
+      audioConditioningEnabled: true,
+      audioDeviceId: 'mic-1'
     },
     createTranscriptionDriverFn: (source, deps) => {
       capturedDeps = deps;
@@ -577,7 +578,8 @@ test('buildTranscriptionDriver passes the nine ctx.state.audio* values through a
       audioBrowserAgc: false,
       audioBrowserNoiseSuppression: true,
       audioBrowserEchoCancel: true,
-      audioConditioningEnabled: true
+      audioConditioningEnabled: true,
+      audioDeviceId: 'mic-1'
     });
     assert.equal(typeof capturedDeps.onAudioDiagnostics, 'function');
   });
@@ -604,12 +606,28 @@ test('the once-per-start microphone-constraints diagnostic reaches #status witho
     await runtime.startListening();
 
     const priorLevel = elements.railStatusWord.textContent;
-    capturedDeps.onAudioDiagnostics({ message: 'Microphone constraints granted: autoGainControl=true' });
+    // A diagnostic reaches the status line when the PRODUCER marks it notable, not when the consumer
+    // recognises its opening words. The prose-prefix version of this check sent "the chosen microphone
+    // was unavailable" to the console alone, which meant the app silently overrode a device the
+    // operator had picked on purpose.
+    capturedDeps.onAudioDiagnostics({ message: 'Microphone constraints granted: autoGainControl=true', notable: true });
     assert.equal(elements.status.textContent, 'Microphone constraints granted: autoGainControl=true');
-    assert.equal(elements.railStatusWord.textContent, priorLevel);
+    assert.equal(elements.railStatusWord.textContent, priorLevel, 'a diagnostic must not raise the rail level');
 
+    // Recurring, unmarked diagnostics stay in the console: on the rail they would fire every ~500ms
+    // and bury everything else.
     capturedDeps.onAudioDiagnostics({ message: 'Level measurement failed (x); AGC paused, capture continues.' });
     assert.equal(elements.status.textContent, 'Microphone constraints granted: autoGainControl=true');
+
+    // The regression this change exists for.
+    capturedDeps.onAudioDiagnostics({
+      message: 'The chosen microphone was unavailable; using the system default instead.',
+      notable: true
+    });
+    assert.equal(
+      elements.status.textContent,
+      'The chosen microphone was unavailable; using the system default instead.'
+    );
   });
 });
 
@@ -2292,5 +2310,150 @@ test('a backgrounded tab regaining visibility resyncs the summarize loop and for
     assert.equal(ctx.state.lastTranscriptEventAt, currentTime);
     // The summarize loop was restarted (resynced) rather than left at its throttled cadence.
     assert.notEqual(ctx.state.loopHandle, loopHandleBeforeResync);
+  });
+});
+
+// --- Mic device selection + level test (docs/backlog.md item 1) -----------
+
+test('populateAudioDeviceOptions fills the select from listAudioInputs and resolves a saved id', async () => {
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [
+      { kind: 'audioinput', deviceId: 'mic-1', label: 'USB Interface' },
+      { kind: 'audioinput', deviceId: 'mic-2', label: 'Built-in Mic' }
+    ]
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { audioDeviceId: 'mic-2' },
+    mediaDevicesImpl
+  }, async ({ ctx, runtime }) => {
+    await runtime.populateAudioDeviceOptions();
+    const select = ctx.dom.audioDeviceSelect;
+    // default option + the two real devices
+    assert.equal(select.children.length, 3);
+    assert.equal(select.children[0].value, '');
+    assert.equal(select.children[1].value, 'mic-1');
+    assert.equal(select.children[2].value, 'mic-2');
+    assert.equal(select.value, 'mic-2');
+    assert.equal(ctx.state.audioDeviceId, 'mic-2', 'a still-valid saved id is left untouched');
+  });
+});
+
+test('populateAudioDeviceOptions falls back to system default and persists the correction when the saved device has been unplugged', async () => {
+  const mediaDevicesImpl = {
+    enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'mic-1', label: 'USB Interface' }]
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { audioDeviceId: 'mic-unplugged' },
+    mediaDevicesImpl
+  }, async ({ ctx, runtime }) => {
+    await runtime.populateAudioDeviceOptions();
+    assert.equal(ctx.dom.audioDeviceSelect.value, '');
+    assert.equal(ctx.state.audioDeviceId, '', 'the stale saved id must be corrected, not silently kept');
+  });
+});
+
+test('setAudioDeviceId persists the choice and updates state', async () => {
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    runtime.setAudioDeviceId('mic-9');
+    assert.equal(ctx.state.audioDeviceId, 'mic-9');
+  });
+});
+
+test('toggleAudioLevelTest starts the probe, drives the meter from describeLevels(), and reflects failure honestly', async () => {
+  let started = false;
+  let stopped = false;
+  const fakeProbe = {
+    async start() {
+      started = true;
+      return { ok: true };
+    },
+    readLevels() {
+      return { rms_dbfs: -20, peak_dbfs: -10, gain_db: 0, clipCount: 0, classification: 'GOOD', speaking: true };
+    },
+    stop() {
+      stopped = true;
+    }
+  };
+
+  await withRuntimeHarness({
+    createMicProbeFn: () => fakeProbe,
+    mediaDevicesImpl: { enumerateDevices: async () => [] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.toggleAudioLevelTest();
+    assert.equal(started, true);
+    assert.equal(ctx.dom.audioLevelTestButton.textContent, 'Stop test');
+
+    // Force a synchronous meter read instead of waiting on the real ~20Hz interval.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(ctx.dom.audioLevelText.textContent, 'Good');
+    assert.ok(Number(ctx.dom.audioLevelBar.style.width.replace('%', '')) > 0);
+
+    runtime.stopAudioLevelTest();
+    assert.equal(stopped, true);
+    assert.equal(ctx.dom.audioLevelTestButton.textContent, 'Test');
+    assert.equal(ctx.dom.audioLevelText.textContent, 'Not measuring', 'INV-10: a stopped probe must read as not-measuring, never as silence');
+  });
+});
+
+test('toggleAudioLevelTest surfaces a probe failure through the readout instead of throwing', async () => {
+  const fakeProbe = {
+    async start() {
+      return { ok: false, error: 'Permission denied' };
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+
+  await withRuntimeHarness({
+    createMicProbeFn: () => fakeProbe
+  }, async ({ ctx, runtime }) => {
+    await assert.doesNotReject(runtime.toggleAudioLevelTest());
+    assert.equal(ctx.dom.audioLevelText.textContent, 'Permission denied');
+    assert.equal(ctx.dom.audioLevelTestButton.textContent, 'Test', 'a failed start must not leave the button reading "Stop test"');
+  });
+});
+
+test('stopListening also stops an active mic level test, releasing the probe', async () => {
+  let stopped = false;
+  const fakeProbe = {
+    async start() { return { ok: true }; },
+    readLevels() { return null; },
+    stop() { stopped = true; }
+  };
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ runtime }) => {
+    await runtime.toggleAudioLevelTest();
+    await runtime.startListening();
+    await runtime.stopListening();
+    assert.equal(stopped, true);
+  });
+});
+
+test('closing the settings panel stops an active mic level test', async () => {
+  let stopped = false;
+  const fakeProbe = {
+    async start() { return { ok: true }; },
+    readLevels() { return null; },
+    stop() { stopped = true; }
+  };
+
+  await withRuntimeHarness({
+    createMicProbeFn: () => fakeProbe
+  }, async ({ runtime }) => {
+    await runtime.toggleAudioLevelTest();
+    runtime.setSettingsOpen(false);
+    assert.equal(stopped, true);
   });
 });

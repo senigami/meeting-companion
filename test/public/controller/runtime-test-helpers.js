@@ -108,8 +108,30 @@ function createDefaultElements() {
     clear: createElement(),
     clearLabel: createElement({ textContent: 'Clear' }),
     transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
-    transcriptStack: createElement()
+    transcriptStack: createElement(),
+    audioDeviceSelect: createFakeSelect(),
+    audioLevelTestButton: createElement({ textContent: 'Test' }),
+    audioLevelBar: createElement(),
+    audioLevelPeak: createElement(),
+    audioLevelText: createElement({ textContent: 'Not measuring' })
   };
+}
+
+// A minimal fake <select> -- createElement() above models generic elements, but the mic picker
+// needs innerHTML/appendChild/options semantics that real <option> population relies on.
+function createFakeSelect() {
+  const el = createElement({ value: '' });
+  el.children = [];
+  el.appendChild = (option) => { el.children.push(option); };
+  Object.defineProperty(el, 'innerHTML', {
+    set() { el.children = []; },
+    get() { return ''; }
+  });
+  return el;
+}
+
+function createFakeOptionElement() {
+  return { value: '', textContent: '' };
 }
 
 function createDefaultButtons(kind, sources) {
@@ -125,6 +147,8 @@ export function createRuntimeHarness({
   clearTimeoutFn,
   nowFn,
   documentImpl,
+  createMicProbeFn,
+  mediaDevicesImpl,
   localStorageValues = {},
   stateOverrides = {},
   elementOverrides = {},
@@ -249,7 +273,14 @@ export function createRuntimeHarness({
     ...(setTimeoutFn ? { setTimeoutFn } : {}),
     ...(clearTimeoutFn ? { clearTimeoutFn } : {}),
     ...(nowFn ? { nowFn } : {}),
-    ...(typeof documentImpl !== 'undefined' ? { documentImpl } : {})
+    ...(typeof documentImpl !== 'undefined' ? { documentImpl } : {}),
+    // Deliberately separate from `documentImpl` above: several other tests rely on the shared fake
+    // `global.document` NOT exposing createElement (it is used elsewhere as a feature-detection
+    // flag -- `documentImpl?.createElement && ...` in renderRailTranscript). The mic picker's
+    // option creation gets its own narrow dependency instead of widening that flag's meaning.
+    createOptionElementFn: () => createFakeOptionElement(),
+    ...(createMicProbeFn ? { createMicProbeFn } : {}),
+    ...(typeof mediaDevicesImpl !== 'undefined' ? { mediaDevicesImpl } : {})
   });
 
   return {

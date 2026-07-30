@@ -12,6 +12,21 @@ amended, not just that someone built it.
 
 ## 1. Microphone source selection and a live level meter
 
+**Status: shipped 2026-07-30, unverified against real hardware.** Device picker and a Test button with a
+live meter, both in the existing Transcription settings section. No library was added: `enumerateDevices`
+plus a `deviceId` constraint is the standard browser path.
+
+One design note worth keeping, because it is counterintuitive. The meter does NOT read the conditioner's
+`readLevels()`, even though that method exists and looks like exactly the right thing to call. The
+conditioner ships bypassed (`audioConditioningEnabled: false`), so `connect()` returns the raw stream on
+its first branch and never builds the AnalyserNode, which means `readLevels()` reports nothing in the
+default configuration. `createMicProbe` therefore owns its own getUserMedia and AudioContext, independent
+of both the conditioner and whether listening is running.
+
+**What is still open: the actual reason this was built.** The point was to unblock the in-room hardware
+test, and that has not happened. `createMicProbe` has never measured real audio, real device labels have
+never been seen, and `OverconstrainedError` shapes across browsers are exercised only against fakes.
+
 **Why:** Audio conditioning shipped switched off (commit `909fe1e`) because it has never met real
 hardware, and there is no way to turn it on or check it during a meeting. Right now nine audio settings
 exist with no UI at all, reachable only by hand-editing localStorage. An operator setting up in the

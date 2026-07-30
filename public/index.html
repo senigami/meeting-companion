@@ -266,6 +266,20 @@
               </button>
             </div>
             <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available. Demo replays a sample meeting with no microphone and no key, so you can check the display before anyone arrives.</p>
+
+            <div class="micTestGroup">
+              <label for="audioDeviceSelect">Microphone</label>
+              <select id="audioDeviceSelect">
+                <option value="">System default</option>
+              </select>
+              <button id="audioLevelTestButton" type="button" aria-pressed="false">Test</button>
+              <div class="audioLevelMeter" role="img" aria-label="Microphone level meter">
+                <div id="audioLevelBar" class="audioLevelBar"></div>
+                <div id="audioLevelPeak" class="audioLevelPeak"></div>
+              </div>
+              <p id="audioLevelText" class="field-note">Not measuring</p>
+              <p class="field-note">The OpenAI microphone source can be tested and metered here. Browser speech recognition opens its own microphone internally and cannot be tested or conditioned from this page.</p>
+            </div>
           </section>
 
           <section class="settingsCard providerCard" data-settings-section="summaries">

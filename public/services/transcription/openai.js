@@ -3,6 +3,7 @@ import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 import { createAudioConditioner } from '../audio-processing.js';
+import { deviceIdConstraint } from '../audio-monitor.js';
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -156,6 +157,9 @@ export function createOpenAITranscriptionDriver({
       if (settings) {
         onAudioDiagnostics({
           message: `Microphone constraints granted: autoGainControl=${settings.autoGainControl}, noiseSuppression=${settings.noiseSuppression}, echoCancellation=${settings.echoCancellation}`,
+          // One-shot and worth the operator seeing, so it says so itself rather than leaving the
+          // consumer to recognise it by its opening words. See the `notable` note in runtime.js.
+          notable: true,
           settings
         });
       }
@@ -189,13 +193,36 @@ export function createOpenAITranscriptionDriver({
       mode = currentMode || mode;
       sessionId += 1;
       const currentSession = sessionId;
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: audioSettings.audioBrowserAgc !== false,
-          noiseSuppression: audioSettings.audioBrowserNoiseSuppression === true,
-          echoCancellation: audioSettings.audioBrowserEchoCancel === true
+
+      const baseAudioConstraints = {
+        autoGainControl: audioSettings.audioBrowserAgc !== false,
+        noiseSuppression: audioSettings.audioBrowserNoiseSuppression === true,
+        echoCancellation: audioSettings.audioBrowserEchoCancel === true
+      };
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { ...baseAudioConstraints, ...deviceIdConstraint(audioSettings.audioDeviceId) }
+        });
+      } catch (error) {
+        // A saved device id goes stale the moment a USB mic is unplugged, and an exact-match
+        // deviceId constraint on a missing device throws OverconstrainedError (some browsers
+        // report NotFoundError instead). A saved microphone that vanished must never be what
+        // stops a meeting from starting -- retry once against the system default and say so
+        // through the existing diagnostics channel rather than failing start() outright.
+        if (audioSettings.audioDeviceId && (error?.name === 'OverconstrainedError' || error?.name === 'NotFoundError')) {
+          onAudioDiagnostics({
+            message: 'The chosen microphone was unavailable; using the system default instead.',
+            // The operator deliberately picked a device and is now on a different one. Telling them
+            // only via the console would mean the app quietly overrode an explicit choice.
+            notable: true,
+            at: now()
+          });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudioConstraints });
+        } else {
+          throw error;
         }
-      });
+      }
       await reportGrantedConstraints(stream);
 
       conditioner = createAudioConditioner({

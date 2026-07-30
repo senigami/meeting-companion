@@ -202,6 +202,39 @@ test('a non-ok recording flush response also degrades to a failed indicator, not
   });
 });
 
+test('armed-but-nothing-written is reported as such, not as a successful recording', async () => {
+  // ADR-0004 asked for an indicator truthful about whether writes are LANDING, not whether recording
+  // was requested. recordingOk === null is the state where those two answers differ: at page load and
+  // through the first quiet stretch of a meeting, no flush has happened and the first one may fail.
+  await withRuntimeHarness({
+    stateOverrides: baseState({ recordingOk: null }),
+    elementOverrides: {
+      recordingIndicator: createElement({ textContent: '', dataset: {} })
+    }
+  }, async ({ runtime, elements }) => {
+    runtime.setRecordingEnabled(true);
+    assert.match(elements.recordingIndicator.textContent, /nothing written yet/i);
+    assert.doesNotMatch(elements.recordingIndicator.textContent, /Recording session to a local file/i);
+  });
+});
+
+test('a successful flush is what promotes the indicator to actually recording', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState({
+      recordingOk: null,
+      recordingQueue: [{ t: 'chunk', at: '1', id: '1', mode: 'speaker', text: 'a' }]
+    }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ ok: true, written: 1 }) }),
+    elementOverrides: {
+      recordingIndicator: createElement({ textContent: '', dataset: {} })
+    }
+  }, async ({ ctx, runtime, elements }) => {
+    await runtime.flushRecordingQueue();
+    assert.equal(ctx.state.recordingOk, true);
+    assert.match(elements.recordingIndicator.textContent, /Recording session to a local file/i);
+  });
+});
+
 test('setRecordingEnabled(false) clears the queue and updates the indicator to "not recording"', async () => {
   await withRuntimeHarness({
     stateOverrides: baseState({ recordingQueue: [{ t: 'chunk', at: '1', id: '1', mode: 'speaker', text: 'a' }] }),

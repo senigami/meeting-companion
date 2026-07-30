@@ -119,7 +119,11 @@ export const AUDIO_SETTINGS_DEFAULTS = {
   audioBrowserAgc: true,
   audioBrowserNoiseSuppression: false,
   audioBrowserEchoCancel: false,
-  audioConditioningEnabled: false
+  audioConditioningEnabled: false,
+  // The chosen input device id, remembered across reloads. Empty string means "system default" --
+  // see resolveDeviceId in audio-monitor.js for why a stale/unplugged id must fall back to this
+  // rather than being passed straight to getUserMedia as an exact-match constraint.
+  audioDeviceId: ''
 };
 
 // Single source of truth for the nine audio-settings key names, so any call site that needs to

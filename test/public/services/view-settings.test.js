@@ -149,6 +149,7 @@ test('audio settings defaults match the brief exactly', () => {
     audioBrowserAgc: true,
     audioBrowserNoiseSuppression: false,
     audioBrowserEchoCancel: false,
-    audioConditioningEnabled: false
+    audioConditioningEnabled: false,
+    audioDeviceId: ''
   });
 });

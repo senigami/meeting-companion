@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createAudioConditioner,
+  createMicProbe,
   computeNextGainDb,
   classifyLevel,
   presetParams,
@@ -306,4 +307,102 @@ test('measurement loop: a near-full-scale signal registers a clip and CLIPPING c
 test('close() tears down without throwing even if it was never connected', () => {
   const conditioner = createAudioConditioner({ audioContextFactory: () => makeFakeContext(), settings: {}, now: () => 0 });
   assert.doesNotThrow(() => conditioner.close());
+});
+
+// --- createMicProbe: independent pre-meeting level test -------------------
+
+function makeFakeProbeStream(trackedStops) {
+  return {
+    getTracks: () => [{ stop: () => trackedStops.push(true) }]
+  };
+}
+
+function makeFakeProbeContext({ fill = 0 } = {}) {
+  return {
+    createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+    createAnalyser: () => ({
+      fftSize: 2048,
+      connect() {},
+      disconnect() {},
+      getFloatTimeDomainData(buffer) {
+        buffer.fill(fill);
+      }
+    }),
+    close() {}
+  };
+}
+
+test('createMicProbe.start() opens getUserMedia with the deviceId constraint merged in and reports ok', async () => {
+  let capturedConstraints = null;
+  const probe = createMicProbe({
+    deviceId: 'mic-7',
+    getUserMediaImpl: async (constraints) => {
+      capturedConstraints = constraints;
+      return makeFakeProbeStream([]);
+    },
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+
+  const result = await probe.start();
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(capturedConstraints, { audio: { deviceId: { exact: 'mic-7' } } });
+  probe.stop();
+});
+
+test('createMicProbe.start() never throws on getUserMedia failure, returning ok:false with the error message', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => {
+      throw new Error('Permission denied');
+    }
+  });
+  const result = await probe.start();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Permission denied/);
+});
+
+test('createMicProbe.readLevels() returns null before start() and after stop()', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+  assert.equal(probe.readLevels(), null, 'never started');
+
+  await probe.start();
+  assert.notEqual(probe.readLevels(), null, 'started');
+
+  probe.stop();
+  assert.equal(probe.readLevels(), null, 'after stop');
+});
+
+test('createMicProbe.readLevels() shape matches the conditioner readLevels() shape, with gain_db always 0', async () => {
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream([]),
+    audioContextImpl: () => makeFakeProbeContext({ fill: 0.5 })
+  });
+  await probe.start();
+  const levels = probe.readLevels();
+  assert.equal(levels.gain_db, 0);
+  assert.ok(Number.isFinite(levels.rms_dbfs));
+  assert.ok(Number.isFinite(levels.peak_dbfs));
+  assert.equal(typeof levels.classification, 'string');
+  assert.equal(typeof levels.speaking, 'boolean');
+  probe.stop();
+});
+
+test('createMicProbe.stop() releases every mic track and is idempotent', async () => {
+  const stops = [];
+  const probe = createMicProbe({
+    getUserMediaImpl: async () => makeFakeProbeStream(stops),
+    audioContextImpl: () => makeFakeProbeContext()
+  });
+  await probe.start();
+  probe.stop();
+  assert.equal(stops.length, 1);
+  assert.doesNotThrow(() => probe.stop()); // idempotent, never throws on a second stop
+  assert.equal(stops.length, 1, 'stop() a second time must not re-stop or double-count tracks');
+});
+
+test('createMicProbe.stop() never throws even if it was never started', () => {
+  const probe = createMicProbe();
+  assert.doesNotThrow(() => probe.stop());
 });

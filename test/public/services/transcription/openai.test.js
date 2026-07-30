@@ -321,6 +321,59 @@ test('openai transcription requests the three browser constraints instead of a b
   });
 });
 
+test('openai transcription merges a chosen deviceId into the getUserMedia constraint', async () => {
+  await withFakeNavigatorAndRecorder(async () => {
+    let capturedConstraints = null;
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      capturedConstraints = constraints;
+      return originalGetUserMedia(constraints);
+    };
+
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: { audioDeviceId: 'mic-42' },
+      audioContextFactory: undefined
+    });
+    await driver.start({ currentMode: 'speaker' });
+    await driver.stop();
+
+    assert.deepEqual(capturedConstraints.audio.deviceId, { exact: 'mic-42' });
+  });
+});
+
+test('a saved microphone that has been unplugged (OverconstrainedError) retries once against the system default instead of failing start()', async () => {
+  await withFakeNavigatorAndRecorder(async () => {
+    const seenConstraints = [];
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      seenConstraints.push(constraints);
+      if (constraints.audio?.deviceId) {
+        const error = new Error('Requested device not found');
+        error.name = 'OverconstrainedError';
+        throw error;
+      }
+      return originalGetUserMedia(constraints);
+    };
+
+    const diagnostics = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioSettings: { audioDeviceId: 'unplugged-mic' },
+      audioContextFactory: undefined,
+      onAudioDiagnostics: ({ message }) => diagnostics.push(message)
+    });
+
+    await driver.start({ currentMode: 'speaker' }); // must not throw
+    await driver.stop();
+
+    assert.equal(seenConstraints.length, 2, 'expected an initial attempt plus one retry without the deviceId');
+    assert.equal(seenConstraints[0].audio.deviceId.exact, 'unplugged-mic');
+    assert.equal(seenConstraints[1].audio.deviceId, undefined);
+    assert.ok(diagnostics.some((message) => /unavailable/i.test(message)));
+  });
+});
+
 test('MediaRecorder receives the conditioned stream when a real AudioContext-like graph is available', async () => {
   await withFakeNavigatorAndRecorder(async (getRecorder) => {
     const conditionedStream = { id: 'conditioned', getTracks: () => [] };
