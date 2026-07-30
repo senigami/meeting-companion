@@ -47,6 +47,7 @@ import {
   isSourceConfigured
 } from './provider-availability.js';
 import { buildChunkRecord, buildSummaryRecord } from '../services/session-recording.js';
+import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -73,7 +74,11 @@ const STORAGE = {
   audioDeviceId: 'audioDeviceId',
   // Must stay in sync with start-app.js's own STORAGE map -- same gotcha this file's comment above
   // already documents for summarizationSourceChosen.
-  recordingEnabled: 'recordingEnabled'
+  recordingEnabled: 'recordingEnabled',
+  // Replay transcription source (GitHub issue #3). Must stay in sync with start-app.js's own
+  // STORAGE map -- same gotcha as summarizationSourceChosen above.
+  replayRecordingId: 'replayRecordingId',
+  replaySpeed: 'replaySpeed'
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
@@ -261,8 +266,9 @@ export function createRuntime(ctx, deps = {}) {
   // succeeds again.
   function clearSpeechDroppedAlert() {
     if (ctx.state.railStatusLevel !== 'dropped') return;
-    updateStatus(ctx, ctx.state.listening ? 'Listening.' : 'Manual mode.', {
-      level: ctx.state.listening ? 'listening' : 'manual'
+    const recoveredLevel = activeTranscriptionStatusLevel();
+    updateStatus(ctx, recoveredLevel === 'listening' ? 'Listening.' : 'Manual mode.', {
+      level: recoveredLevel
     });
   }
 
@@ -468,6 +474,77 @@ export function createRuntime(ctx, deps = {}) {
     localStorage.setItem(STORAGE.audioDeviceId, next);
   }
 
+  // Populates the recording picker from the server's list (GitHub issue #3). Mirrors
+  // populateAudioDeviceOptions's shape: fetch, rebuild the <option> list, then correct a
+  // selection that no longer exists (a recording deleted from disk since last load) rather than
+  // silently keeping a dead id selected.
+  async function refreshRecordingList() {
+    try {
+      const response = await fetchImpl('/api/recording/list');
+      const data = await response.json().catch(() => ({}));
+      ctx.state.availableRecordings = Array.isArray(data?.recordings) ? data.recordings : [];
+    } catch {
+      ctx.state.availableRecordings = ctx.state.availableRecordings || [];
+    }
+    populateRecordingOptions();
+    updateSourceButtons(ctx);
+    syncSettingsPanel(ctx);
+  }
+
+  function populateRecordingOptions() {
+    const select = ctx.dom.replayRecordingSelect;
+    if (!select) return;
+
+    const recordings = ctx.state.availableRecordings || [];
+    select.innerHTML = '';
+
+    if (recordings.length === 0) {
+      const emptyOption = createOptionElementFn();
+      emptyOption.value = '';
+      emptyOption.textContent = 'No recordings yet';
+      select.appendChild(emptyOption);
+      select.value = '';
+      if (ctx.state.selectedRecordingId) setSelectedRecordingId('');
+      return;
+    }
+
+    for (const recording of recordings) {
+      const option = createOptionElementFn();
+      option.value = recording.id;
+      option.textContent = recording.id;
+      select.appendChild(option);
+    }
+
+    // A saved id that is no longer in the list (the recording was deleted since last load) falls
+    // back to the newest recording -- same correction populateAudioDeviceOptions makes for an
+    // unplugged mic, persisted so the next reload doesn't keep offering a dead id.
+    const stillExists = recordings.some((recording) => recording.id === ctx.state.selectedRecordingId);
+    const resolvedId = stillExists ? ctx.state.selectedRecordingId : recordings[0].id;
+    select.value = resolvedId;
+    if (resolvedId !== ctx.state.selectedRecordingId) setSelectedRecordingId(resolvedId);
+  }
+
+  function setSelectedRecordingId(recordingId) {
+    const next = recordingId || '';
+    if (next === ctx.state.selectedRecordingId) return;
+    ctx.state.selectedRecordingId = next;
+    localStorage.setItem(STORAGE.replayRecordingId, next);
+    // The replay driver reads recordingId once, at build time -- force a rebuild on next
+    // ensureTranscriptionDriver() so a mid-session change to the selection actually takes effect,
+    // the same way switching transcriptionSource itself forces a rebuild.
+    if (transcriptionDriver?.id === 'replay') transcriptionDriver = null;
+    syncSettingsPanel(ctx);
+  }
+
+  function setReplaySpeed(speed) {
+    const next = normalizeReplaySpeed(speed);
+    if (next === ctx.state.replaySpeed) return;
+    ctx.state.replaySpeed = next;
+    localStorage.setItem(STORAGE.replaySpeed, next);
+    if (transcriptionDriver?.id === 'replay') transcriptionDriver = null;
+    syncSettingsPanel(ctx);
+  }
+
   function renderAudioLevelMeter(levels) {
     const described = describeLevels(levels);
     if (ctx.dom.audioLevelBar) {
@@ -586,7 +663,12 @@ export function createRuntime(ctx, deps = {}) {
       },
       fetchImpl,
       setTimeoutFn,
-      clearTimeoutFn
+      clearTimeoutFn,
+      // Only replay.js reads these two; other drivers ignore unknown options (same convention as
+      // audioSettings above). A snapshot at driver-build time, not a live getter -- setSelectedRecordingId/
+      // setReplaySpeed force a rebuild on change, the same way switching transcriptionSource itself does.
+      recordingId: ctx.state.selectedRecordingId,
+      speed: ctx.state.replaySpeed
     });
   }
 
@@ -604,6 +686,22 @@ export function createRuntime(ctx, deps = {}) {
       transcriptionDriver = buildTranscriptionDriver();
     }
     return transcriptionDriver;
+  }
+
+  // The single place that turns "is the active transcription driver capturing live audio"
+  // into a rail status level. The driver states its own liveness (`isLive`, part of the
+  // driver contract alongside `id`/`label`) rather than the runtime inferring it from a
+  // source-id string comparison -- that inference is exactly what let replay be announced as
+  // "Listening" (ctx.state.listening only means "a driver is running", see its assignment in
+  // startListening(), NOT that a microphone is live). Every status-path read of liveness goes
+  // through this helper so there is one place to get it right, not one per call site.
+  function activeTranscriptionStatusLevel() {
+    // No driver means nothing is capturing, so "manual" is the only honest answer. Deliberately
+    // NOT falling back to ctx.state.listening here: reading that flag for a liveness question is
+    // the exact bug this helper exists to remove, and leaving it in one edge case leaves the trap
+    // set for whoever next changes the start path.
+    if (!transcriptionDriver) return 'manual';
+    return transcriptionDriver.isLive ? 'listening' : 'manual';
   }
 
   async function ensureSummarizationDriver() {
@@ -789,8 +887,9 @@ export function createRuntime(ctx, deps = {}) {
   // actually showing, so this never clobbers a higher-ranked condition that has since taken over.
   function clearWallBehindAlert() {
     if (ctx.state.railStatusLevel !== 'behind') return;
-    updateStatus(ctx, ctx.state.listening ? 'Listening.' : 'Manual mode.', {
-      level: ctx.state.listening ? 'listening' : 'manual'
+    const recoveredLevel = activeTranscriptionStatusLevel();
+    updateStatus(ctx, recoveredLevel === 'listening' ? 'Listening.' : 'Manual mode.', {
+      level: recoveredLevel
     });
   }
 
@@ -1003,7 +1102,7 @@ export function createRuntime(ctx, deps = {}) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
         showRecentTranscript();
       }
-      const recoveredLevel = ctx.state.listening ? 'listening' : 'manual';
+      const recoveredLevel = activeTranscriptionStatusLevel();
       if (result.line) {
         // Labelled from the CHUNK's own mode (sendMode), not ctx.state.mode -- backlogged speech
         // must read under the mode it was actually said in, even if the operator has since switched.
@@ -1119,11 +1218,19 @@ export function createRuntime(ctx, deps = {}) {
 
     try {
       await driver.start({ currentMode: ctx.state.mode });
+      // NOT a liveness signal -- this only means "a transcription driver is running" and
+      // stop/pause/loop logic depends on that. Whether a microphone is actually live comes from
+      // the driver's own `isLive` via activeTranscriptionStatusLevel().
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
       startLoop();
-      if (!ctx.state.paused) {
+      // Replay is not a live source, so the rail must never say "Listening" for it: the driver
+      // states its own level (manual while replaying, problem when the recording could not be
+      // loaded or holds no lines), and overwriting that here would both claim a live microphone
+      // and wipe a real failure the operator needs to see. The silence watchdog is meaningless
+      // too -- a gap in a recording is not a dead microphone, so "Check mic" would be a lie.
+      if (!ctx.state.paused && activeTranscriptionStatusLevel() === 'listening') {
         updateStatus(ctx, 'Listening.', { level: 'listening' });
         startSilenceWatchdog();
       }
@@ -1159,13 +1266,20 @@ export function createRuntime(ctx, deps = {}) {
 
     if (ctx.state.paused) {
       stopSilenceWatchdog();
+      // Two different questions, and they must not share an answer. `wasListening` decides whether
+      // there is a driver to stop (control flow); only a genuinely live source may be described as
+      // a stopped microphone (wording). Sourcing the sentence from state.listening claimed "microphone
+      // stopped" during a replay, where there is no microphone -- the same lie as the recovery sites
+      // above. pauseActiveTranscription() stops the driver without discarding it, so the helper still
+      // answers correctly after the await.
       const wasListening = ctx.state.listening;
+      const wasLiveCapture = activeTranscriptionStatusLevel() === 'listening';
       if (wasListening) {
         await pauseActiveTranscription();
       }
       updateStatus(
         ctx,
-        wasListening
+        wasLiveCapture
           ? 'AI paused — microphone stopped. Manual lines still work.'
           : 'AI paused. Manual lines still work.',
         { level: 'paused' }
@@ -1175,7 +1289,11 @@ export function createRuntime(ctx, deps = {}) {
 
     if (ctx.state.listening) {
       await startListening({ force: true });
-      updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
+      // Same honesty rule as startListening: there is no microphone behind replay, so resuming it
+      // must not announce one. startListening() has already let the driver state its own level.
+      if (activeTranscriptionStatusLevel() === 'listening') {
+        updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
+      }
     } else {
       updateStatus(ctx, 'AI resumed. Microphone is still stopped.', { level: 'manual' });
     }
@@ -1296,6 +1414,10 @@ export function createRuntime(ctx, deps = {}) {
     // Demo needs nothing, so it can never be the "your source went away" case.
     if (ctx.state.transcriptionSource === 'demo') return;
     if (ctx.state.transcriptionSource === 'openai' && ctx.state.openAiReady) return;
+    // A persisted replay selection is honoured as long as at least one recording still exists --
+    // this used to fall through to the generic case below, which force-fell-back to browser and
+    // silently kicked the operator's choice every reload.
+    if (ctx.state.transcriptionSource === 'replay' && ctx.state.availableRecordings?.length) return;
     await setTranscriptionSource('browser');
   }
 
@@ -1351,10 +1473,23 @@ export function createRuntime(ctx, deps = {}) {
 
   async function loadRuntimeConfig() {
     try {
+      // Fetched alongside /api/config rather than after it -- both are independent, and
+      // ensureSelectedTranscriptionSourceExists() below needs the recording list settled before it
+      // can honour (or fall back from) a persisted replay selection.
+      // The catch is attached here, not at the await: startApp() renders before this runs and the
+      // recording list is a nice-to-have, so a failure in it must never fail the boot path. Two
+      // real ways it bites without this -- /api/config throwing first leaves this promise with no
+      // handler at all (unhandled rejection), and a rejection reaching the await below would both
+      // skip ensureSelectedSummarizationSourceExists() and mis-report a recordings problem as
+      // "Could not read AI status".
+      const recordingListLoaded = refreshRecordingList().catch((error) => {
+        console.warn('[recordings]', error?.message || error);
+      });
       const response = await fetch('/api/config');
       if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
       applyProviderConfig(data);
+      await recordingListLoaded;
       await ensureSelectedSummarizationSourceExists();
       await ensureSelectedTranscriptionSourceExists();
     } catch (error) {
@@ -1453,6 +1588,9 @@ export function createRuntime(ctx, deps = {}) {
     },
     populateAudioDeviceOptions,
     setAudioDeviceId,
+    refreshRecordingList,
+    setSelectedRecordingId,
+    setReplaySpeed,
     toggleAudioLevelTest,
     stopAudioLevelTest,
     updateSourceButtons: () => updateSourceButtons(ctx),

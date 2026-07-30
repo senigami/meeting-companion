@@ -119,6 +119,8 @@ export function createBrowserTranscriptionDriver({
   return {
     id: 'browser',
     label: 'Browser',
+    // A live microphone is behind this driver -- the status rail may say "Listening".
+    isLive: true,
     isAvailable() {
       return Boolean(getSpeechRecognition());
     },

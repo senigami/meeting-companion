@@ -486,6 +486,20 @@ export function updateSourceButtons(ctx) {
     btn.disabled = false;
     updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source, { unavailable });
   });
+
+  syncReplayControls(ctx);
+}
+
+// The recording picker and speed selector are only meaningful once replay is actually selected --
+// same show/hide-by-state idiom as the rest of this file (settingsAlertBadge, apiWarning, etc.),
+// not a permanently-visible control like the mic test group.
+function syncReplayControls(ctx) {
+  if (ctx.dom.replayControls) {
+    ctx.dom.replayControls.hidden = ctx.state.transcriptionSource !== 'replay';
+  }
+  if (ctx.dom.replaySpeedSelect) {
+    ctx.dom.replaySpeedSelect.value = ctx.state.replaySpeed || '1';
+  }
 }
 
 export function syncServiceRegistration(ctx) {
@@ -894,6 +908,17 @@ function getProviderState(ctx, kind, source) {
       configured: browserSpeechAvailable(),
       origin: 'local',
       label: browserSpeechAvailable() ? 'Local' : 'Unavailable'
+    };
+  }
+
+  // Mirrors provider-availability.js's isSourceConfigured gate for replay: it needs an actual
+  // recording on disk, so with none it is not just unconfigured, there is nothing to pick.
+  if (kind === 'transcription' && source === 'replay') {
+    const hasRecordings = Boolean(ctx.state.availableRecordings?.length);
+    return {
+      configured: hasRecordings,
+      origin: 'local',
+      label: hasRecordings ? 'Recorded session' : 'No recordings yet'
     };
   }
 

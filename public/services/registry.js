@@ -7,6 +7,7 @@ import {
 import { createBrowserTranscriptionDriver } from './transcription/browser.js';
 import { createOpenAITranscriptionDriver } from './transcription/openai.js';
 import { createDemoTranscriptionDriver } from './transcription/demo.js';
+import { createReplayTranscriptionDriver } from './transcription/replay.js';
 import { createOpenAISummarizer } from './summarization/openai.js';
 import { createClaudeSummarizer } from './summarization/claude.js';
 import { createDemoSummarizer } from './summarization/demo.js';
@@ -19,6 +20,8 @@ export function createTranscriptionDriver(source, deps = {}) {
       return createOpenAITranscriptionDriver(deps);
     case 'demo':
       return createDemoTranscriptionDriver(deps);
+    case 'replay':
+      return createReplayTranscriptionDriver(deps);
     default:
       throw new Error(`Unsupported transcription source: ${source}`);
   }

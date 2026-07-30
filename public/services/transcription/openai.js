@@ -171,6 +171,8 @@ export function createOpenAITranscriptionDriver({
   return {
     id: 'openai',
     label: 'OpenAI',
+    // A live microphone is behind this driver -- the status rail may say "Listening".
+    isLive: true,
     isAvailable() {
       return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
     },

@@ -35,6 +35,7 @@ import {
 import { createRuntime } from './runtime.js';
 import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
 import { createRecordingSessionId } from '../services/session-recording.js';
+import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
 const STORAGE = {
   fontSize: 'fontSize',
@@ -56,7 +57,11 @@ const STORAGE = {
   audioBrowserEchoCancel: 'audioBrowserEchoCancel',
   audioConditioningEnabled: 'audioConditioningEnabled',
   audioDeviceId: 'audioDeviceId',
-  recordingEnabled: 'recordingEnabled'
+  recordingEnabled: 'recordingEnabled',
+  // Replay transcription source (GitHub issue #3). Must stay in sync with runtime.js's own
+  // STORAGE map -- same gotcha runtime.js's comment documents for summarizationSourceChosen.
+  replayRecordingId: 'replayRecordingId',
+  replaySpeed: 'replaySpeed'
 };
 
 export function startApp() {
@@ -124,7 +129,13 @@ export function startApp() {
       recordingEnabled: localStorage.getItem(STORAGE.recordingEnabled) !== 'false',
       recordingSessionId: createRecordingSessionId(),
       recordingQueue: [],
-      recordingOk: null
+      recordingOk: null,
+      // Replay transcription source (GitHub issue #3): a recorded session driven back through the
+      // live pipeline. availableRecordings starts empty and is filled by runtime.refreshRecordingList()
+      // during loadRuntimeConfig() -- until then a persisted selection is trusted but not yet proven.
+      availableRecordings: [],
+      selectedRecordingId: localStorage.getItem(STORAGE.replayRecordingId) || '',
+      replaySpeed: normalizeReplaySpeed(localStorage.getItem(STORAGE.replaySpeed))
     },
     dom: {
       display: $('display'),
@@ -214,6 +225,9 @@ export function startApp() {
       audioLevelBar: $('audioLevelBar'),
       audioLevelPeak: $('audioLevelPeak'),
       audioLevelText: $('audioLevelText'),
+      replayControls: $('replayControls'),
+      replayRecordingSelect: $('replayRecordingSelect'),
+      replaySpeedSelect: $('replaySpeedSelect'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
       summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
@@ -341,6 +355,12 @@ function bindControlButtons(ctx, runtime) {
   });
   ctx.dom.audioLevelTestButton?.addEventListener('click', () => {
     runtime.toggleAudioLevelTest();
+  });
+  ctx.dom.replayRecordingSelect?.addEventListener('change', (event) => {
+    runtime.setSelectedRecordingId(event.target.value);
+  });
+  ctx.dom.replaySpeedSelect?.addEventListener('change', (event) => {
+    runtime.setReplaySpeed(event.target.value);
   });
   runtime.populateAudioDeviceOptions?.();
 }

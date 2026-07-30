@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Readable } from 'node:stream';
+import { Readable, Duplex } from 'node:stream';
 
 import { createApp } from '../../server.js';
 
 // Mirrors test/server/app.test.js's own req/res fakes (kept local rather than shared, since that
 // file does not export them) -- see that file for the reasoning behind each piece.
-function createRequest({ method = 'GET', url = '/', body = '', headers = {} } = {}) {
+function createRequest({ method = 'GET', url = '/', body = '', headers = {}, remoteAddress = '127.0.0.1' } = {}) {
   const bodyString = String(body);
   const req = new Readable({ read() {} });
   req.method = method;
@@ -17,6 +17,13 @@ function createRequest({ method = 'GET', url = '/', body = '', headers = {} } = 
     'content-length': String(Buffer.byteLength(bodyString)),
     ...headers
   };
+  // Real connections carry this on req.socket; the guard under test reads it directly (never
+  // req.ip or a header) so the fake request has to provide it too. It has to be an actual Duplex
+  // (not a plain object) -- Node's IncomingMessage teardown calls stream internals on req.socket
+  // regardless of whether the guard under test ever touches it.
+  const socket = new Duplex({ read() {}, write(chunk, encoding, callback) { callback(); } });
+  socket.remoteAddress = remoteAddress;
+  req.socket = socket;
   if (bodyString) req.push(bodyString);
   req.push(null);
   return req;
@@ -149,4 +156,162 @@ test('the endpoint never throws, even if the recorder itself throws synchronousl
   });
 
   assert.ok(response.statusCode >= 400);
+});
+
+test('recording list returns the injected recorder\'s listing as JSON', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() {
+        return [{ id: 'session-b', bytes: 42, modifiedAt: '2026-07-29T10:00:05.000Z' }];
+      },
+      async readRecording() { return null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/api/recording/list' });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body), {
+    recordings: [{ id: 'session-b', bytes: 42, modifiedAt: '2026-07-29T10:00:05.000Z' }]
+  });
+});
+
+test('recording by id returns the raw ndjson body with the ndjson content type', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) {
+        return id === 'session-a' ? '{"t":"chunk"}\n' : null;
+      }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/api/recording/session-a' });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body, '{"t":"chunk"}\n');
+});
+
+test('recording by id returns 404 with the usual JSON error shape when not found', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording() { return null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/api/recording/does-not-exist' });
+
+  assert.equal(response.statusCode, 404);
+  assert.deepEqual(JSON.parse(response.body), { error: 'Recording not found.' });
+});
+
+// The guard reads the request's actual remote address (req.socket.remoteAddress), never the
+// server's bind address and never a client-supplied header, so these tests pin origin -- not
+// binding -- as the thing that decides access.
+
+test('recording list is served for a loopback request', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() {
+        return [{ id: 'session-b', bytes: 42, modifiedAt: '2026-07-29T10:00:05.000Z' }];
+      },
+      async readRecording() { return null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/api/recording/list', remoteAddress: '::1' });
+
+  assert.equal(response.statusCode, 200);
+});
+
+test('recording list is refused for a non-loopback remote address', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() {
+        return [{ id: 'session-b', bytes: 42, modifiedAt: '2026-07-29T10:00:05.000Z' }];
+      },
+      async readRecording() { return null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/api/recording/list', remoteAddress: '192.168.1.50' });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Recording readback is disabled for requests not originating from this machine.'
+  });
+});
+
+test('recording by id is served for a loopback request', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) {
+        return id === 'session-a' ? '{"t":"chunk"}\n' : null;
+      }
+    }
+  });
+
+  const response = await invoke(app, {
+    method: 'GET',
+    url: '/api/recording/session-a',
+    remoteAddress: '::ffff:127.0.0.1'
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body, '{"t":"chunk"}\n');
+});
+
+test('recording by id is refused for a non-loopback remote address', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) {
+        return id === 'session-a' ? '{"t":"chunk"}\n' : null;
+      }
+    }
+  });
+
+  const response = await invoke(app, {
+    method: 'GET',
+    url: '/api/recording/session-a',
+    remoteAddress: '10.0.0.5'
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Recording readback is disabled for requests not originating from this machine.'
+  });
+});
+
+test('a spoofed X-Forwarded-For claiming loopback is still refused when the peer is not loopback', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() {
+        return [{ id: 'session-b', bytes: 42, modifiedAt: '2026-07-29T10:00:05.000Z' }];
+      },
+      async readRecording() { return null; }
+    }
+  });
+
+  const response = await invoke(app, {
+    method: 'GET',
+    url: '/api/recording/list',
+    remoteAddress: '203.0.113.7',
+    headers: { 'x-forwarded-for': '127.0.0.1' }
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Recording readback is disabled for requests not originating from this machine.'
+  });
 });

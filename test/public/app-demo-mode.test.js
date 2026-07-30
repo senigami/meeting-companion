@@ -160,7 +160,16 @@ test('bootstrap starts the demo feed when requested in the query string', async 
 
   try {
     await import('../../public/app.js?demo-mode-test=' + Date.now());
-    await Promise.resolve();
+
+    // Wait for the demo feed to actually be scheduled rather than for a fixed number of microtask
+    // hops. A single `await Promise.resolve()` here was counting the hops inside
+    // loadRuntimeConfig(), so adding one legitimate `await`/`.catch()` anywhere on the boot path
+    // failed this test while nothing was actually broken -- and, worse, pushed the boot path to be
+    // shaped around the hop count. setTimeout is stubbed above, so this drains promise jobs only
+    // and stays deterministic.
+    for (let hop = 0; hop < 50 && scheduled.length < 4; hop += 1) {
+      await Promise.resolve();
+    }
 
     assert.equal(scheduled.length >= 4, true);
     while (scheduled.length) {

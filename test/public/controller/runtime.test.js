@@ -458,6 +458,7 @@ test('stopping active transcription returns the rail indicator to manual', async
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -482,6 +483,7 @@ test('a fatal browser speech recognition error escalates the rail indicator to p
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -666,6 +668,7 @@ test('a transient no-speech recognition error does not escalate the rail indicat
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -696,6 +699,7 @@ test('pausing while listening is loud and honest about the microphone, resuming 
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -1674,12 +1678,13 @@ test('overlapping summarize calls are serialized by the in-flight guard', async 
 
 test('a bucket trim during a sustained outage marks the rail "Speech dropped", and a later successful summarize clears it', async () => {
   const succeedingDriver = { id: 'openai', summarize: async () => ({ line: '' }) };
+  const liveDriver = { id: 'browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
   const now = Date.now();
 
   await withRuntimeHarness({
+    createTranscriptionDriverFn: () => liveDriver,
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: {
-      listening: true,
       // Two chunks totalling just over BUCKET_MAX_CHARS (8000): trimBucket must drop the oldest
       // one to get back under the cap -- the only way this repo ever loses speech (INV-13). The
       // newest chunk ends with terminal punctuation so partitionBucket treats it as consumable
@@ -1691,6 +1696,9 @@ test('a bucket trim during a sustained outage marks the rail "Speech dropped", a
       ]
     }
   }, async ({ ctx, elements, runtime }) => {
+    // A real driver, actually started, rather than a `listening: true` shortcut -- the recovered
+    // level below depends on the driver's own `isLive`, which only exists once one is built.
+    await runtime.startListening();
     runtime.showRecentTranscript();
 
     assert.equal(ctx.state.transcriptChunks.length, 1);
@@ -1709,6 +1717,64 @@ test('a bucket trim during a sustained outage marks the rail "Speech dropped", a
     assert.equal(elements.railStatusDot.classList.contains('is-level-dropped'), false);
     assert.equal(elements.railStatusWord.textContent, 'Listening');
     assert.equal(elements.railNote.textContent, '');
+  });
+});
+
+// clearSpeechDroppedAlert() runs from inside resetSummarizeBackoff(), which fires BEFORE
+// summarizeCurrentText's own second `if (ctx.state.paused) return;` guard further down (the FIRST
+// one, at the top of the function, would make the whole call a no-op if paused before it even
+// starts -- so paused has to flip mid-flight, after the call is already past that first guard).
+// While paused this way, clearSpeechDroppedAlert's own recovered status is the one left standing,
+// not immediately overwritten by the correct recoveredLevel computed further down the unpaused
+// path -- the only way to observe this function's own output rather than a later, already-correct
+// overwrite masking it (confirmed by mutation: reverting clearSpeechDroppedAlert to source its
+// level from ctx.state.listening does NOT fail an unpaused version of this test, only this one).
+test('a bucket trim during replay recovers to "Manual mode", not "Listening", while paused', async () => {
+  let resolveSummarize;
+  const inFlightDriver = {
+    id: 'openai',
+    summarize: () => new Promise((resolve) => {
+      resolveSummarize = () => resolve({ line: '' });
+    })
+  };
+  const replayDriver = { id: 'replay', isLive: false, async start() {}, async stop() {}, setMode() {} };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptionSource: 'replay',
+      // Same overflow setup as the live-driver version of this test: two chunks totalling just
+      // over BUCKET_MAX_CHARS (8000), forcing trimBucket to drop the oldest one.
+      transcriptChunks: [
+        { text: 'a'.repeat(5000), at: now - 20000 },
+        { text: `${'b'.repeat(4999)}.`, at: now - 1000 }
+      ]
+    },
+    createTranscriptionDriverFn: () => replayDriver,
+    createSummarizationDriverFn: () => inFlightDriver
+  }, async ({ ctx, elements, runtime }) => {
+    // A real (replay) driver, actually started, so clearSpeechDroppedAlert's recovered level is
+    // read from the driver's own isLive rather than ctx.state.listening (which stays true here --
+    // pausing does not stop the driver via ctx.state.listening's own definition).
+    await runtime.startListening();
+    runtime.showRecentTranscript();
+
+    assert.equal(ctx.state.railStatusLevel, 'dropped');
+
+    const pending = runtime.summarizeCurrentText();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Flip paused directly (not via togglePauseAi, which would itself overwrite the rail with a
+    // 'paused' status and short-circuit the very path this test needs to exercise) only once the
+    // call is already past the entry guard and awaiting the summarize provider.
+    ctx.state.paused = true;
+    resolveSummarize();
+    await pending;
+
+    // The recovered rail must be honest about replay having no microphone -- "Manual mode", not
+    // "Listening", even though a driver is running (ctx.state.listening is true throughout).
+    assert.equal(ctx.state.railStatusLevel, 'manual');
+    assert.equal(elements.railStatusWord.textContent, 'Manual');
   });
 });
 
@@ -1751,11 +1817,15 @@ test('a summarize call running longer than the update interval marks the rail "R
       return Promise.resolve({ line: '' });
     }
   };
+  const liveDriver = { id: 'browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
 
   await withRuntimeHarness({
-    createSummarizationDriverFn: () => driver,
-    stateOverrides: { listening: true }
+    createTranscriptionDriverFn: () => liveDriver,
+    createSummarizationDriverFn: () => driver
   }, async ({ ctx, elements, runtime }) => {
+    // A real driver, actually started, rather than a `listening: true` shortcut -- the recovered
+    // level below depends on the driver's own `isLive`, which only exists once one is built.
+    await runtime.startListening();
     const first = runtime.summarizeCurrentText('first pass');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1786,6 +1856,56 @@ test('a summarize call running longer than the update interval marks the rail "R
   });
 });
 
+// Same reasoning as the bucket-trim version above: clearWallBehindAlert() runs from inside
+// resetSummarizeBackoff(), before summarizeCurrentText's own `if (ctx.state.paused) return;`
+// guard, so pausing first is the only way to observe ITS recovered level rather than a later,
+// already-correct overwrite masking it (confirmed by mutation: reverting clearWallBehindAlert to
+// source its level from ctx.state.listening does NOT fail the non-paused version of this test).
+test('a "Running behind" note during replay recovers to "Manual mode", not "Listening", while paused', async () => {
+  let resolveFirst;
+  let calls = 0;
+  const driver = {
+    id: 'openai',
+    summarize: () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          resolveFirst = () => resolve({ line: '' });
+        });
+      }
+      return Promise.resolve({ line: '' });
+    }
+  };
+  const replayDriver = { id: 'replay', isLive: false, async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'replay' },
+    createTranscriptionDriverFn: () => replayDriver,
+    createSummarizationDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    // A real (replay) driver, actually started, so clearWallBehindAlert's recovered level is
+    // read from the driver's own isLive rather than ctx.state.listening (which stays true here).
+    await runtime.startListening();
+    const first = runtime.summarizeCurrentText('first pass');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await runtime.summarizeCurrentText('tick two');
+    await runtime.summarizeCurrentText('tick three');
+    assert.equal(ctx.state.railStatusLevel, 'behind');
+
+    // Flip paused directly (not via togglePauseAi, which would itself overwrite the rail with a
+    // 'paused' status and short-circuit the very path this test needs to exercise).
+    ctx.state.paused = true;
+    resolveFirst();
+    await first;
+
+    // The recovered rail must be honest about replay having no microphone -- "Manual mode", not
+    // "Listening", even though a driver is running (ctx.state.listening is true throughout).
+    assert.equal(ctx.state.railStatusLevel, 'manual');
+    assert.equal(elements.railStatusWord.textContent, 'Manual');
+  });
+});
+
 test('a "Running behind" note is NOT cleared by a late attempt that goes on to fail -- only by one that succeeds', async () => {
   let resolveFirst;
   let rejectSecond;
@@ -1804,11 +1924,15 @@ test('a "Running behind" note is NOT cleared by a late attempt that goes on to f
       });
     }
   };
+  const liveDriver = { id: 'browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
 
   await withRuntimeHarness({
-    createSummarizationDriverFn: () => driver,
-    stateOverrides: { listening: true }
+    createTranscriptionDriverFn: () => liveDriver,
+    createSummarizationDriverFn: () => driver
   }, async ({ ctx, runtime }) => {
+    // A real driver, actually started, rather than a `listening: true` shortcut -- the recovered
+    // level below depends on the driver's own `isLive`, which only exists once one is built.
+    await runtime.startListening();
     const first = runtime.summarizeCurrentText('first pass');
     await new Promise((resolve) => setImmediate(resolve));
     await runtime.summarizeCurrentText('tick two');
@@ -2090,6 +2214,7 @@ test('silence watchdog fires "Check mic" after 45s of no transcript events while
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -2161,6 +2286,7 @@ test('silence watchdog never fires while paused, stopped, or in manual mode', as
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -2205,6 +2331,7 @@ test('the silence watchdog never clobbers a confirmed problem, even after 45s of
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -2273,6 +2400,7 @@ test('a backgrounded tab regaining visibility resyncs the summarize loop and for
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -2425,6 +2553,7 @@ test('stopListening also stops an active mic level test, releasing the probe', a
   const driver = {
     id: 'browser',
     label: 'Browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -2455,5 +2584,198 @@ test('closing the settings panel stops an active mic level test', async () => {
     await runtime.toggleAudioLevelTest();
     runtime.setSettingsOpen(false);
     assert.equal(stopped, true);
+  });
+});
+
+// Replay is a recorded session, not a live feed (GitHub issue #3). The driver states its own
+// honest level, but startListening() used to overwrite that with "Listening." at rail level
+// `listening` for every driver alike -- so the rail read "Listening" while a recording played, and
+// a real problem the driver had just reported (recording missing, or holding no lines) was wiped
+// by it. The driver's own unit tests could not see this: the lie is added a layer above them.
+test('starting replay never claims a live feed on the rail, and never overwrites the driver status', async () => {
+  const driver = {
+    id: 'replay',
+    async start() {
+      this.onStatusText = 'Replaying a recorded session — not live.';
+    },
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'replay' },
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(ctx.state.listening, true);
+    assert.notEqual(elements.railStatusWord.textContent, 'Listening');
+    assert.notEqual(ctx.state.railStatusLevel, 'listening');
+    assert.notEqual(elements.status.textContent, 'Listening.');
+    // No silence watchdog either: a gap in a recording is not a dead microphone.
+    assert.ok(!ctx.state.silenceWatchdogTimer);
+  });
+});
+
+test('resuming replay after a pause does not announce the microphone listening again', async () => {
+  const driver = {
+    id: 'replay',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'replay' },
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.togglePauseAi();
+
+    assert.notEqual(elements.railStatusWord.textContent, 'Listening');
+    assert.notEqual(ctx.state.railStatusLevel, 'listening');
+    assert.notEqual(elements.status.textContent, 'AI resumed — microphone listening again.');
+  });
+});
+
+// togglePauseAi() used to source its wording from ctx.state.listening ("is a driver running"),
+// not from the driver's own liveness -- so pausing during replay claimed a microphone had
+// stopped when there never was one. wasLiveCapture now comes from
+// activeTranscriptionStatusLevel() instead; these three tests cover the case it used to
+// conflate (replay) against the two it must not regress (a real live driver, and no driver at
+// all).
+test('pausing AI during replay reports the generic pause, not "microphone stopped"', async () => {
+  const driver = {
+    id: 'replay',
+    isLive: false,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'replay' },
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+
+    assert.equal(elements.status.textContent, 'AI paused. Manual lines still work.');
+    assert.equal(ctx.state.railStatusLevel, 'paused');
+  });
+});
+
+test('pausing AI during a live browser session still reports "microphone stopped"', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+
+    assert.equal(elements.status.textContent, 'AI paused — microphone stopped. Manual lines still work.');
+    assert.equal(ctx.state.railStatusLevel, 'paused');
+  });
+});
+
+test('pausing AI with no driver running at all reports the generic pause', async () => {
+  await withRuntimeHarness({}, async ({ ctx, elements, runtime }) => {
+    await runtime.togglePauseAi();
+
+    assert.equal(elements.status.textContent, 'AI paused. Manual lines still work.');
+    assert.equal(ctx.state.railStatusLevel, 'paused');
+  });
+});
+
+// The third site the ad-hoc `driver.id !== 'replay'` gates missed: recovering from a
+// backlogged mode-run derived its level from ctx.state.listening directly (true for every
+// driver, live or not), so the rail read "Listening" once a replay session's `Added:` line
+// landed. Only the driver's own `isLive` -- via activeTranscriptionStatusLevel() -- may say so.
+test('a replay session summarized to a real line reports "manual", not "listening", on the rail', async () => {
+  const driver = {
+    id: 'replay',
+    isLive: false,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'a useful summary line' })
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'replay' },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.summarizeCurrentText('some backlogged speech');
+
+    assert.equal(elements.status.textContent, 'Added: a useful summary line');
+    assert.notEqual(ctx.state.railStatusLevel, 'listening');
+    assert.equal(ctx.state.railStatusLevel, 'manual');
+    assert.notEqual(elements.railStatusWord.textContent, 'Listening');
+  });
+});
+
+test('a live driver summarized to a real line still reports "listening" on the rail', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'a useful summary line' })
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.summarizeCurrentText('some backlogged speech');
+
+    assert.equal(elements.status.textContent, 'Added: a useful summary line');
+    assert.equal(ctx.state.railStatusLevel, 'listening');
+  });
+});
+
+test('an openai driver summarized to a real line reports "listening" on the rail', async () => {
+  const driver = {
+    id: 'openai',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'a useful summary line' })
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'openai', openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.summarizeCurrentText('some backlogged speech');
+
+    assert.equal(elements.status.textContent, 'Added: a useful summary line');
+    assert.equal(ctx.state.railStatusLevel, 'listening');
   });
 });

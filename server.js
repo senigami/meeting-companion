@@ -179,6 +179,10 @@ export function createApp({
   // is not a new external network surface. A write failure degrades to { ok: false } and is never
   // thrown -- the client is expected to treat that as "recording stopped," never as a reason to
   // interrupt transcription or summarization.
+  // ORDERING MATTERS: this route must stay registered ABOVE refuseUnlessLoopback. That middleware is
+  // mounted on the `/api/recording/:id` prefix, which also matches this path, so moving this handler
+  // below it would silently start refusing appends from any non-local client. Appends are deliberately
+  // not loopback-gated (see the guard's own comment); only readback is.
   app.post('/api/recording/append', async (req, res) => {
     try {
       const { sessionId = '', records = [] } = req.body || {};
@@ -196,6 +200,51 @@ export function createApp({
       // "recording stopped," which is the one thing this whole instrument must never do.
       console.error(safeErrorDetail(error));
       res.status(500).json({ ok: false, error: safeErrorDetail(error) });
+    }
+  });
+
+  // Read-side companions to /api/recording/append. Unlike the append route, these serve raw
+  // recorded transcript text back over the network with no auth of their own. ADR-0004 decided
+  // that writing recordings to local disk was safe; it never decided that reading them back over
+  // the network was, so the safe default is closed until something explicitly reopens it. Gating
+  // both routes through one middleware (rather than repeating the check per handler) means a third
+  // read route added later inherits the guard instead of quietly bypassing it.
+  //
+  // The question that matters is "did this request originate from this machine?", not "is the
+  // server bound to loopback?" -- a server that is (mis)configured to bind off loopback should
+  // still refuse a LAN client while still serving the developer's own local browser. This reads
+  // `req.socket.remoteAddress` -- the raw connection peer address -- rather than `req.ip`, because
+  // `req.ip` can become header-derived if `trust proxy` is ever enabled; a header-spoofable privacy
+  // guard is worse than no guard at all, since it reads as protection while offering none.
+  const refuseUnlessLoopback = (req, res, next) => {
+    if (!isLoopbackAddress(req.socket?.remoteAddress)) {
+      return res.status(403).json({ error: 'Recording readback is disabled for requests not originating from this machine.' });
+    }
+    next();
+  };
+  app.use('/api/recording/list', refuseUnlessLoopback);
+  app.use('/api/recording/:id', refuseUnlessLoopback);
+
+  app.get('/api/recording/list', async (req, res) => {
+    try {
+      const recordings = await sessionRecorder.listRecordings();
+      res.json({ recordings });
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Listing recordings failed.', detail: safeErrorDetail(error) });
+    }
+  });
+
+  app.get('/api/recording/:id', async (req, res) => {
+    try {
+      const contents = await sessionRecorder.readRecording(req.params.id);
+      if (contents === null) {
+        return res.status(404).json({ error: 'Recording not found.' });
+      }
+      res.type('application/x-ndjson').send(contents);
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Reading recording failed.', detail: safeErrorDetail(error) });
     }
   });
 
@@ -295,6 +344,16 @@ function isSupportedProvider(provider) {
 
 function isLoopbackHost(host) {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host.startsWith('127.');
+}
+
+// Matches the request's remote address against loopback, exactly (not a prefix match) --
+// `127.0.0.1.evil.example` or similar must never pass. Node/Express normalize an IPv4 loopback
+// connection arriving on a dual-stack socket to the IPv4-mapped form `::ffff:127.0.0.1`, so that
+// form is stripped before comparing.
+function isLoopbackAddress(address) {
+  if (!address) return false;
+  const normalized = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
+  return normalized === '127.0.0.1' || normalized === '::1';
 }
 
 function resolveHost(host = '127.0.0.1') {

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createSessionRecorder, isValidSessionId } from '../../server/session-recorder.js';
+import { createSessionRecorder, isValidSessionId, listRecordings, readRecording } from '../../server/session-recorder.js';
 
 // ADR-0004 / backlog items 2-3: the debugging/tuning recorder must (a) actually write both sides of
 // the pipeline as ndjson, (b) never throw or leak content on a bad session id, and (c) degrade to
@@ -90,5 +90,52 @@ test('a filesystem failure degrades to { ok: false } rather than throwing', asyn
     });
   } finally {
     await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('listRecordings resolves to [] when the directory does not exist', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'recording-test-'));
+  await rm(dir, { recursive: true, force: true });
+  const recordings = await listRecordings(dir);
+  assert.deepEqual(recordings, []);
+});
+
+test('listRecordings sorts newest modifiedAt first and ignores non-ndjson files and invalid ids', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'recording-test-'));
+  try {
+    await writeFile(path.join(dir, 'session-a.ndjson'), '{"t":"chunk"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await writeFile(path.join(dir, 'session-b.ndjson'), '{"t":"chunk"}\n{"t":"chunk"}\n');
+    await writeFile(path.join(dir, 'notes.txt'), 'ignore me');
+    await writeFile(path.join(dir, 'bad name!.ndjson'), 'should be ignored');
+
+    const recordings = await listRecordings(dir);
+    assert.deepEqual(recordings.map((r) => r.id), ['session-b', 'session-a']);
+    assert.equal(recordings[0].bytes, Buffer.byteLength('{"t":"chunk"}\n{"t":"chunk"}\n'));
+    assert.ok(typeof recordings[0].modifiedAt === 'string');
+    assert.ok(!Number.isNaN(Date.parse(recordings[0].modifiedAt)));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('readRecording returns file contents for a valid id', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'recording-test-'));
+  try {
+    await writeFile(path.join(dir, 'session-a.ndjson'), '{"t":"chunk"}\n');
+    const contents = await readRecording('session-a', dir);
+    assert.equal(contents, '{"t":"chunk"}\n');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('readRecording returns null for a traversal attempt and for an unknown id', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'recording-test-'));
+  try {
+    assert.equal(await readRecording('../../etc/passwd', dir), null);
+    assert.equal(await readRecording('does-not-exist', dir), null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

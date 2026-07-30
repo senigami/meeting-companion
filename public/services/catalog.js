@@ -16,6 +16,13 @@ export function listAvailableTranscriptionSources() {
       // always be selected. Exists to exercise the whole transcript -> summarize -> display path.
       label: 'Demo',
       description: 'Replay a sample meeting. No microphone or API key needed.'
+    },
+    {
+      id: 'replay',
+      // A recorded session (ADR-0004), not a live source -- label and description must both read
+      // as clearly-not-live so an operator never mistakes it for the microphone.
+      label: 'Replay',
+      description: 'Replay a recorded session through the live pipeline. Not live audio -- for testing and debugging only.'
     }
   ];
 }

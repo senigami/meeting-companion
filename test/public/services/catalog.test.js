@@ -9,7 +9,7 @@ import {
 test('service catalog exposes browser transcription and summary sources', () => {
   assert.deepEqual(
     listAvailableTranscriptionSources().map((source) => source.id),
-    ['browser', 'openai', 'demo']
+    ['browser', 'openai', 'demo', 'replay']
   );
   assert.deepEqual(
     listAvailableSummarizationSources().map((source) => source.id),

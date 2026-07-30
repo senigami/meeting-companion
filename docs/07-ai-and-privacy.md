@@ -49,15 +49,33 @@ for the full decision.
 - Recording is ON by default (a default-off instrument gets no data), with a visible, truthful
   indicator in Settings whenever it is active -- see `#recordingIndicator` in `public/index.html` and
   `updateRecordingIndicator`/`setRecordingEnabled` in `public/controller/runtime.js`.
-- Files live under `recordings/` (gitignored), one per app session, and never leave the machine: the
-  write path is a localhost-only Express route (`/api/recording/append` in `server.js`) backed by
-  `server/session-recorder.js`, which never throws and degrades to `{ ok: false }` on any failure.
+- Files live under `recordings/` (gitignored), one per app session, and by default never leave the
+  machine: the write path is a localhost-only Express route (`/api/recording/append` in
+  `server.js`) backed by `server/session-recorder.js`, which never throws and degrades to
+  `{ ok: false }` on any failure.
 - A recording failure must never interrupt transcription or summarization -- the client
   (`flushRecordingQueue` in `runtime.js`) treats any failed or rejected append as "recording stopped,"
   reflected honestly in the indicator, and nothing else.
-- `scripts/replay-recording.js` reads a session file back and prints the correlated chunk/summary
-  pairs. It does not re-drive the live pipeline from a recording -- that (a full replay transcription
-  source) is a separate, larger piece of work tracked in `docs/backlog.md` item 2 and is not built yet.
+- Two read routes serve recordings back: `GET /api/recording/list` (the recording picker) and
+  `GET /api/recording/:id` (the raw ndjson for one session). Both feed the replay transcription
+  source described below, and both serve transcript text with no auth of their own, so they refuse
+  any request whose peer address is not this machine. The test is the *request's* origin, never the
+  server's binding: running with `ALLOW_REMOTE_HOST=true` still serves a browser on this machine and
+  still refuses one on the LAN. Gating on the binding instead was tried first and was wrong in both
+  directions -- it broke replay locally while protecting nothing extra. The peer address is read from
+  the raw socket rather than `req.ip`, so a forwarded-for header cannot claim to be local. ADR-0004
+  authorized writing recordings to local disk; it never authorized reading them back over the
+  network, so that stays closed until something explicitly decides otherwise. See the guard in
+  `server.js` (`refuseUnlessLoopback`).
+- The replay transcription source (`public/services/transcription/replay.js`, GitHub issue #3) is
+  the full replay driver tracked in `docs/backlog.md` item 2: it re-drives the live pipeline from a
+  recorded session at its original timing, using the two read routes above, so prompt and summary
+  changes can be evaluated against a real meeting instead of a live one. It is not a live microphone,
+  and the rail must never say "Listening" while it is active (see `activeTranscriptionStatusLevel` in
+  `runtime.js`).
+- `scripts/replay-recording.js` remains a separate, simpler tool: it reads a session file directly
+  off disk and prints the correlated chunk/summary pairs for eyeballing, without going through the
+  app or its pipeline at all.
 
 ## Related specs
 

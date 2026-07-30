@@ -1,4 +1,4 @@
-import { mkdir, appendFile } from 'node:fs/promises';
+import { mkdir, appendFile, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 // Debugging/tuning instrument (ADR-0004, backlog items 2-3): appends both sides of the pipeline --
@@ -19,11 +19,52 @@ import path from 'node:path';
 // null bytes). Deliberately narrow: digits, letters, dash, underscore only.
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,120}$/;
 
+const DEFAULT_RECORDINGS_DIR = path.resolve('recordings');
+
 export function isValidSessionId(sessionId) {
   return typeof sessionId === 'string' && SAFE_SESSION_ID.test(sessionId);
 }
 
-export function createSessionRecorder({ dir = path.resolve('recordings') } = {}) {
+// Read-side companion to appendRecords, same defensive spirit: a missing directory or an unreadable
+// file is a normal condition (recording never started, or was cleaned up), never something to throw
+// at the caller (server.js's /api/recording/list and /api/recording/:id routes).
+export async function listRecordings(dir = DEFAULT_RECORDINGS_DIR) {
+  let entries;
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+
+  const recordings = [];
+  for (const entry of entries) {
+    if (!entry.endsWith('.ndjson')) continue;
+    const id = entry.slice(0, -'.ndjson'.length);
+    if (!isValidSessionId(id)) continue;
+    try {
+      const info = await stat(path.join(dir, entry));
+      recordings.push({ id, bytes: info.size, modifiedAt: info.mtime.toISOString() });
+    } catch {
+      // File vanished between readdir and stat -- skip it rather than error.
+    }
+  }
+
+  recordings.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0));
+  return recordings;
+}
+
+// Same traversal discipline as appendRecords: an id that fails SAFE_SESSION_ID never reaches the
+// filesystem, so a caller-supplied id can never escape `dir`.
+export async function readRecording(id, dir = DEFAULT_RECORDINGS_DIR) {
+  if (!isValidSessionId(id)) return null;
+  try {
+    return await readFile(path.join(dir, `${id}.ndjson`), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+export function createSessionRecorder({ dir = DEFAULT_RECORDINGS_DIR } = {}) {
   const ensuredDirs = new Set();
 
   async function ensureDir() {
@@ -55,5 +96,9 @@ export function createSessionRecorder({ dir = path.resolve('recordings') } = {})
     }
   }
 
-  return { appendRecords };
+  return {
+    appendRecords,
+    listRecordings: () => listRecordings(dir),
+    readRecording: (id) => readRecording(id, dir)
+  };
 }

@@ -61,7 +61,7 @@ graph TD
 
 | From | To | Connection | What must stay true |
 | --- | --- | --- | --- |
-| P1 | P2 | `createTranscriptionDriver(source, deps)` / `createSummarizationDriver(source, deps)` | Driver ids must stay stable and the driver shape must remain `{ start, stop }` or `{ summarize }`. |
+| P1 | P2 | `createTranscriptionDriver(source, deps)` / `createSummarizationDriver(source, deps)` | Driver ids must stay stable and the driver shape must remain `{ start, stop }` or `{ summarize }`. A transcription driver must also declare `isLive: boolean` (is a real microphone behind it, e.g. `false` for replay) so the runtime can derive its status level instead of inferring liveness from the source id. |
 | P1 | P3 | Browser transcription event stream | Browser events must normalize text and emit `final` or `partial` updates. |
 | P1 | P4 | OpenAI transcription driver stream | OpenAI chunks must remain short and final text must arrive in order. |
 | P1 | P5 | Summary request | The summarizer must keep returning at most one line or an empty result. |

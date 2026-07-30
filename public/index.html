@@ -264,8 +264,26 @@
                 <span class="providerName">Demo</span>
                 <span class="providerStatus">Sample meeting</span>
               </button>
+              <button id="transcriptionReplay" type="button" data-kind="transcription" data-source="replay" class="providerOption" aria-pressed="false" hidden>
+                <span class="providerName">Replay</span>
+                <span class="providerStatus">Recorded session</span>
+              </button>
             </div>
-            <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available. Demo replays a sample meeting with no microphone and no key, so you can check the display before anyone arrives.</p>
+            <p id="transcriptionHint" class="field-note">Browser speech stays local. Add a service below to make other transcription sources available. Demo replays a sample meeting with no microphone and no key, so you can check the display before anyone arrives. Replay re-drives a previously recorded session -- not live audio, for testing and debugging only.</p>
+
+            <div id="replayControls" class="micTestGroup" hidden>
+              <label for="replayRecordingSelect">Recording</label>
+              <select id="replayRecordingSelect">
+                <option value="">No recordings yet</option>
+              </select>
+              <label for="replaySpeedSelect">Speed</label>
+              <select id="replaySpeedSelect">
+                <option value="1">1x (original timing)</option>
+                <option value="4">4x</option>
+                <option value="max">Max (no delay)</option>
+              </select>
+              <p class="field-note">Replays the recording's own transcript lines through the live pipeline. Not a live source.</p>
+            </div>
 
             <div class="micTestGroup">
               <label for="audioDeviceSelect">Microphone</label>
