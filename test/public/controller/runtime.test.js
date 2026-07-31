@@ -131,6 +131,35 @@ test('confirming the already-selected source persists the source, not just the c
   });
 });
 
+// REGRESSION (found in the wild, 2026-07-31). The Test button under AI summaries fell back to
+// ctx.state.providerKeys[provider] when no key was typed. That is not a key string: everywhere else it is
+// the descriptor object from /api/config ({configured, origin, label, masked}). normalizeText stringified
+// it to "[object Object]" and sent THAT as the API key, so the provider rejected it and Test failed for
+// anyone whose provider was actually configured, which is the only person who would press it. The
+// function had no test at all, which is how it shipped. Assert the bytes on the wire, not that a
+// function was called -- the old code called fetch perfectly happily.
+test('testing a configured provider sends no key, so the server tests its own', async () => {
+  const posted = [];
+  await withRuntimeHarness({
+    stateOverrides: {
+      providerKeys: {
+        openai: { configured: true, origin: 'server', label: 'Configured on server', masked: '' }
+      }
+    },
+    fetchImpl: async (url, options = {}) => {
+      posted.push({ url, body: JSON.parse(options.body || '{}') });
+      return { ok: true, json: async () => ({ ok: true, provider: 'openai' }) };
+    }
+  }, async ({ runtime }) => {
+    await runtime.testProviderKey('openai');
+
+    const call = posted.find((entry) => String(entry.url).includes('/api/provider/test'));
+    assert.ok(call, 'the test button should call /api/provider/test');
+    assert.equal(call.body.apiKey, '');
+    assert.notEqual(call.body.apiKey, '[object Object]');
+  });
+});
+
 test('an explicitly chosen demo IS honoured even when a real key is available', async () => {
   await withRuntimeHarness({
     stateOverrides: {

@@ -1600,7 +1600,15 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   async function testProviderKey(provider, value) {
-    const clean = normalizeText(value || ctx.state.providerKeys?.[provider] || '');
+    // Only ever send a key the operator just typed. This used to fall back to
+    // `ctx.state.providerKeys[provider]`, which is NOT a key string -- everywhere else in the app it is
+    // the descriptor object from /api/config ({configured, origin, label, masked}, see view.js:820 and
+    // provider-availability.js:7). normalizeText stringifies it to the literal "[object Object]", which
+    // was then sent as the API key and rejected, so Test failed for everyone whose provider was actually
+    // configured -- the only people who would press it. There is deliberately no client-side key to fall
+    // back to (INV-12 keeps keys off the browser), so an empty string is correct: it tells the server to
+    // use its own key, which is exactly what we want to be testing.
+    const clean = normalizeText(typeof value === 'string' ? value : '');
     updateStatus(ctx, `Testing ${provider === 'claude' ? 'Claude' : 'OpenAI'} key...`);
     try {
       const response = await fetchWithTimeout(fetchImpl, '/api/provider/test', {
