@@ -73,7 +73,8 @@ export function createApp({
 
   app.post('/api/transcribe', async (req, res) => {
     try {
-      // `mode` is still sent by the client but no longer read here: it only ever selected a prompt.
+      // No `mode`: transcription returns the words that were said, and everything about what kind
+      // of meeting this is belongs to summarization. See issues #27 and #29.
       const { apiKey = '', audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm' } = req.body || {};
       const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore });
       if (!client) {
