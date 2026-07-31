@@ -20,6 +20,52 @@ function debugPanel() {
       'white-space:pre-wrap', 'pointer-events:auto'
     ].join(';'));
     el.textContent = 'BROWSER TRANSCRIPTION DEBUG — if you can read this, you are on the debug build.\n';
+
+    // Speech recognition always uses the browser's DEFAULT input device and has no way to pick
+    // one. getUserMedia is given an explicit deviceId elsewhere in the app. So the mic test can
+    // pass on one device while recognition listens to a different, silent one. This measures the
+    // DEFAULT device the same way recognition hears it.
+    const btn = document.createElement('button');
+    btn.textContent = 'Test the DEFAULT microphone for 5 seconds';
+    btn.setAttribute('style', 'margin:6px 0;padding:4px 8px;font:inherit;cursor:pointer');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter((d) => d.kind === 'audioinput');
+        dbg('audio inputs seen by the page:', inputs.map((d) => `${d.label || '(no label)'} [${d.deviceId.slice(0, 12)}]`));
+
+        // No deviceId on purpose: this is the default, which is what recognition listens to.
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const track = stream.getAudioTracks()[0];
+        dbg('DEFAULT device granted:', track?.label, track?.getSettings?.());
+
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new Ctx();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 2048;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const buf = new Float32Array(analyser.fftSize);
+        let peak = 0;
+        const started = Date.now();
+        const tick = () => {
+          analyser.getFloatTimeDomainData(buf);
+          for (let i = 0; i < buf.length; i += 1) peak = Math.max(peak, Math.abs(buf[i]));
+          if (Date.now() - started < 5000) return void setTimeout(tick, 100);
+          const db = peak > 0 ? (20 * Math.log10(peak)).toFixed(1) : '-Infinity';
+          dbg(`DEFAULT device peak over 5s: ${db} dBFS ${peak === 0 ? '<-- DIGITAL SILENCE, this is the bug' : '<-- device is producing audio'}`);
+          stream.getTracks().forEach((t) => t.stop());
+          ctx.close();
+          btn.disabled = false;
+        };
+        dbg('measuring the default device, please talk now...');
+        tick();
+      } catch (err) {
+        dbg('default-device probe FAILED:', String(err));
+        btn.disabled = false;
+      }
+    };
+    el.appendChild(btn);
     document.body.appendChild(el);
   }
   return el;

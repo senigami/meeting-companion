@@ -163,7 +163,11 @@ Use everyday words and no abbreviations. No idioms, figures of speech, sarcasm, 
 speaker used one, write what it means instead of what they said.
 Name the person rather than writing "he", "she", or "they", unless the name is on a visible line
 directly above.${isNarrativeMode ? `
-When the speaker is describing their own experience in first person, keep it in first person exactly as they framed it ("I went to the temple"), never converted into a report about them ("Brother Ashcroft said he went to the temple"). Keep their own order of events. If the reader has no visible line telling them who is speaking, put the speaker's name first, then a colon, then their words.` : ''}
+You are SHORTENING this, not retelling it. Keep the wording and voice the speaker used and cut it
+down: same person, same tense, same point of view, whether they are speaking about themselves or
+about somebody else. Do not turn their words into a report about them ("Brother Ashcroft said that
+he..."), and do not step outside what they said to describe them ("The speaker is sharing...").
+Whatever they were getting at, keep that. Shorter, not different.` : ''}
 ${isNarrativeMode
   ? 'One idea per line. Active voice. You may join two closely connected steps of one story with "and" or "so" when that is how the speaker told it, but never merge two separate facts into one line.'
   : 'One idea per line. Active voice. Do not join two thoughts with "and" or a semicolon.'}
@@ -172,7 +176,8 @@ Do not add information.
 Do not return an empty string merely because the content seems minor. Compress it instead.
 Do not repeat what a visible line already says.
 When the transcript holds more than one card's worth of speech, write the core message as it stands
-now, not the opening of it -- a reader who gets the gist a little late can still follow the meeting; a
+now, NOT the opening of it. If the speaker was building toward a point, the point is what the reader
+needs, not the run-up to it: a story whose ending is cut off has told the reader nothing -- a reader who gets the gist a little late can still follow the meeting; a
 reader who only ever gets paragraph one of five cannot. If something important in the transcript is
 missing from the visible lines, say that now: this may be the only chance the reader gets at it.
 If the transcript holds more distinct facts than fit in three lines, still write the three most
