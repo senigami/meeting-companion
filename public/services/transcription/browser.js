@@ -36,7 +36,17 @@ function dbg(...args) {
   }
 }
 // Reachable from the console too, so the panel can be read even if it is behind something.
-if (typeof window !== 'undefined') window.__btDebug = dbg;
+if (typeof window !== 'undefined') {
+  window.__btDebug = dbg;
+  // Draw the panel at load rather than on the first event, so you can tell you are on the debug
+  // build BEFORE pressing anything. Also states up front whether the API exists at all.
+  dbg('module loaded', {
+    SpeechRecognition: typeof window.SpeechRecognition,
+    webkitSpeechRecognition: typeof window.webkitSpeechRecognition,
+    secureContext: window.isSecureContext,
+    origin: window.location.origin
+  });
+}
 
 function getSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
