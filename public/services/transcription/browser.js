@@ -19,7 +19,11 @@ function debugPanel() {
       'border-radius:6px', 'padding:8px 10px', 'font:11px/1.45 ui-monospace,Menlo,monospace',
       'white-space:pre-wrap', 'pointer-events:auto'
     ].join(';'));
-    el.textContent = 'BROWSER TRANSCRIPTION DEBUG — if you can read this, you are on the debug build.\n';
+    // The log goes in its OWN element. Assigning textContent on the panel would destroy every
+    // child, which is exactly what killed the button on the first log line.
+    const head = document.createElement('div');
+    head.textContent = 'BROWSER TRANSCRIPTION DEBUG -- if you can read this, you are on the debug build.';
+    el.appendChild(head);
 
     // Speech recognition always uses the browser's DEFAULT input device and has no way to pick
     // one. getUserMedia is given an explicit deviceId elsewhere in the app. So the mic test can
@@ -66,6 +70,10 @@ function debugPanel() {
       }
     };
     el.appendChild(btn);
+    const log = document.createElement('div');
+    log.id = '__btDebugLog';
+    log.setAttribute('style', 'white-space:pre-wrap');
+    el.appendChild(log);
     document.body.appendChild(el);
   }
   return el;
@@ -75,10 +83,11 @@ function dbg(...args) {
   const stamp = new Date().toISOString().slice(11, 23);
   const line = `[${stamp}] ` + args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
   console.log('[bt]', line);
-  const el = debugPanel();
-  if (el) {
-    el.textContent += line + '\n';
-    el.scrollTop = el.scrollHeight;
+  const panel = debugPanel();
+  const log = panel && document.getElementById('__btDebugLog');
+  if (log) {
+    log.textContent += line + '\n';
+    panel.scrollTop = panel.scrollHeight;
   }
 }
 // Reachable from the console too, so the panel can be read even if it is behind something.
