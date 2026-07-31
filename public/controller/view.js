@@ -765,7 +765,11 @@ function createTranscriptCard(item, active = false) {
     time.dateTime = new Date(item.createdAt).toISOString();
     time.textContent = new Date(item.createdAt).toLocaleTimeString([], {
       hour: 'numeric',
-      minute: '2-digit'
+      minute: '2-digit',
+      // Seconds are here for measuring pipeline delay during testing: the gap between
+      // a line being spoken and its card appearing is the number we are tuning, and
+      // minute resolution hides all of it.
+      second: '2-digit'
     });
     meta.append(time);
   }
