@@ -558,9 +558,18 @@ test('chunkContainsSpeech: finds a burst of speech buried in mostly-silent audio
   const burstStart = Math.round(1.5 * sampleRate);
   const burstLength = Math.round(0.2 * sampleRate);
   for (let i = burstStart; i < burstStart + burstLength; i += 1) {
-    samples[i] = 0.5; // loud speech-like burst
+    // Amplitude is deliberately 0.01, not something loud. It has to be quiet enough that the
+    // WHOLE-CHUNK average fails the gate while the burst's own frame clears it, or this test
+    // passes under whole-chunk RMS too and pins nothing. Measured: whole chunk -52.43 dBFS
+    // (below the -50 gate), burst frame -40.00 dBFS (above it).
+    samples[i] = 0.01;
   }
   assert.equal(chunkContainsSpeech(samples, { gateDbfs: -50, sampleRate }), true);
+
+  // And the other half of the claim, asserted rather than described: the SAME buffer is rejected
+  // when one frame spans the whole chunk, which is what whole-chunk RMS averaging amounts to. If
+  // frame-wise detection is ever lost, this line fails instead of the test quietly still passing.
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: -50, sampleRate, frameMs: 3500 }), false);
 });
 
 test('chunkContainsSpeech: fails open (true) on a non-finite gate rather than silently muting the reader', () => {
