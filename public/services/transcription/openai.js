@@ -1,6 +1,5 @@
 import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
-import { buildTranscriptionPrompt } from './prompt.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 import { createAudioConditioner, chunkContainsSpeech, NOISE_FLOOR_DBFS } from '../audio-processing.js';
 import { deviceIdConstraint, browserAudioConstraints } from '../audio-monitor.js';
