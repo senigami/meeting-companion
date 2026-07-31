@@ -13,7 +13,12 @@ import { createClaudeSummarizer } from './summarization/claude.js';
 import { createDemoSummarizer } from './summarization/demo.js';
 
 export function createTranscriptionDriver(source, deps = {}) {
-  switch (source || getDefaultTranscriptionSource()) {
+  // TEMPORARY DEBUG -- branch debug/browser-transcription, do not merge.
+  const resolved = source || getDefaultTranscriptionSource();
+  if (typeof window !== 'undefined' && window.__btDebug) {
+    window.__btDebug('registry: building transcription driver', { requested: source, resolved });
+  }
+  switch (resolved) {
     case 'browser':
       return createBrowserTranscriptionDriver(deps);
     case 'openai':

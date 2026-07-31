@@ -4,9 +4,39 @@ import { normalizeText } from '../text.js';
 // Every SpeechRecognition event, timestamped, so we can see what the app's own recognition
 // instance is doing rather than guessing from a separate one in the console.
 const DEBUG = true;
-function dbg(...args) {
-  if (DEBUG) console.log(`[bt ${new Date().toISOString().slice(11, 23)}]`, ...args);
+// Writes to an on-screen panel as well as the console. The console has cost us three rounds of
+// "which page, which port, was it focused"; a panel you can SEE also proves you are on this build.
+function debugPanel() {
+  if (typeof document === 'undefined') return null;
+  let el = document.getElementById('__btDebug');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '__btDebug';
+    el.setAttribute('style', [
+      'position:fixed', 'left:8px', 'bottom:8px', 'z-index:99999',
+      'width:min(560px,46vw)', 'max-height:44vh', 'overflow:auto',
+      'background:rgba(8,10,14,.94)', 'color:#9fe7a4', 'border:1px solid #2c4',
+      'border-radius:6px', 'padding:8px 10px', 'font:11px/1.45 ui-monospace,Menlo,monospace',
+      'white-space:pre-wrap', 'pointer-events:auto'
+    ].join(';'));
+    el.textContent = 'BROWSER TRANSCRIPTION DEBUG — if you can read this, you are on the debug build.\n';
+    document.body.appendChild(el);
+  }
+  return el;
 }
+function dbg(...args) {
+  if (!DEBUG) return;
+  const stamp = new Date().toISOString().slice(11, 23);
+  const line = `[${stamp}] ` + args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  console.log('[bt]', line);
+  const el = debugPanel();
+  if (el) {
+    el.textContent += line + '\n';
+    el.scrollTop = el.scrollHeight;
+  }
+}
+// Reachable from the console too, so the panel can be read even if it is behind something.
+if (typeof window !== 'undefined') window.__btDebug = dbg;
 
 function getSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
