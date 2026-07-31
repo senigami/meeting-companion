@@ -209,6 +209,62 @@ test('openai transcription downsamples 48kHz native audio to 16kHz before sendin
   });
 });
 
+test('openai transcription silence gate: a session that only hears silence sends nothing (issue #23)', async () => {
+  await withFakeNavigatorAndWorklet(async (getNode) => {
+    let fetchCalled = false;
+    const diagnostics = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioContextFactory: () => makeFakeCaptureContext({ sampleRate: TARGET_SAMPLE_RATE }),
+      onAudioDiagnostics: (event) => diagnostics.push(event.message),
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+
+    const samplesPerChunk = TARGET_SAMPLE_RATE * (3500 / 1000);
+    node.port.onmessage({ data: new Float32Array(samplesPerChunk) }); // pure silence
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(fetchCalled, false, 'a silent chunk must never be encoded and sent');
+    assert.ok(
+      diagnostics.some((msg) => /silent audio chunk/i.test(msg)),
+      'the skip is reported via onAudioDiagnostics'
+    );
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription silence gate: a chunk with audible samples is still sent', async () => {
+  await withFakeNavigatorAndWorklet(async (getNode) => {
+    const capturedBodies = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      audioContextFactory: () => makeFakeCaptureContext({ sampleRate: TARGET_SAMPLE_RATE }),
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+
+    const samplesPerChunk = TARGET_SAMPLE_RATE * (3500 / 1000);
+    node.port.onmessage({ data: fakeFrame(samplesPerChunk, 0) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 1, 'a chunk with real speech-level audio is still sent');
+
+    await driver.stop();
+  });
+});
+
 test('openai transcription fails visibly, without falling back silently, when AudioWorklet is unavailable', async () => {
   await withFakeNavigatorAndWorklet(async () => {
     const statusMessages = [];
