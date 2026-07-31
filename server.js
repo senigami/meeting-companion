@@ -4,7 +4,6 @@ import express from 'express';
 import OpenAI from 'openai';
 import { toFile } from 'openai';
 import { getProviderKeyState } from './public/services/provider-credentials.js';
-import { buildTranscriptionPrompt } from './public/services/transcription/prompt.js';
 import { listAvailableSources } from './public/services/registry.js';
 import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
@@ -74,7 +73,8 @@ export function createApp({
 
   app.post('/api/transcribe', async (req, res) => {
     try {
-      const { apiKey = '', audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm', mode = 'speaker' } = req.body || {};
+      // `mode` is still sent by the client but no longer read here: it only ever selected a prompt.
+      const { apiKey = '', audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm' } = req.body || {};
       const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore });
       if (!client) {
         return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
@@ -91,10 +91,16 @@ export function createApp({
       // OpenAI — precisely the shape that produces ECONNRESET on a flaky path,
       // and the leading suspect for a real ECONNRESET incident. Do not restore
       // it as an "optimization" without a client that actually consumes deltas.
+      // No `prompt` here, deliberately, and do not add one back. It is not an instruction field:
+      // OpenAI documents it as priming for names and vocabulary, and gpt-4o-transcribe recites
+      // instruction-shaped prose as if it were speech. We used to send "Church meeting audio
+      // transcription. Capture the specific story, event, teaching, feeling, invitation, or
+      // example." and got back "Church meeting audio", "Capture the specific story," and
+      // "Invitation." on chunks where nothing was said (issue #27). Vocabulary hints are no safer;
+      // a glossary prompt has been reported coming back verbatim the same way.
       const transcription = await client.audio.transcriptions.create({
         file,
         model: 'gpt-4o-transcribe',
-        prompt: buildTranscriptionPrompt(mode),
         language: 'en'
       });
 

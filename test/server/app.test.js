@@ -128,6 +128,39 @@ test('malformed json returns a json error response', async () => {
   assert.equal(data.error, 'Invalid JSON payload.');
 });
 
+test('transcription call carries no prompt at all, in any mode', async () => {
+  // Asserts the ABSENCE of the field, not the wording of it. The old test matched the prompt's
+  // literal text, so it would have stayed green no matter what that text did to the output. The
+  // model recites an instruction-shaped prompt as if it were speech (issue #27), so the only safe
+  // state is no prompt on the request, and that is what this pins.
+  const seen = [];
+  const openaiClient = {
+    audio: {
+      transcriptions: {
+        create: async (params) => {
+          seen.push(params);
+          return { text: 'hello world' };
+        }
+      }
+    }
+  };
+  const app = createApp({ openaiClient });
+
+  for (const mode of ['speaker', 'information', 'song', 'prayer']) {
+    await invoke(app, {
+      method: 'POST',
+      url: '/api/transcribe',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ audioBase64: Buffer.from('fake-audio').toString('base64'), mode })
+    });
+  }
+
+  assert.equal(seen.length, 4);
+  for (const params of seen) {
+    assert.equal('prompt' in params, false, 'the transcription request must not carry a prompt');
+  }
+});
+
 test('transcription call is not made with stream: true', async () => {
   let receivedParams = null;
   const openaiClient = {
