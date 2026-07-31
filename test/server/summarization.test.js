@@ -31,6 +31,58 @@ test('server summarization routes claude requests through anthropic', async () =
   assert.equal(JSON.parse(request.options.body).model, 'claude-sonnet-test');
 });
 
+test('server preserves line order across providers and rejoins multiple ideas with newlines', async () => {
+  const multiLine = 'Closing hymn will be number 301.\nSister Margaret Ellsworth will offer the benediction.';
+
+  const claudeResult = await summarizeWithSource({
+    source: 'claude',
+    recentTranscript: 'irrelevant transcript text.',
+    visibleLines: [],
+    anthropicApiKey: 'test-key',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: multiLine }] }) })
+  });
+  assert.equal(claudeResult.line, multiLine);
+
+  const openaiClient = {
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: multiLine } }] }) } }
+  };
+  const openaiResult = await summarizeWithSource({
+    source: 'openai',
+    recentTranscript: 'irrelevant transcript text.',
+    visibleLines: [],
+    openaiClient
+  });
+  assert.equal(openaiResult.line, multiLine);
+});
+
+test('server caps a model reply at three lines and drops only a sibling line matching a visible line, not the whole reply', async () => {
+  const modelReply = 'Hymn 241 selected.\nFirst item.\nSecond item.\nThird item.';
+  const result = await summarizeWithSource({
+    source: 'claude',
+    recentTranscript: 'irrelevant transcript text.',
+    visibleLines: ['Hymn 241 selected.'],
+    anthropicApiKey: 'test-key',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: modelReply }] }) })
+  });
+  assert.equal(result.line, 'First item.\nSecond item.\nThird item.');
+});
+
+test('Anthropic max_tokens is raised well past the old 64-token cap to hold three 14-word lines', async () => {
+  let request = null;
+  await summarizeWithSource({
+    source: 'claude',
+    recentTranscript: 'irrelevant transcript text.',
+    visibleLines: [],
+    anthropicApiKey: 'test-key',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return { ok: true, json: async () => ({ content: [{ type: 'text', text: '' }] }) };
+    }
+  });
+  const sentMaxTokens = JSON.parse(request.options.body).max_tokens;
+  assert.ok(sentMaxTokens >= 200, `expected max_tokens >= 200, got ${sentMaxTokens}`);
+});
+
 test('server clamps an out-of-range or non-numeric maxWords to the shared default before it reaches the prompt', async () => {
   async function promptSentFor(maxWords) {
     let request = null;

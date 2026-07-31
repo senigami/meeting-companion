@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
 import { shortenToLimit } from '../public/services/text.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './model-config.js';
@@ -66,20 +66,35 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,
+    // Up to three 14-word lines plus newlines and punctuation is roughly 70-90 tokens; 300 gives
+    // headroom without inviting the model to ramble. Left unset (no cap) on the OpenAI path before
+    // this change, which is why raising it only mattered on the Anthropic branch below -- but a call
+    // that also needs a per-line explanation for a dense chunk deserves the same headroom here.
+    max_tokens: 300,
     messages: [
-      { role: 'system', content: 'Return only the line text or an empty string. No quotes. No markdown.' },
+      { role: 'system', content: 'Return only the line text, one idea per line, or an empty string. No quotes. No markdown.' },
       { role: 'user', content: prompt }
     ]
   });
 
-  let line = cleanModelLine(completion.choices?.[0]?.message?.content || '');
-  if (!shouldAcceptModelLine(line, visibleLines)) line = '';
-  const beforeShorten = line;
-  line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
-  // Measures whether shortenToLimit actually had to change the accepted line, not merely whether the
-  // line was long -- the recording instrument's (ADR-0004) only direct evidence that the prompt-side
-  // length fix in 909fe1e is doing anything, versus a prediction with no measurement behind it.
-  return { line, wasShortened: line !== beforeShorten };
+  return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines);
+}
+
+// Splits the raw model reply into up to three accepted, ordered, deduped lines (cleanModelLines),
+// shortens each line independently to the display char cap, and rejoins survivors with newlines so
+// transcript-display.js's splitByThought turns each into its own card. wasShortened is true if ANY
+// line needed shortening -- the per-call telemetry signal stays a single boolean either way.
+function finishLines(rawText, visibleLines) {
+  const acceptedLines = cleanModelLines(rawText, visibleLines);
+  let anyShortened = false;
+
+  const shortenedLines = acceptedLines.map((line) => {
+    const shortened = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
+    if (shortened !== line) anyShortened = true;
+    return shortened;
+  });
+
+  return { line: shortenedLines.join('\n'), wasShortened: anyShortened };
 }
 
 async function summarizeWithClaude({
@@ -106,9 +121,12 @@ async function summarizeWithClaude({
     },
     body: JSON.stringify({
       model: anthropicModel,
-      max_tokens: 64,
+      // Was 64: enough for one 14-word line but not three -- three lines plus newlines runs
+      // roughly 70-90 tokens, so 64 would truncate the third line mid-sentence rather than drop it
+      // cleanly, which is worse. 300 matches the OpenAI path's headroom.
+      max_tokens: 300,
       temperature: 0.2,
-      system: 'Return only the line text or an empty string. No quotes. No markdown.',
+      system: 'Return only the line text, one idea per line, or an empty string. No quotes. No markdown.',
       messages: [
         {
           role: 'user',
@@ -124,11 +142,7 @@ async function summarizeWithClaude({
   }
 
   const output = Array.isArray(data.content)
-    ? data.content.filter((chunk) => chunk?.type === 'text').map((chunk) => chunk.text || '').join(' ')
+    ? data.content.filter((chunk) => chunk?.type === 'text').map((chunk) => chunk.text || '').join('\n')
     : '';
-  let line = cleanModelLine(output);
-  if (!shouldAcceptModelLine(line, visibleLines)) line = '';
-  const beforeShorten = line;
-  line = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
-  return { line, wasShortened: line !== beforeShorten };
+  return finishLines(output, visibleLines);
 }

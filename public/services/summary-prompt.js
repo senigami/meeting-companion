@@ -38,6 +38,11 @@ export function cleanModelLine(line = '') {
   return String(line).trim().replace(/^[-•*]\s*/, '').replace(/^"|"$/g, '').replace(/\s+/g, ' ');
 }
 
+// The cap on how many discrete ideas one summarize call may put on the wall. Reading load is one
+// combined quantity (words/card x cards/min) -- three short cards for a burst of announcements is an
+// acceptable spike, but uncapped would let a dense chunk flood the wall all at once.
+export const MAX_LINES_PER_CALL = 3;
+
 function lineKey(line = '') {
   return cleanModelLine(line).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -69,6 +74,32 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
   return true;
 }
 
+// Splits a model reply into up to MAX_LINES_PER_CALL separate ideas, cleaning and accepting each
+// independently -- ORDER is preserved (a reader getting the benediction before the closing hymn is a
+// real defect) and a duplicate-of-visible or vague SIBLING line is dropped without suppressing the
+// others in the same reply. cleanModelLine itself stays untouched (other callers depend on its
+// single-line collapse of internal whitespace); this only does the newline split that sits above it.
+export function cleanModelLines(text = '', visibleLines = []) {
+  const rawLines = String(text || '').split(/\r?\n/);
+  const accepted = [];
+  const seenKeys = [];
+
+  for (const rawLine of rawLines) {
+    const clean = cleanModelLine(rawLine);
+    if (!clean) continue;
+    if (!shouldAcceptModelLine(clean, [...visibleLines, ...accepted])) continue;
+
+    const key = lineKey(clean);
+    if (seenKeys.includes(key)) continue;
+
+    accepted.push(clean);
+    seenKeys.push(key);
+    if (accepted.length >= MAX_LINES_PER_CALL) break;
+  }
+
+  return accepted;
+}
+
 export function buildSummarizePrompt({
   mode = 'speaker',
   recentTranscript = '',
@@ -90,7 +121,7 @@ export function buildSummarizePrompt({
   const previousBlockText = String(previousBlock || '').trim();
   const visibleSection = `Visible lines already shown:\n${visibleBlock}`;
   const previousSection = previousBlockText
-    ? `\n\nPrevious block (already summarized -- context only. Do NOT write a line about this block by itself; use it only to recover an idea that started in it and continues into the new text):\n${previousBlockText}`
+    ? `\n\nPrevious block (already summarized -- context only. Do NOT write a line about this block by itself; use it only to recover an idea that started in it and continues into the new text, or a distinct fact from it that did not fit in an earlier reply's three-line cap):\n${previousBlockText}`
     : '';
   const recentLabel = previousBlockText ? 'New transcript (summarize this)' : 'Recent transcript';
   const recentSection = `${recentLabel}:\n${String(recentTranscript).trim()}`;
@@ -102,7 +133,10 @@ English -- never ASL gloss or ASL word order, which is not a writing system and 
 They read slowly and see poorly, so every word on the card has to earn its place: one card is one
 glance, and a word spent on filler is a word they pay for.
 
-Return zero or one line.
+Return zero, one, two, or three lines, one idea per line, separated by newlines. Never merge two
+ideas into one line -- if the transcript holds several distinct facts (for example, two announcements,
+or a hymn number and a separate assignment), write each on its own line, in the order they were
+spoken, rather than folding them into a single crowded sentence or dropping all but one.
 Only add a line when the transcript contains something useful that is new or more specific than the lines already shown.
 If the moment is vague or repetitive, return an empty string.
 Avoid lines like "He is talking about faith."
@@ -141,6 +175,9 @@ When the transcript holds more than one card's worth of speech, write the core m
 now, not the opening of it -- a reader who gets the gist a little late can still follow the meeting; a
 reader who only ever gets paragraph one of five cannot. If something important in the transcript is
 missing from the visible lines, say that now: this may be the only chance the reader gets at it.
+If the transcript holds more distinct facts than fit in three lines, still write the three most
+important now and do not silently drop the rest -- an item that does not fit this call is expected to
+be recovered on a later call, once it appears in the previous-block context below, rather than lost.
 
 Mode: ${mode}
 ${modeInstruction(mode)}

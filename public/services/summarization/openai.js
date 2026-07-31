@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -29,7 +29,11 @@ export function createOpenAISummarizer({
 
       const data = await readResponseJson(response);
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
-      const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
+      // The server (server/summarization.js) already ran cleanModelLines against visibleLines and
+      // joined survivors with newlines -- re-running it here (rather than the old single-line
+      // cleanModelLine, which collapsed those newlines back into one blob) keeps each idea on its
+      // own line so transcript-display.js's splitByThought renders one card per idea.
+      const line = cleanModelLines(data.line || '', visibleLines).join('\n');
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,

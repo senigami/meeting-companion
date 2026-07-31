@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLine, shouldAcceptModelLine } from '../summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -30,7 +30,9 @@ export function createClaudeSummarizer({
 
       const data = await readResponseJson(response);
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
-      const line = shouldAcceptModelLine(cleanModelLine(data.line || ''), visibleLines) ? cleanModelLine(data.line || '') : '';
+      // See openai.js: cleanModelLines preserves the server's newline-separated ideas instead of
+      // collapsing them back into one blob.
+      const line = cleanModelLines(data.line || '', visibleLines).join('\n');
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,
