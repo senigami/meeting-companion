@@ -19,6 +19,36 @@ async function blobToBase64(blob) {
   return bytesToBase64(new Uint8Array(buffer));
 }
 
+// EBML Cluster element ID (WebM/Matroska). A MediaRecorder started with a timeslice
+// emits one self-contained WebM container only in blob[0] -- it carries the EBML
+// header + Segment info + (for opus) the CodecPrivate, all needed for a standalone
+// decode. Every later blob begins mid-stream directly at a Cluster and is NOT a
+// valid file on its own, even though its blob.type still reports audio/webm. OpenAI
+// rejects those with `invalid_value`. Splicing the cached init segment (offset 0 up
+// to the first Cluster) onto every later chunk makes each one a decodable file again.
+const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
+
+function findClusterOffset(bytes) {
+  for (let i = 0; i <= bytes.length - CLUSTER_ID.length; i += 1) {
+    let match = true;
+    for (let j = 0; j < CLUSTER_ID.length; j += 1) {
+      if (bytes[i + j] !== CLUSTER_ID[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return i;
+  }
+  return -1;
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
 export function createOpenAITranscriptionDriver({
   onEvent = () => {},
   onStatus = () => {},
@@ -40,6 +70,14 @@ export function createOpenAITranscriptionDriver({
   let sessionId = 0;
   let mode = 'speaker';
   let activeRequestController = null;
+
+  // Cached WebM initialization segment (EBML header + Segment info/CodecPrivate),
+  // captured from the first chunk of the current recording and prepended to every
+  // later chunk so each one is a standalone-decodable file (see findClusterOffset
+  // above). Reset whenever a recording (re)starts so a stale header from a prior
+  // session can never be spliced onto a new one.
+  let webmInitSegment = null;
+  let sawFirstChunk = false;
 
   // Recovery state for repeated /api/transcribe failures. A sustained outage
   // must not turn into a tight failure loop firing every ~chunkMs, so after
@@ -100,7 +138,31 @@ export function createOpenAITranscriptionDriver({
 
   async function sendChunk(blob, currentSession) {
     if (!blob || blob.size === 0 || !listening || currentSession !== sessionId) return;
-    const audioBase64 = await blobToBase64(blob);
+    const mimeType = blob.type || recorder?.mimeType || 'audio/webm';
+    const isFirstChunk = !sawFirstChunk;
+    sawFirstChunk = true;
+    const isWebm = /webm/i.test(mimeType);
+    let bytes = new Uint8Array(await blob.arrayBuffer());
+
+    if (isFirstChunk) {
+      // blob[0] carries its own full container -- send it unmodified, and cache
+      // its init segment (if this is WebM) for later chunks to borrow.
+      if (isWebm) {
+        const clusterOffset = findClusterOffset(bytes);
+        webmInitSegment = clusterOffset >= 0 ? bytes.slice(0, clusterOffset) : null;
+      } else {
+        // MP4 (Safari) and anything else has a different container structure
+        // entirely; this splice does not apply, and we must not pretend it does.
+        webmInitSegment = null;
+      }
+    } else if (isWebm && webmInitSegment) {
+      bytes = concatBytes(webmInitSegment, bytes);
+    }
+    // Non-WebM later chunks, or WebM chunks where the Cluster ID was never found
+    // in blob[0], are sent unmodified -- unhandled, not silently mangled. They may
+    // fail against OpenAI, which is the honest outcome here.
+
+    const audioBase64 = bytesToBase64(bytes);
     if (!listening || currentSession !== sessionId) return;
     const requestController = new AbortController();
     activeRequestController = requestController;
@@ -111,7 +173,7 @@ export function createOpenAITranscriptionDriver({
         signal: requestController.signal,
         body: JSON.stringify({
           audioBase64,
-          mimeType: blob.type || recorder?.mimeType || 'audio/webm',
+          mimeType,
           filename: `meeting-companion-${currentSession}.webm`,
           mode
         })
@@ -236,6 +298,8 @@ export function createOpenAITranscriptionDriver({
       resetFailureBackoff();
       pendingCount = 0;
       droppedForBacklog = 0;
+      webmInitSegment = null;
+      sawFirstChunk = false;
 
       recorder.ondataavailable = (event) => {
         const blob = event.data;
@@ -288,6 +352,8 @@ export function createOpenAITranscriptionDriver({
       sessionId += 1;
       resetFailureBackoff();
       pendingCount = 0;
+      webmInitSegment = null;
+      sawFirstChunk = false;
       await stopTracks();
       onStatus('OpenAI transcription stopped.');
     }

@@ -264,6 +264,172 @@ test('openai transcription bounds the send queue and reports skipped audio hones
   });
 });
 
+function webmChunkEvent(bytes) {
+  return {
+    data: {
+      size: bytes.length,
+      type: 'audio/webm;codecs=opus',
+      async arrayBuffer() {
+        return Uint8Array.from(bytes).buffer;
+      }
+    }
+  };
+}
+
+test('openai transcription extracts the init segment from blob[0] at the Cluster offset and sends it unmodified', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const capturedBodies = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+
+    // EBML header bytes (1a 45 df a3 ...) followed by the Cluster ID at offset 6.
+    const initBytes = [0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x01];
+    const clusterBytes = [0x1f, 0x43, 0xb6, 0x75, 0x05, 0x06];
+    const blob0 = [...initBytes, ...clusterBytes];
+    recorder.ondataavailable(webmChunkEvent(blob0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 1);
+    const sentBytes = [...Buffer.from(capturedBodies[0].audioBase64, 'base64')];
+    assert.deepEqual(sentBytes, blob0, 'blob[0] is sent unmodified');
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription prepends the cached init segment to a later chunk', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const capturedBodies = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+
+    const initBytes = [0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x01];
+    const clusterId = [0x1f, 0x43, 0xb6, 0x75];
+    const blob0 = [...initBytes, ...clusterId, 0x05, 0x06];
+    recorder.ondataavailable(webmChunkEvent(blob0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // A later chunk begins mid-stream at a bare Cluster fragment, no EBML header.
+    const chunk2 = [0x43, 0xc3, 0x81, 0x05, 0xaa, 0xbb];
+    recorder.ondataavailable(webmChunkEvent(chunk2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 2);
+    const sentBytes = [...Buffer.from(capturedBodies[1].audioBase64, 'base64')];
+    assert.deepEqual(sentBytes, [...initBytes, ...chunk2], 'chunk 2 begins with the cached init bytes (init segment ends right before the Cluster ID)');
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription passes a non-WebM mimeType through unspliced', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const capturedBodies = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const recorder = getRecorder();
+
+    const mp4Chunk1 = [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70];
+    recorder.ondataavailable({
+      data: {
+        size: mp4Chunk1.length,
+        type: 'audio/mp4',
+        async arrayBuffer() { return Uint8Array.from(mp4Chunk1).buffer; }
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const mp4Chunk2 = [1, 2, 3, 4];
+    recorder.ondataavailable({
+      data: {
+        size: mp4Chunk2.length,
+        type: 'audio/mp4',
+        async arrayBuffer() { return Uint8Array.from(mp4Chunk2).buffer; }
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 2);
+    assert.deepEqual([...Buffer.from(capturedBodies[0].audioBase64, 'base64')], mp4Chunk1);
+    assert.deepEqual([...Buffer.from(capturedBodies[1].audioBase64, 'base64')], mp4Chunk2, 'later mp4 chunk sent unmodified, never spliced');
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription resets the cached init segment across a restart', async () => {
+  await withFakeNavigatorAndRecorder(async (getRecorder) => {
+    const capturedBodies = [];
+    const driver = createOpenAITranscriptionDriver({
+      chunkMs: 3500,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    let recorder = getRecorder();
+
+    const initBytesA = [0x1a, 0x45, 0xdf, 0xa3, 0xaa];
+    const blob0A = [...initBytesA, 0x1f, 0x43, 0xb6, 0x75, 0x01];
+    recorder.ondataavailable(webmChunkEvent(blob0A));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await driver.stop();
+
+    // Restart: a fresh recording session begins, with a different init segment.
+    await driver.start({ currentMode: 'speaker' });
+    recorder = getRecorder();
+
+    const initBytesB = [0x1a, 0x45, 0xdf, 0xa3, 0xbb, 0xbb];
+    const blob0B = [...initBytesB, 0x1f, 0x43, 0xb6, 0x75, 0x02];
+    recorder.ondataavailable(webmChunkEvent(blob0B));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const chunk2B = [0x43, 0xc3, 0x81, 0x99];
+    recorder.ondataavailable(webmChunkEvent(chunk2B));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 3);
+    const sentBytes = [...Buffer.from(capturedBodies[2].audioBase64, 'base64')];
+    assert.deepEqual(sentBytes, [...initBytesB, ...chunk2B], 'new session uses its own init segment, not the stale one from before restart');
+
+    await driver.stop();
+  });
+});
+
 function makeFakeAudioParam(initial = 1) {
   return { value: initial, setTargetAtTime(target) { this.value = target; } };
 }
