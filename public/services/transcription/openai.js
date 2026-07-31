@@ -106,7 +106,10 @@ export function createOpenAITranscriptionDriver({
   let listening = false;
   let queued = Promise.resolve();
   let sessionId = 0;
-  let mode = 'speaker';
+  // No `mode` here, deliberately. Voice to text and text to summary are two separate stages, and
+  // only the second one knows this is a church meeting. Transcription takes audio and returns the
+  // words that were said. Giving this driver meeting context is what produced issue #27, where the
+  // context came back as if someone had spoken it.
   let activeRequestController = null;
 
   // AudioWorklet capture graph. Built fresh per start(), torn down fully on stop() so a leaked
@@ -193,8 +196,7 @@ export function createOpenAITranscriptionDriver({
         body: JSON.stringify({
           audioBase64,
           mimeType: 'audio/wav',
-          filename: `meeting-companion-${currentSession}.wav`,
-          mode
+          filename: `meeting-companion-${currentSession}.wav`
         })
       }, { setTimeoutFn, clearTimeoutFn });
 
@@ -384,9 +386,8 @@ export function createOpenAITranscriptionDriver({
     isAvailable() {
       return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
     },
-    setMode(nextMode) {
-      mode = nextMode || 'speaker';
-    },
+    // No setMode: runtime.js guards with `typeof driver.setMode === 'function'`, so this driver
+    // simply does not offer one. See the note on mode at the top of the factory.
     // Live re-tune of the conditioning graph (preset, high-pass, compressor, limiter) without
     // rebuilding the graph or touching the mic. The three browser-level constraints need
     // reacquisition to change and are intentionally NOT retuned here -- that is a separate,
@@ -398,9 +399,8 @@ export function createOpenAITranscriptionDriver({
     readLevels() {
       return conditioner ? conditioner.readLevels() : null;
     },
-    async start({ currentMode } = {}) {
+    async start() {
       if (!this.isAvailable()) throw new Error('Microphone capture is not available in this browser.');
-      mode = currentMode || mode;
       sessionId += 1;
       const currentSession = sessionId;
 
