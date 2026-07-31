@@ -164,7 +164,13 @@ test('openai transcription emits a valid standalone WAV for chunk 1 AND chunk 2 
 
     assert.equal(capturedBodies.length, 2);
 
+    // The driver must not offer meeting context to the transcription stage at all. Asserting the
+    // ABSENCE of both, because a driver that merely stops using its mode still advertises that it
+    // takes one, and that shape is what invited the prompt in issue #27.
+    assert.equal(typeof driver.setMode, 'undefined', 'the OpenAI driver must not expose setMode');
+
     for (const [index, body] of capturedBodies.entries()) {
+      assert.equal('mode' in body, false, `chunk ${index + 1} must not send a mode`);
       assert.equal(body.mimeType, 'audio/wav');
       assert.match(body.filename, /\.wav$/);
       const bytes = Buffer.from(body.audioBase64, 'base64');
