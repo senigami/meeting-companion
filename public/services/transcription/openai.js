@@ -14,39 +14,78 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
-async function blobToBase64(blob) {
-  const buffer = await blob.arrayBuffer();
-  return bytesToBase64(new Uint8Array(buffer));
-}
+// Every reference live-transcription client (WhisperLiveKit, Collabora's WhisperLive) captures
+// raw PCM via AudioWorklet at 16 kHz mono rather than touching a container format at all -- see
+// commit f5fa2c8's WebM-splice fix and the research that followed it. 16 kHz mono is what speech
+// models actually want; sending the browser's native 48 kHz stereo would cost roughly 6x the bytes
+// for no accuracy gain.
+export const TARGET_SAMPLE_RATE = 16000;
 
-// EBML Cluster element ID (WebM/Matroska). A MediaRecorder started with a timeslice
-// emits one self-contained WebM container only in blob[0] -- it carries the EBML
-// header + Segment info + (for opus) the CodecPrivate, all needed for a standalone
-// decode. Every later blob begins mid-stream directly at a Cluster and is NOT a
-// valid file on its own, even though its blob.type still reports audio/webm. OpenAI
-// rejects those with `invalid_value`. Splicing the cached init segment (offset 0 up
-// to the first Cluster) onto every later chunk makes each one a decodable file again.
-const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
-
-function findClusterOffset(bytes) {
-  for (let i = 0; i <= bytes.length - CLUSTER_ID.length; i += 1) {
-    let match = true;
-    for (let j = 0; j < CLUSTER_ID.length; j += 1) {
-      if (bytes[i + j] !== CLUSTER_ID[j]) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return i;
+// Linear-interpolation downsample from the AudioContext's native sample rate to
+// TARGET_SAMPLE_RATE. Pure and DOM-free so it is unit-testable without a real AudioContext.
+export function downsampleTo16kMono(float32Samples, sourceSampleRate) {
+  if (!sourceSampleRate || sourceSampleRate === TARGET_SAMPLE_RATE) {
+    return Float32Array.from(float32Samples);
   }
-  return -1;
+  const ratio = sourceSampleRate / TARGET_SAMPLE_RATE;
+  const outLength = Math.max(0, Math.floor(float32Samples.length / ratio));
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i += 1) {
+    const srcIndex = i * ratio;
+    const i0 = Math.floor(srcIndex);
+    const i1 = Math.min(float32Samples.length - 1, i0 + 1);
+    const frac = srcIndex - i0;
+    out[i] = float32Samples[i0] + (float32Samples[i1] - float32Samples[i0]) * frac;
+  }
+  return out;
 }
 
-function concatBytes(a, b) {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
+export function floatTo16BitPCM(float32Samples) {
+  const out = new Int16Array(float32Samples.length);
+  for (let i = 0; i < float32Samples.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, float32Samples[i]));
+    out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  }
   return out;
+}
+
+// Writes a real 44-byte RIFF/WAVE header + PCM data, so every chunk is a standalone-decodable
+// file BY CONSTRUCTION -- no splicing, no dependence on any other chunk. int16Samples must already
+// be at `sampleRate`.
+export function buildWavBytes(int16Samples, sampleRate = TARGET_SAMPLE_RATE) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = int16Samples.length * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  function writeString(offset, str) {
+    for (let i = 0; i < str.length; i += 1) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // audio format: 1 = PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < int16Samples.length; i += 1) {
+    view.setInt16(offset, int16Samples[i], true);
+    offset += 2;
+  }
+
+  return new Uint8Array(buffer);
 }
 
 export function createOpenAITranscriptionDriver({
@@ -59,25 +98,29 @@ export function createOpenAITranscriptionDriver({
   audioSettings = {},
   audioContextFactory = () => (typeof AudioContext !== 'undefined' ? new AudioContext() : (typeof webkitAudioContext !== 'undefined' ? new webkitAudioContext() : null)),
   now = () => Date.now(),
-  onAudioDiagnostics = () => {}
+  onAudioDiagnostics = () => {},
+  workletModuleUrl = new URL('./pcm-worklet-processor.js', import.meta.url)
 } = {}) {
   let stream = null; // raw microphone stream, tracks stopped on stop()
-  let conditionedStream = null; // what MediaRecorder actually receives
+  let conditionedStream = null; // what the capture graph actually receives
   let conditioner = null;
-  let recorder = null;
   let listening = false;
   let queued = Promise.resolve();
   let sessionId = 0;
   let mode = 'speaker';
   let activeRequestController = null;
 
-  // Cached WebM initialization segment (EBML header + Segment info/CodecPrivate),
-  // captured from the first chunk of the current recording and prepended to every
-  // later chunk so each one is a standalone-decodable file (see findClusterOffset
-  // above). Reset whenever a recording (re)starts so a stale header from a prior
-  // session can never be spliced onto a new one.
-  let webmInitSegment = null;
-  let sawFirstChunk = false;
+  // AudioWorklet capture graph. Built fresh per start(), torn down fully on stop() so a leaked
+  // AudioContext or dangling worklet node can never hang the next recording -- or the test suite.
+  let captureCtx = null;
+  let captureSource = null;
+  let workletNode = null;
+  let nativeSampleRate = TARGET_SAMPLE_RATE;
+
+  // Native-rate Float32 frames accumulated between worklet messages, flushed into a WAV chunk
+  // every time enough native samples exist for `chunkMs` of audio. Reset on every start().
+  let sampleBuffer = [];
+  let sampleBufferLength = 0;
 
   // Recovery state for repeated /api/transcribe failures. A sustained outage
   // must not turn into a tight failure loop firing every ~chunkMs, so after
@@ -136,33 +179,9 @@ export function createOpenAITranscriptionDriver({
     inBackoff = false;
   }
 
-  async function sendChunk(blob, currentSession) {
-    if (!blob || blob.size === 0 || !listening || currentSession !== sessionId) return;
-    const mimeType = blob.type || recorder?.mimeType || 'audio/webm';
-    const isFirstChunk = !sawFirstChunk;
-    sawFirstChunk = true;
-    const isWebm = /webm/i.test(mimeType);
-    let bytes = new Uint8Array(await blob.arrayBuffer());
-
-    if (isFirstChunk) {
-      // blob[0] carries its own full container -- send it unmodified, and cache
-      // its init segment (if this is WebM) for later chunks to borrow.
-      if (isWebm) {
-        const clusterOffset = findClusterOffset(bytes);
-        webmInitSegment = clusterOffset >= 0 ? bytes.slice(0, clusterOffset) : null;
-      } else {
-        // MP4 (Safari) and anything else has a different container structure
-        // entirely; this splice does not apply, and we must not pretend it does.
-        webmInitSegment = null;
-      }
-    } else if (isWebm && webmInitSegment) {
-      bytes = concatBytes(webmInitSegment, bytes);
-    }
-    // Non-WebM later chunks, or WebM chunks where the Cluster ID was never found
-    // in blob[0], are sent unmodified -- unhandled, not silently mangled. They may
-    // fail against OpenAI, which is the honest outcome here.
-
-    const audioBase64 = bytesToBase64(bytes);
+  async function sendChunk(wavBytes, currentSession) {
+    if (!wavBytes || wavBytes.length === 0 || !listening || currentSession !== sessionId) return;
+    const audioBase64 = bytesToBase64(wavBytes);
     if (!listening || currentSession !== sessionId) return;
     const requestController = new AbortController();
     activeRequestController = requestController;
@@ -173,8 +192,8 @@ export function createOpenAITranscriptionDriver({
         signal: requestController.signal,
         body: JSON.stringify({
           audioBase64,
-          mimeType,
-          filename: `meeting-companion-${currentSession}.webm`,
+          mimeType: 'audio/wav',
+          filename: `meeting-companion-${currentSession}.wav`,
           mode
         })
       }, { setTimeoutFn, clearTimeoutFn });
@@ -189,6 +208,121 @@ export function createOpenAITranscriptionDriver({
     }
   }
 
+  // Enqueues one already-encoded WAV chunk onto the same serialized send queue the driver has
+  // always used -- same backoff, backlog-dropping, and pendingCount accounting as before, just fed
+  // by the worklet's chunk boundary instead of MediaRecorder's ondataavailable.
+  function enqueueWavChunk(wavBytes, currentSession) {
+    if (inBackoff) {
+      // Backing off after repeated failures — never queue behind a
+      // known-failing call, and never present this dropped audio as
+      // captured; the operator is told once per backoff entry, not
+      // spammed per dropped chunk.
+      droppedForBacklog += 1;
+      return;
+    }
+
+    if (pendingCount >= MAX_PENDING_CHUNKS) {
+      // The queue is already as far behind live speech as we allow.
+      // Shedding the newest chunk (rather than growing the queue
+      // further) keeps the lag bounded; recovering stale minutes-old
+      // captions presented as live would be worse than an honest gap.
+      droppedForBacklog += 1;
+      onStatus(
+        'Falling behind live speech — skipping audio to catch back up. Some speech will be missing from the transcript.',
+        { level: 'problem' }
+      );
+      return;
+    }
+
+    pendingCount += 1;
+    queued = queued
+      .then(() => sendChunk(wavBytes, currentSession))
+      .catch((error) => {
+        if (error?.name === 'AbortError') return;
+        consecutiveFailures += 1;
+        onStatus(`OpenAI transcription error: ${error.message}`);
+        if (consecutiveFailures >= FAILURE_THRESHOLD) enterBackoff();
+      })
+      .finally(() => {
+        pendingCount = Math.max(0, pendingCount - 1);
+      });
+  }
+
+  function samplesNeededForChunk() {
+    return Math.max(1, Math.round((chunkMs / 1000) * nativeSampleRate));
+  }
+
+  // Drains sampleBuffer into fixed-size, chunkMs-sized native-rate slices, each turned into a
+  // standalone WAV chunk and enqueued. Loops (rather than a single if) so a worklet message that
+  // pushes past two chunk boundaries at once (e.g. after a GC pause) still flushes every full
+  // chunk rather than only the first.
+  function drainSampleBuffer(currentSession) {
+    const needed = samplesNeededForChunk();
+    while (sampleBufferLength >= needed) {
+      const merged = new Float32Array(sampleBufferLength);
+      let offset = 0;
+      for (const part of sampleBuffer) {
+        merged.set(part, offset);
+        offset += part.length;
+      }
+      const slice = merged.subarray(0, needed);
+      const remainder = merged.subarray(needed);
+
+      const downsampled = downsampleTo16kMono(slice, nativeSampleRate);
+      const int16 = floatTo16BitPCM(downsampled);
+      const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
+      enqueueWavChunk(wavBytes, currentSession);
+
+      sampleBuffer = remainder.length ? [Float32Array.from(remainder)] : [];
+      sampleBufferLength = remainder.length;
+    }
+  }
+
+  async function setupCapture(inputStream, currentSession) {
+    if (typeof AudioWorkletNode === 'undefined' || typeof audioContextFactory !== 'function') {
+      throw new Error('AudioWorklet capture is not available in this browser.');
+    }
+    const ctx = audioContextFactory();
+    if (!ctx || typeof ctx.audioWorklet?.addModule !== 'function' || typeof ctx.createMediaStreamSource !== 'function') {
+      throw new Error('AudioWorklet capture is not available in this browser.');
+    }
+
+    await ctx.audioWorklet.addModule(workletModuleUrl);
+    const source = ctx.createMediaStreamSource(inputStream);
+    const node = new AudioWorkletNode(ctx, 'pcm-capture-processor', { numberOfOutputs: 0 });
+    node.onprocessorerror = (error) => onStatus(`OpenAI transcription capture error: ${error?.message || 'worklet error'}`);
+    node.port.onmessage = (event) => {
+      if (!listening || currentSession !== sessionId) return;
+      sampleBuffer.push(event.data);
+      sampleBufferLength += event.data.length;
+      drainSampleBuffer(currentSession);
+    };
+    source.connect(node);
+
+    captureCtx = ctx;
+    captureSource = source;
+    workletNode = node;
+    nativeSampleRate = Number.isFinite(ctx.sampleRate) && ctx.sampleRate > 0 ? ctx.sampleRate : TARGET_SAMPLE_RATE;
+  }
+
+  async function teardownCapture() {
+    if (workletNode) {
+      try { workletNode.port.onmessage = null; } catch {}
+      try { workletNode.disconnect(); } catch {}
+      workletNode = null;
+    }
+    if (captureSource) {
+      try { captureSource.disconnect(); } catch {}
+      captureSource = null;
+    }
+    if (captureCtx) {
+      try { await captureCtx.close(); } catch {}
+      captureCtx = null;
+    }
+    sampleBuffer = [];
+    sampleBufferLength = 0;
+  }
+
   async function stopTracks() {
     activeRequestController?.abort();
     activeRequestController = null;
@@ -196,12 +330,7 @@ export function createOpenAITranscriptionDriver({
       for (const track of stream.getTracks()) track.stop();
       stream = null;
     }
-    if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch {}
-    }
-    recorder = null;
+    await teardownCapture();
     try {
       conditioner?.close();
     } catch {}
@@ -292,59 +421,22 @@ export function createOpenAITranscriptionDriver({
         onDiagnostics: onAudioDiagnostics
       });
       conditionedStream = conditioner.connect(stream);
-      recorder = new MediaRecorder(conditionedStream || stream);
+
       listening = true;
       queued = Promise.resolve();
       resetFailureBackoff();
       pendingCount = 0;
       droppedForBacklog = 0;
-      webmInitSegment = null;
-      sawFirstChunk = false;
 
-      recorder.ondataavailable = (event) => {
-        const blob = event.data;
-        if (!blob || blob.size === 0) return;
+      try {
+        await setupCapture(conditionedStream || stream, currentSession);
+      } catch (error) {
+        listening = false;
+        onStatus(`OpenAI transcription cannot start: ${error.message}`);
+        await stopTracks();
+        throw error;
+      }
 
-        if (inBackoff) {
-          // Backing off after repeated failures — never queue behind a
-          // known-failing call, and never present this dropped audio as
-          // captured; the operator is told once per backoff entry, not
-          // spammed per dropped chunk.
-          droppedForBacklog += 1;
-          return;
-        }
-
-        if (pendingCount >= MAX_PENDING_CHUNKS) {
-          // The queue is already as far behind live speech as we allow.
-          // Shedding the newest chunk (rather than growing the queue
-          // further) keeps the lag bounded; recovering stale minutes-old
-          // captions presented as live would be worse than an honest gap.
-          droppedForBacklog += 1;
-          // State the level explicitly: dropping captured speech is a real problem, and the
-          // runtime's prose classifier would not have caught this wording.
-          onStatus(
-            'Falling behind live speech — skipping audio to catch back up. Some speech will be missing from the transcript.',
-            { level: 'problem' }
-          );
-          return;
-        }
-
-        pendingCount += 1;
-        queued = queued
-          .then(() => sendChunk(blob, currentSession))
-          .catch((error) => {
-            if (error?.name === 'AbortError') return;
-            consecutiveFailures += 1;
-            onStatus(`OpenAI transcription error: ${error.message}`);
-            if (consecutiveFailures >= FAILURE_THRESHOLD) enterBackoff();
-          })
-          .finally(() => {
-            pendingCount = Math.max(0, pendingCount - 1);
-          });
-      };
-
-      recorder.onerror = (event) => onStatus(`OpenAI transcription error: ${event.error?.message || event.error || 'unknown error'}`);
-      recorder.start(chunkMs);
       onStatus('OpenAI transcription is listening.');
     },
     async stop() {
@@ -352,8 +444,6 @@ export function createOpenAITranscriptionDriver({
       sessionId += 1;
       resetFailureBackoff();
       pendingCount = 0;
-      webmInitSegment = null;
-      sawFirstChunk = false;
       await stopTracks();
       onStatus('OpenAI transcription stopped.');
     }
