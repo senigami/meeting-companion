@@ -1,5 +1,13 @@
 import { normalizeText } from '../text.js';
 
+// TEMPORARY DEBUG INSTRUMENTATION -- branch debug/browser-transcription, do not merge.
+// Every SpeechRecognition event, timestamped, so we can see what the app's own recognition
+// instance is doing rather than guessing from a separate one in the console.
+const DEBUG = true;
+function dbg(...args) {
+  if (DEBUG) console.log(`[bt ${new Date().toISOString().slice(11, 23)}]`, ...args);
+}
+
 function getSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
@@ -68,7 +76,8 @@ export function createBrowserTranscriptionDriver({
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
-    if (!clean) return;
+    if (!clean) { dbg('emit DROPPED by normalizeText', { type, raw: text }); return; }
+    dbg('emit ->', type, JSON.stringify(clean));
     onEvent({ source: 'browser', type, text: clean, ...extra });
   }
 
@@ -81,6 +90,18 @@ export function createBrowserTranscriptionDriver({
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = language;
+    const doc = typeof document !== 'undefined' ? document : null;
+    dbg('recognition constructed', { lang: language, hasFocus: doc?.hasFocus?.(), visibility: doc?.visibilityState });
+
+    // The events that tell us whether the microphone was ever opened, versus opened and silent.
+    recognition.onstart = () => dbg('onstart -- service accepted the request');
+    recognition.onaudiostart = () => dbg('onaudiostart -- MICROPHONE IS OPEN');
+    recognition.onsoundstart = () => dbg('onsoundstart -- sound of any kind detected');
+    recognition.onspeechstart = () => dbg('onspeechstart -- speech detected');
+    recognition.onspeechend = () => dbg('onspeechend');
+    recognition.onsoundend = () => dbg('onsoundend');
+    recognition.onaudioend = () => dbg('onaudioend -- microphone closed');
+    recognition.onnomatch = () => dbg('onnomatch -- heard something, recognized nothing');
 
     recognition.onresult = (event) => {
       let finalText = '';
@@ -93,12 +114,14 @@ export function createBrowserTranscriptionDriver({
       }
 
       restartFailureCount = 0;
+      dbg('onresult', { final: finalText.trim(), interim: interimText.trim(), results: event.results.length });
       if (finalText.trim()) emit('final', finalText, { source: 'browser' });
       if (interimText.trim()) emit('partial', interimText, { source: 'browser' });
     };
 
     recognition.onerror = (event) => {
       const error = String(event?.error || 'unknown error');
+      dbg('onerror', error, 'fatal:', isFatalSpeechRecognitionError(error));
       if (isFatalSpeechRecognitionError(error)) {
         listening = false;
         started = false;
@@ -109,6 +132,7 @@ export function createBrowserTranscriptionDriver({
       onStatus(`Speech recognition error: ${error}`);
     };
     recognition.onend = () => {
+      dbg('onend', { listening, willRestart: listening });
       started = false;
       if (listening) attemptRestart();
     };
@@ -125,14 +149,23 @@ export function createBrowserTranscriptionDriver({
       return Boolean(getSpeechRecognition());
     },
     async start() {
+      dbg('start() called', { alreadyStarted: started, listening });
       const rec = ensureRecognition();
       if (!rec) throw new Error('Speech recognition is not available in this browser.');
       clearRestartTimer();
       listening = true;
       restartFailureCount = 0;
       if (!started) {
-        rec.start();
+        try {
+          rec.start();
+          dbg('rec.start() returned without throwing');
+        } catch (err) {
+          dbg('rec.start() THREW', String(err));
+          throw err;
+        }
         started = true;
+      } else {
+        dbg('SKIPPED rec.start() because started was already true');
       }
       onStatus('Browser transcription is listening.');
     },
