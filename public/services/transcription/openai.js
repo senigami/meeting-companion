@@ -2,7 +2,7 @@ import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { buildTranscriptionPrompt } from './prompt.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
-import { createAudioConditioner } from '../audio-processing.js';
+import { createAudioConditioner, chunkContainsSpeech, NOISE_FLOOR_DBFS } from '../audio-processing.js';
 import { deviceIdConstraint, browserAudioConstraints } from '../audio-monitor.js';
 
 function bytesToBase64(bytes) {
@@ -144,6 +144,7 @@ export function createOpenAITranscriptionDriver({
   const MAX_PENDING_CHUNKS = 3;
   let pendingCount = 0;
   let droppedForBacklog = 0;
+  let silentChunksSkipped = 0;
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
@@ -269,9 +270,26 @@ export function createOpenAITranscriptionDriver({
       const remainder = merged.subarray(needed);
 
       const downsampled = downsampleTo16kMono(slice, nativeSampleRate);
-      const int16 = floatTo16BitPCM(downsampled);
-      const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
-      enqueueWavChunk(wavBytes, currentSession);
+
+      // Silence gate (issue #23): the transcription model invents text from audio that contains
+      // no speech at all, so a chunk with nothing in it must never be sent. Reads the same
+      // audioSettings.noiseFloorDbfs the conditioner's effectiveNoiseFloorDbfs() reads (see
+      // audio-processing.js), rather than reaching into the conditioner, so the gate still works
+      // when conditioning is bypassed. This only catches dead air -- a sustained tone or loud
+      // noise has speech-level RMS and still passes; real voice activity detection is the
+      // follow-up for that.
+      const gateDbfs = Number.isFinite(audioSettings.noiseFloorDbfs) ? audioSettings.noiseFloorDbfs : NOISE_FLOOR_DBFS;
+      if (chunkContainsSpeech(downsampled, { gateDbfs, sampleRate: TARGET_SAMPLE_RATE })) {
+        const int16 = floatTo16BitPCM(downsampled);
+        const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
+        enqueueWavChunk(wavBytes, currentSession);
+      } else {
+        silentChunksSkipped += 1;
+        onAudioDiagnostics({
+          message: `Skipped a silent audio chunk (below ${gateDbfs} dBFS gate) -- not sent for transcription.`,
+          at: now()
+        });
+      }
 
       sampleBuffer = remainder.length ? [Float32Array.from(remainder)] : [];
       sampleBufferLength = remainder.length;
@@ -427,6 +445,7 @@ export function createOpenAITranscriptionDriver({
       resetFailureBackoff();
       pendingCount = 0;
       droppedForBacklog = 0;
+      silentChunksSkipped = 0;
 
       try {
         await setupCapture(conditionedStream || stream, currentSession);

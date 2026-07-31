@@ -166,6 +166,30 @@ export function rmsAndPeakDbfs(samples) {
   return { rmsDbfs: linearToDb(rms), peakDbfs: linearToDb(peak), peakLinear: peak };
 }
 
+export const SPEECH_FRAME_MS = 100;
+
+// Frame-wise speech detection, not whole-chunk RMS (issue #23): a chunk-long average can hide a
+// burst of real speech inside several seconds of silence, and the transcription model invents
+// text from that silence when the chunk is sent anyway. Splitting into short frames and asking
+// "did ANY frame clear the gate" catches speech wherever it sits in the chunk.
+export function chunkContainsSpeech(samples, { gateDbfs, sampleRate, frameMs = SPEECH_FRAME_MS } = {}) {
+  if (!samples || !samples.length) return false;
+  // A programming error here (a bad gate or sample rate) must never silently mute a Deaf reader's
+  // only channel, so fail OPEN and let the chunk through. A fabricated card from bad audio is
+  // caught by the gate policy at the caller; muted audio is undetectable to the reader.
+  if (!Number.isFinite(gateDbfs) || !Number.isFinite(sampleRate) || sampleRate <= 0) return true;
+
+  const frameLength = Math.round((frameMs / 1000) * sampleRate);
+  if (!(frameLength > 0)) return true;
+
+  for (let start = 0; start < samples.length; start += frameLength) {
+    const end = Math.min(start + frameLength, samples.length);
+    const frame = samples.subarray ? samples.subarray(start, end) : samples.slice(start, end);
+    if (rmsAndPeakDbfs(frame).rmsDbfs > gateDbfs) return true;
+  }
+  return false;
+}
+
 function clampHighPassHz(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 80;

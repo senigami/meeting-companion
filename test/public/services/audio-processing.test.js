@@ -12,7 +12,8 @@ import {
   computeNoiseGate,
   NOISE_FLOOR_DBFS,
   AMBIENT_SAMPLE_COUNT,
-  NOISE_GATE_MARGIN_DB
+  NOISE_GATE_MARGIN_DB,
+  chunkContainsSpeech
 } from '../../../public/services/audio-processing.js';
 
 // Every existing test in this file predates ambient calibration and never intended to pay for its
@@ -536,6 +537,41 @@ test('computeNoiseGate refuses to gate (tooNoisy) when the margin would erase th
 test('computeNoiseGate on an uncalibrated (non-finite) floor reports neither a gate nor tooNoisy -- caller falls back to the default', () => {
   assert.deepEqual(computeNoiseGate(-Infinity), { gateDbfs: null, tooNoisy: false });
   assert.deepEqual(computeNoiseGate(NaN), { gateDbfs: null, tooNoisy: false });
+});
+
+// --- chunkContainsSpeech: silence gate (issue #23) -------------------------
+
+test('chunkContainsSpeech: pure silence never clears the gate', () => {
+  const samples = new Float32Array(1600); // 100ms at 16kHz, all zeros
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: -50, sampleRate: 16000 }), false);
+});
+
+test('chunkContainsSpeech: a constant loud signal clears the gate', () => {
+  const samples = new Float32Array(1600).fill(0.5);
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: -50, sampleRate: 16000 }), true);
+});
+
+test('chunkContainsSpeech: finds a burst of speech buried in mostly-silent audio -- this is the regression whole-chunk RMS averaging would fail, since a 200ms burst inside 3.5s is too quiet on average to clear a -50dBFS gate even though real speech is present', () => {
+  const sampleRate = 16000;
+  const totalSamples = Math.round(3.5 * sampleRate);
+  const samples = new Float32Array(totalSamples); // starts all zero (silence)
+  const burstStart = Math.round(1.5 * sampleRate);
+  const burstLength = Math.round(0.2 * sampleRate);
+  for (let i = burstStart; i < burstStart + burstLength; i += 1) {
+    samples[i] = 0.5; // loud speech-like burst
+  }
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: -50, sampleRate }), true);
+});
+
+test('chunkContainsSpeech: fails open (true) on a non-finite gate rather than silently muting the reader', () => {
+  const samples = new Float32Array(1600);
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: NaN, sampleRate: 16000 }), true);
+  assert.equal(chunkContainsSpeech(samples, { gateDbfs: undefined, sampleRate: 16000 }), true);
+});
+
+test('chunkContainsSpeech: empty or absent samples never contain speech', () => {
+  assert.equal(chunkContainsSpeech(new Float32Array(0), { gateDbfs: -50, sampleRate: 16000 }), false);
+  assert.equal(chunkContainsSpeech(undefined, { gateDbfs: -50, sampleRate: 16000 }), false);
 });
 
 test('createMicProbe.start() calibrates against a constant quiet ambient (headset-like) and readLevels uses the calibrated gate, not the fallback', async () => {
