@@ -169,7 +169,12 @@ export function createApp({
       // Redacted before logging too: stderr is usually captured into a log file, which is the one
       // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
       console.error(safeErrorDetail(error));
-      res.status(500).json({ error: 'Provider test failed.' });
+      const keySource = req.body?.provider === 'openai'
+        ? describeOpenAIKeySource({ apiKey: req.body?.apiKey, providerKeyStore, openaiClient })
+        : '';
+      res.status(500).json({
+        error: keySource ? `Provider test failed using ${keySource}.` : 'Provider test failed.'
+      });
     }
   });
 
@@ -314,6 +319,17 @@ function resolveOpenAIClient({ apiKey = '', openaiClient, createOpenAIClientFn, 
   }
 
   return openaiClient;
+}
+
+// Which key a request actually used, for error messages only. A failing provider test that just says
+// "failed" sends the operator hunting through a key they may not even be sending: a key typed into the
+// panel silently outranks a working server key, so the same message covers two opposite situations.
+// Naming the SOURCE is safe -- it is one of three fixed words and never touches key material (INV-12).
+function describeOpenAIKeySource({ apiKey = '', providerKeyStore, openaiClient }) {
+  if (normalizeText(apiKey)) return 'the key entered in the browser';
+  if (normalizeText(providerKeyStore?.get?.('openai') || '')) return 'the key saved earlier this session';
+  if (openaiClient) return "the server's own key";
+  return 'no key at all';
 }
 
 function resolveAnthropicKey({ apiKey = '', anthropicApiKey = '', providerKeyStore }) {

@@ -1552,9 +1552,16 @@ export function createRuntime(ctx, deps = {}) {
     if (!source) return;
     ctx.state.summarizationSourceChosen = true;
     localStorage.setItem(STORAGE.summarizationSourceChosen, 'true');
-    if (ctx.state.summarizationSource === source) return;
+    // Persist WHAT was chosen before the no-op early-out, not after it. Re-picking the already-selected
+    // source is the commonest way to set the chosen flag (it is how you confirm a default), and the old
+    // order returned before this line ran -- leaving chosen=true with no stored source at all. Observed
+    // in the wild on 2026-07-30. The two values are meant to be read together by INV-13, so a stored
+    // half of the pair is worse than neither half: it asserts the operator decided, without recording
+    // what they decided, and the source then silently comes from the load-time default instead.
+    const unchanged = ctx.state.summarizationSource === source;
     ctx.state.summarizationSource = source;
     localStorage.setItem(STORAGE.summarizationSource, source);
+    if (unchanged) return;
     summarizationDriver = null;
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);

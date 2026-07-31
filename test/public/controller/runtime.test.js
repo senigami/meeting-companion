@@ -109,6 +109,28 @@ test('demo does not become sticky: a key appearing after a keyless run wins over
   });
 });
 
+// REGRESSION (found in the wild, 2026-07-30). Re-picking the source that is already selected is how an
+// operator CONFIRMS a default, and it is the commonest way the chosen flag ever gets set. The old order
+// wrote the flag, then returned early on the no-op before writing the source -- leaving chosen=true with
+// no stored source at all. INV-13 reads those two values together, so a stored half of the pair asserts
+// "the operator decided" while losing what they decided, and the source then quietly comes from the
+// load-time default instead. Steve's own browser was in exactly this state.
+test('confirming the already-selected source persists the source, not just the chosen flag', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      summarizationSource: 'openai',
+      summarizationSourceChosen: false
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.setSummarizationSource('openai');
+
+    assert.equal(ctx.state.summarizationSourceChosen, true);
+    assert.equal(localStorage.getItem('summarizationSourceChosen'), 'true');
+    // The half that used to go missing. Asserting the flag alone would have stayed green through the bug.
+    assert.equal(localStorage.getItem('summarizationSource'), 'openai');
+  });
+});
+
 test('an explicitly chosen demo IS honoured even when a real key is available', async () => {
   await withRuntimeHarness({
     stateOverrides: {
