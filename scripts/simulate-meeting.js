@@ -24,7 +24,7 @@ import { summarizeWithSource } from '../server/summarization.js';
 
 const WORDS_PER_MINUTE = 150;
 const GAP_MS = 900;
-const TICK_MS = 5000;
+const TICK_MS = Number(process.argv.find((a) => a.startsWith('--tick='))?.split('=')[1] || 5000);
 // Experiment knob: hold a summarize call until at least this many words have accumulated, so a
 // card is built from a thought rather than a single sentence. 0 reproduces today's behaviour.
 const MIN_WORDS = Number(process.argv.find((a) => a.startsWith('--minwords='))?.split('=')[1] || 0);

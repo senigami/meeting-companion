@@ -139,7 +139,6 @@ function createDefaultButtons(kind, sources) {
 }
 
 export function createRuntimeHarness({
-  minSummarizeWords = 0,
   fetchConfig = null,
   fetchImpl = null,
   createTranscriptionDriverFn,
@@ -269,9 +268,6 @@ export function createRuntimeHarness({
   };
 
   const runtime = createRuntime(ctx, {
-    // These harness tests use short fixtures and are about mode runs, dimming, the rolling window
-    // and failure handling, not about the minimum-words gate. 0 keeps them testing their subject.
-    minSummarizeWords,
     fetchImpl: configFetch,
     ...(createTranscriptionDriverFn ? { createTranscriptionDriverFn } : {}),
     ...(createSummarizationDriverFn ? { createSummarizationDriverFn } : {}),

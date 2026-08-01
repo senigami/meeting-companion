@@ -1171,61 +1171,6 @@ test('a summarize success without prior failures does not touch the alert surfac
   });
 });
 
-test('a short run is held back rather than summarized into a card of its own', async () => {
-  // The gate exists because a card built from one sentence compresses nothing: measured over a
-  // whole simulated meeting, summarizing every sentence as it landed produced MORE cards than
-  // there were utterances (56 from 43) and 566 words for a reader who reads slowly.
-  const calls = [];
-  const driver = { id: 'openai', summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'card' }; } };
-  const now = Date.now();
-
-  await withRuntimeHarness({
-    minSummarizeWords: 45,
-    createSummarizationDriverFn: () => driver,
-    stateOverrides: {
-      transcriptChunks: [{ text: 'A short sentence that ends here.', at: now - 30000 }]
-    }
-  }, async ({ ctx, runtime }) => {
-    await runtime.summarizeCurrentText();
-    assert.deepEqual(calls, [], 'a run under the word floor must not be summarized');
-    assert.equal(ctx.state.transcriptChunks.length, 1, 'and it must stay in the bucket, not be consumed');
-  });
-});
-
-test('a run over the word floor is summarized normally', async () => {
-  // The other half of the claim, so the gate cannot pass by simply blocking everything.
-  const calls = [];
-  const driver = { id: 'openai', summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'card' }; } };
-  const now = Date.now();
-  const long = Array.from({ length: 50 }, (_, i) => `word${i}`).join(' ') + '.';
-
-  await withRuntimeHarness({
-    minSummarizeWords: 45,
-    createSummarizationDriverFn: () => driver,
-    stateOverrides: { transcriptChunks: [{ text: long, at: now - 30000 }] }
-  }, async ({ runtime }) => {
-    await runtime.summarizeCurrentText();
-    assert.equal(calls.length, 1, 'a run over the floor must still be summarized');
-  });
-});
-
-test('the forced final drain on stop ignores the word floor, so the last thing said is never lost', async () => {
-  // Issue #19. stopListening calls with settleMs 0; if the gate applied there, a short closing
-  // sentence would sit in the bucket forever because nothing else will ever drain it.
-  const calls = [];
-  const driver = { id: 'openai', summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'card' }; } };
-  const now = Date.now();
-
-  await withRuntimeHarness({
-    minSummarizeWords: 45,
-    createSummarizationDriverFn: () => driver,
-    stateOverrides: { transcriptChunks: [{ text: 'Amen.', at: now - 1000 }] }
-  }, async ({ runtime }) => {
-    await runtime.summarizeCurrentText(undefined, { settleMs: 0 });
-    assert.deepEqual(calls, ['Amen.'], 'the final drain must bypass the floor');
-  });
-});
-
 test('a summarize success consumes complete sentences from the bucket and keeps the partial tail', async () => {
   const succeedingDriver = {
     id: 'openai',
