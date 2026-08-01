@@ -152,7 +152,7 @@ async function main() {
           model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
           temperature: 0.2,
           max_tokens: 400,
-          messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent }) }]
+          messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent, mode: sendMode }) }]
         });
         result = { line: (completion.choices[0]?.message?.content || '').trim() };
         throw { __handled: true, result };

@@ -1,55 +1,94 @@
-// An experiment, not yet wired into the app. The live prompt (summary-prompt.js) tells the model
-// what to write: three lines maximum, one idea per line, lead with the topic, write the core
-// message rather than the opening, do not repeat a visible line, return nothing if the moment is
-// thin. Measured over a whole talk, that produced MORE cards than there were utterances, said the
-// same thing twice, and drifted between calling the speaker "the speaker" and writing as "I".
+// An experiment, not yet wired into the app.
 //
-// Steve's instruction: give the model the block of text and the length to reduce it to. Nothing
-// else. Compression is the whole job, so the prompt should describe compression and let the text
-// keep its own shape.
+// Steve's rule, and the thing to get right here: these are TWO different jobs, chosen by mode.
 //
-// The one thing this keeps from the accessibility contract is the part that is about the reader
-// rather than about style: plain words, no idioms, and details that cannot be recovered from
-// context must survive verbatim.
+//   speaker, prayer  -> CONDENSE. Shorten what was said and leave it in their voice. A talk stays a
+//                       talk, a prayer stays a prayer. Do not retell it, do not report on it.
+//   information      -> SUMMARIZE. Announcements, dates, logistics. Facts matter, voice does not,
+//                       and third person is correct here.
+//   song             -> status only, which the app already treats as its own thing.
+//
+// The live prompt (summary-prompt.js) does one job for all modes and tells the model how to lay the
+// result out: three lines, one idea per line, lead with the topic, write the core message rather
+// than the opening. Measured over a 1082 word talk that produced more cards than there were
+// utterances, repeated itself, and drifted between "the speaker" and "I".
+//
+// A first version of this file condensed everything regardless of mode. It read far better but
+// attributed other people's facts to the speaker ("I was retired then, after thirty-one years
+// driving a delivery truck" was Harold, not the speaker), which is a confident falsehood on a wall
+// read by someone who cannot hear the room. Hence the attribution rule below.
 
-// A block is reduced to this share of its own length. 0.35 is a starting point, not a finding:
-// the talk simulation measured the current prompt at 49%, which is too much reading for someone
-// who reads at 60 words per minute.
-export const TARGET_RATIO = 0.35;
+// One card, about this many words. NOT a per-line cap: the live prompt allows up to three lines of
+// 14 words, which is 42 words a call, and the model takes all three nearly every time. Measured
+// against ~90 words of speech per 15s tick that lands at 47%, which is what the whole-talk run
+// actually produced (48.8%). A fixed per-CARD budget compresses properly: measured directly, 90
+// words in gave 17 out (19%) and 46 gave 16 (35%).
+export const CARD_WORDS = 15;
 
-// Never ask for fewer than this. Compressing a short block to a handful of words loses detail
-// rather than shortening prose.
-export const MIN_TARGET_WORDS = 12;
+const READER = `You are preparing text for a large display read by one person who is Deaf and has low
+vision. American Sign Language is their first language and English is their second, so write clean,
+simple English. Never ASL gloss or ASL word order. They read slowly, so every word has to earn its
+place.`;
 
-export function targetWordsFor(text, { ratio = TARGET_RATIO, minWords = MIN_TARGET_WORDS } = {}) {
-  const spoken = String(text || '').trim().split(/\s+/).filter(Boolean).length;
-  if (!spoken) return 0;
-  return Math.max(minWords, Math.round(spoken * ratio));
-}
+const VERBATIM = `Keep these exactly as spoken, never paraphrased and never rounded: names, dates,
+times, numbers, hymn numbers, and scripture references.
 
-export function buildMinimalSummarizePrompt({ recentTranscript = '', ratio = TARGET_RATIO } = {}) {
+Replace idioms, figures of speech and long words with plain everyday words. Say what was meant, not
+the picture they used to say it.
+
+Write numbers as digits, not words: 9:00 rather than nine o'clock, 19 rather than nineteen, $4
+rather than four dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are
+faster to read and harder to misread at a distance.
+
+Do not add anything that was not said. Do not say the same thing twice. Return only the text, with
+no preamble.`;
+
+export function buildMinimalSummarizePrompt({ recentTranscript = '', mode = 'speaker' } = {}) {
   const text = String(recentTranscript).trim();
-  const target = targetWordsFor(text, { ratio });
 
+  // CONDENSE: the speaker's own words, made shorter. Their voice is the point.
+  if (mode === 'speaker' || mode === 'prayer') {
+    const shape = mode === 'prayer'
+      ? `This is a prayer. It must still read as a prayer being offered, not as a report that someone
+prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.`
+      : `This is somebody speaking to the congregation. It must still read as them talking.`;
+
+    return `
+${READER}
+
+${shape}
+
+Write ONE line of no more than ${CARD_WORDS} words. One line, not two, not three. Whatever the
+length of the text below, it becomes a single short line: pick what matters most and say only that.
+
+Shortening is the whole job: do not retell it, do not explain it, and never describe the speaker
+from outside ("the speaker said", "he explained", "she shared"). Cut words, keep theirs.
+
+Keep every fact attached to whoever it was about. If they say "I lost my job", write "I lost my
+job". If they say "Harold retired after thirty-one years", that is Harold, not the speaker. Never
+move somebody else's actions, feelings or history onto the person talking.
+
+${VERBATIM}
+
+Text:
+${text}
+`.trim();
+  }
+
+  // SUMMARIZE: announcements and logistics. Facts survive, wording does not.
   return `
-You are shortening speech from a church meeting so it can be read on a large display by one person
-who is Deaf and has low vision. American Sign Language is their first language and English is their
-second, so write clean, simple English. Never ASL gloss or ASL word order.
+${READER}
 
-Shorten the text below to about ${target} words. Going a little over is better than losing meaning.
+This is meeting information: announcements, dates, times, assignments, logistics. Summarize it. The
+wording does not matter, the facts do. Third person is correct here, and there is no need to keep
+anybody's voice.
 
-Keep it in the speaker's own words and point of view. If they say "I", write "I". Never describe
-them from outside ("the speaker said", "he explained"). You are shortening what they said, not
-reporting it.
+Write one line of no more than ${CARD_WORDS} words per SEPARATE announcement, and no more than
+three lines in total. Two announcements are two lines; one announcement said at length is still one
+line. Lead with the thing itself ("Working bee Saturday"), never with a clause about it ("If you
+are able to help...").
 
-Keep exactly as spoken, never paraphrased: names, dates, times, numbers, hymn numbers, and
-scripture references.
-
-Replace idioms, figures of speech and long words with plain everyday words. Say what was meant.
-
-Do not add anything that was not said. Do not repeat yourself. Write one idea per line.
-
-Return only the shortened text, with no preamble.
+${VERBATIM}
 
 Text:
 ${text}
