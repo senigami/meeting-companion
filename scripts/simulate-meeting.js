@@ -9,7 +9,11 @@
 // (a close cousin of, but simpler than, demo.js's own natural-pause model, which this script does
 // not need since nothing here streams word-by-word).
 //
-// Usage: node scripts/simulate-meeting.js [--prompt current|variant] [--speed N]
+// Usage: node scripts/simulate-meeting.js [--prompt current|variant] [--speed N] [--fixture demo|talk]
+// --fixture selects the source script: "demo" (default) is the announcement-heavy scripted
+// meeting in public/services/transcription/demo.js; "talk" is the original narrative talk in
+// scripts/fixtures/sample-talk.js, used to judge summary quality on a real story rather than a
+// list of announcements.
 // --speed is accepted but ignored for waiting -- there is no real waiting to scale, only a virtual
 // clock -- and exists purely so a future caller can scale the (currently fixed) 900ms virtual gap.
 
@@ -17,6 +21,7 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 
 import { DEMO_SCRIPT } from '../public/services/transcription/demo.js';
+import { SAMPLE_TALK } from './fixtures/sample-talk.js';
 import { partitionBucket, takeOldestModeRun, removeConsumed, BUCKET_SETTLE_MS } from '../public/services/transcript-bucket.js';
 import { normalizeText } from '../public/services/text.js';
 import { createTranscriptItems, appendTranscriptItems } from '../public/services/transcript-display.js';
@@ -30,10 +35,11 @@ const TICK_MS = Number(process.argv.find((a) => a.startsWith('--tick='))?.split(
 const MIN_WORDS = Number(process.argv.find((a) => a.startsWith('--minwords='))?.split('=')[1] || 0);
 
 function parseArgs(argv) {
-  const args = { prompt: 'current', speed: 1 };
+  const args = { prompt: 'current', speed: 1, fixture: 'demo' };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--prompt') args.prompt = argv[++i];
     else if (argv[i] === '--speed') args.speed = Number(argv[++i]) || 1;
+    else if (argv[i] === '--fixture') args.fixture = argv[++i];
   }
   return args;
 }
@@ -50,11 +56,18 @@ function wordCount(text) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.prompt !== 'current' && args.prompt !== 'variant') {
-    console.error(`Unknown --prompt value "${args.prompt}". Use "current" or "variant".`);
+  if (!['current', 'variant', 'minimal'].includes(args.prompt)) {
+    console.error(`Unknown --prompt value "${args.prompt}". Use "current", "variant" or "minimal".`);
     process.exitCode = 1;
     return;
   }
+
+  if (args.fixture !== 'demo' && args.fixture !== 'talk') {
+    console.error(`Unknown --fixture value "${args.fixture}". Use "demo" or "talk".`);
+    process.exitCode = 1;
+    return;
+  }
+  const script = args.fixture === 'talk' ? SAMPLE_TALK : DEMO_SCRIPT;
 
   if (args.prompt === 'variant') {
     let variantModule;
@@ -98,7 +111,7 @@ async function main() {
   // Virtual clock -- no real waiting anywhere in this script.
   let now = 0;
   let bucket = [];
-  let mode = DEMO_SCRIPT[0]?.mode || 'speaker';
+  let mode = script[0]?.mode || 'speaker';
   let lastSentText = '';
   let lastSentBlock = null; // { text, mode }
   let transcriptItems = [];
@@ -131,6 +144,19 @@ async function main() {
     let result;
     let error = null;
     try {
+      if (args.prompt === 'minimal') {
+        // The minimal prompt is a single compression instruction with a target length, so it does
+        // not go through summarizeWithSource's prompt assembly at all -- that is the point of it.
+        const { buildMinimalSummarizePrompt } = await import('../public/services/summary-prompt-minimal.js');
+        const completion = await openaiClient.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          temperature: 0.2,
+          max_tokens: 400,
+          messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent }) }]
+        });
+        result = { line: (completion.choices[0]?.message?.content || '').trim() };
+        throw { __handled: true, result };
+      }
       result = await summarizeWithSource({
         source: 'openai',
         mode: sendMode,
@@ -140,8 +166,12 @@ async function main() {
         openaiClient
       });
     } catch (err) {
-      error = err;
-      result = { line: '' };
+      if (err && err.__handled) {
+        result = err.result;
+      } else {
+        error = err;
+        result = { line: '' };
+      }
     }
 
     summarizeCalls += 1;
@@ -174,7 +204,7 @@ async function main() {
 
   let nextTickAt = TICK_MS;
 
-  for (const entry of DEMO_SCRIPT) {
+  for (const entry of script) {
     if (entry.mode) mode = entry.mode;
     if (entry.pauseBeforeMs) now += entry.pauseBeforeMs;
 
@@ -215,12 +245,37 @@ async function main() {
     transcriptItems.forEach((item) => console.log(item.text));
   }
 
+  // Everything produced across the entire run, in order, not capped at the 24-item display
+  // window transcriptItems enforces -- this is the section for judging whole-talk coherence.
+  const allCards = calls.flatMap((call) => call.lines);
+
+  console.log('\n=== Whole display text ===');
+  if (!allCards.length) {
+    console.log('(no cards were produced)');
+  } else {
+    allCards.forEach((line) => console.log(line));
+  }
+
+  const wordsSpoken = script.reduce((sum, entry) => sum + wordCount(entry.text), 0);
+  const totalWordsDisplayed = allCards.reduce((sum, line) => sum + wordCount(line), 0);
+  const displayRatio = wordsSpoken ? (totalWordsDisplayed / wordsSpoken) * 100 : 0;
+  const spokenDurationMin = wordsSpoken / WORDS_PER_MINUTE;
+  const readingMinAt60 = totalWordsDisplayed / 60;
+  const readingMinAt120 = totalWordsDisplayed / 120;
+
   console.log('\n=== Summary ===');
-  console.log(`Utterances in: ${DEMO_SCRIPT.length}`);
+  console.log(`Fixture: ${args.fixture}`);
+  console.log(`Utterances in: ${script.length}`);
   console.log(`Summarize calls made: ${summarizeCalls}`);
   console.log(`Cards produced: ${cardsProduced}`);
   console.log(`Cards that came back empty: ${emptyCalls}`);
   console.log(`Total words displayed: ${wordsDisplayed}`);
+  console.log(`Total words spoken: ${wordsSpoken}`);
+  console.log(`Total words displayed (whole run): ${totalWordsDisplayed}`);
+  console.log(`Displayed/spoken ratio: ${displayRatio.toFixed(1)}%`);
+  console.log(`Spoken duration at ${WORDS_PER_MINUTE}wpm: ${spokenDurationMin.toFixed(1)} min`);
+  console.log(`Estimated reading time at 60wpm: ${readingMinAt60.toFixed(1)} min`);
+  console.log(`Estimated reading time at 120wpm: ${readingMinAt120.toFixed(1)} min`);
 }
 
 main().catch((error) => {
