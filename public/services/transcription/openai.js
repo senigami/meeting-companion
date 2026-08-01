@@ -126,6 +126,22 @@ export function createOpenAITranscriptionDriver({
   // sever sentences mid-word (issue #24), and silence is never encoded or sent at all (issue #23).
   let micVad = null;
 
+  // Our own copy of the in-progress utterance, built frame-by-frame from onFrameProcessed. Silero
+  // VAD has no maximum-speech-duration option and only ends a segment after a 1.4s pause, so a
+  // talk or prayer running long between pauses would otherwise grow unbounded (and, before the
+  // server limit above was widened, would 413). This accumulator exists solely to (1) split a
+  // segment that runs past MAX_SEGMENT_SECONDS while still speaking, and (2) flush whatever is
+  // in progress if stop() is called mid-utterance (issue #19) -- the library itself gives us
+  // neither.
+  let activeFrames = [];
+  let activeSampleCount = 0;
+  let inSpeech = false;
+  const MAX_SEGMENT_SECONDS = 60;
+  const MAX_SEGMENT_SAMPLES = MAX_SEGMENT_SECONDS * TARGET_SAMPLE_RATE;
+  // Below this, a flush-on-stop would send a WAV of near-silence/noise that is unlikely to
+  // transcribe to anything useful -- not worth a network round trip.
+  const MIN_FLUSH_SAMPLES = Math.round(0.3 * TARGET_SAMPLE_RATE);
+
   // Recovery state for repeated /api/transcribe failures. A sustained outage
   // must not turn into a tight failure loop firing every ~chunkMs, so after
   // FAILURE_THRESHOLD consecutive failures we stop attempting sends entirely
@@ -148,6 +164,31 @@ export function createOpenAITranscriptionDriver({
   const MAX_PENDING_CHUNKS = 3;
   let pendingCount = 0;
   let droppedForBacklog = 0;
+
+  function concatFloat32(frames) {
+    const total = frames.reduce((sum, frame) => sum + frame.length, 0);
+    const out = new Float32Array(total);
+    let offset = 0;
+    for (const frame of frames) {
+      out.set(frame, offset);
+      offset += frame.length;
+    }
+    return out;
+  }
+
+  // Encodes whatever has been accumulated in activeFrames and sends it through the same queue as
+  // a normal onSpeechEnd chunk. Resets the accumulator but deliberately leaves `inSpeech` alone --
+  // callers decide whether the segment continues (long-utterance split) or has actually ended.
+  function flushAccumulated(currentSession, reasonMessage) {
+    if (activeSampleCount === 0) return;
+    const merged = concatFloat32(activeFrames);
+    activeFrames = [];
+    activeSampleCount = 0;
+    const int16 = floatTo16BitPCM(merged);
+    const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
+    onAudioDiagnostics({ message: reasonMessage, at: now() });
+    enqueueWavChunk(wavBytes, currentSession);
+  }
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
@@ -273,8 +314,29 @@ export function createOpenAITranscriptionDriver({
       resumeStream: () => {},
       onSpeechStart: () => {
         speechStartedAt.set(currentSession, now());
+        inSpeech = true;
+        activeFrames = [];
+        activeSampleCount = 0;
+      },
+      // Fires once per audio frame for the whole recording, not just during speech -- so only
+      // accumulate while `inSpeech` is true. This is our own copy of the in-progress utterance,
+      // used solely for the long-utterance split below and for flushing on stop().
+      onFrameProcessed: (probabilities, frame) => {
+        if (!inSpeech || currentSession !== sessionId) return;
+        activeFrames.push(frame);
+        activeSampleCount += frame.length;
+        if (activeSampleCount >= MAX_SEGMENT_SAMPLES) {
+          // Safety net, not the primary path -- Silero has no maximum-speech-duration option and
+          // only ends a segment after a 1.4s pause, so someone speaking for a full minute without
+          // one would otherwise grow this segment (and its eventual POST body) unbounded. Split it
+          // here and keep listening; the utterance continues into the next piece.
+          flushAccumulated(currentSession, `Long utterance split after ${MAX_SEGMENT_SECONDS}s (still speaking).`);
+        }
       },
       onSpeechEnd: (audio) => {
+        inSpeech = false;
+        activeFrames = [];
+        activeSampleCount = 0;
         if (!listening || currentSession !== sessionId) return;
         const startedAt = speechStartedAt.get(currentSession);
         speechStartedAt.delete(currentSession);
@@ -288,6 +350,9 @@ export function createOpenAITranscriptionDriver({
         enqueueWavChunk(wavBytes, currentSession);
       },
       onVADMisfire: () => {
+        inSpeech = false;
+        activeFrames = [];
+        activeSampleCount = 0;
         onAudioDiagnostics({
           message: 'Speech was too short to send (VAD misfire).',
           at: now()
@@ -431,6 +496,31 @@ export function createOpenAITranscriptionDriver({
       onStatus('OpenAI transcription is listening.');
     },
     async stop() {
+      // Flush any in-progress utterance BEFORE listening is dropped and sessionId is advanced --
+      // both enqueueWavChunk and sendChunk gate on `listening` and `currentSession === sessionId`,
+      // so this has to run while both still hold or the session guard would silently discard the
+      // very audio we're trying to save (issue #19: the last thing said in a meeting was never
+      // summarized because the old fixed chunking lost up to 3.5s to it; this design would
+      // otherwise lose an entire in-progress utterance instead). Wrapped so a flush failure can
+      // never prevent teardown.
+      try {
+        if (inSpeech && activeSampleCount >= MIN_FLUSH_SAMPLES) {
+          flushAccumulated(sessionId, 'Flushed in-progress utterance on stop (issue #19).');
+          // sendChunk itself gates on `listening`, which this same function is about to set to
+          // false -- so the send has to actually go out (or fail) while listening is still true,
+          // not just be enqueued. Await the queue's current tail rather than flipping `listening`
+          // out from under a send that hasn't run yet.
+          await queued.catch(() => {});
+        }
+      } catch (error) {
+        onAudioDiagnostics({
+          message: `Failed to flush final utterance on stop: ${error.message}`,
+          at: now()
+        });
+      }
+      inSpeech = false;
+      activeFrames = [];
+      activeSampleCount = 0;
       listening = false;
       sessionId += 1;
       resetFailureBackoff();

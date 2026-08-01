@@ -35,7 +35,8 @@ function makeFakeVadFactory({ getUserMediaCalls } = {}) {
       destroy() { instance.destroyed = true; },
       emitSpeechStart() { options.onSpeechStart?.(); },
       emitSpeechEnd(audio) { options.onSpeechEnd?.(audio); },
-      emitMisfire() { options.onVADMisfire?.(); }
+      emitMisfire() { options.onVADMisfire?.(); },
+      emitFrameProcessed(frame, probabilities = { isSpeech: 1 }) { options.onFrameProcessed?.(probabilities, frame); }
     };
     instances.push(instance);
     return instance;
@@ -624,6 +625,160 @@ test('readLevels() exposes conditioner levels when connected, and null when ther
     assert.equal(driver.readLevels(), null, 'no levels before start()');
     await driver.start({ currentMode: 'speaker' });
     assert.ok(driver.readLevels(), 'levels available once connected');
+    await driver.stop();
+  });
+});
+
+// --- onFrameProcessed accumulator: length cap + flush-on-stop (issue #19) ----------------------
+
+test('openai transcription: a speech segment in progress is flushed as a final chunk on stop() (issue #19)', async () => {
+  await withFakeNavigator(async () => {
+    const capturedBodies = [];
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'last words' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+    // 1s of "speech" fed as frames, no onSpeechEnd -- the segment is still open when stop() runs.
+    node.emitFrameProcessed(fakeSegment(16000, 0));
+    await driver.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 1, 'the in-progress utterance was flushed as a final chunk');
+    const bytes = Buffer.from(capturedBodies[0].audioBase64, 'base64');
+    assert.ok(bytes.length > 44, 'the WAV payload is non-empty');
+    const fields = wavHeaderFields(bytes);
+    assert.equal(fields.sampleRate, 16000, 'declares 16000 Hz');
+  });
+});
+
+test('openai transcription: less than 0.3s accumulated at stop() sends nothing', async () => {
+  await withFakeNavigator(async () => {
+    let fetchCalled = false;
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+    // Well under 0.3s (4800 samples) at 16kHz.
+    node.emitFrameProcessed(fakeSegment(100, 0));
+    await driver.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(fetchCalled, false, 'too little audio accumulated to be worth sending');
+  });
+});
+
+test('openai transcription: frames past 60s while still speaking split into chunks without onSpeechEnd firing', async () => {
+  await withFakeNavigator(async () => {
+    const capturedBodies = [];
+    const diagnostics = [];
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      onAudioDiagnostics: (event) => diagnostics.push(event),
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'segment' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+
+    // 61 one-second frames (16000 samples each) with no pause -- crosses the 60s cap mid-speech.
+    for (let i = 0; i < 61; i += 1) {
+      node.emitFrameProcessed(fakeSegment(16000, i));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 1, 'first 60s split produced exactly one chunk');
+    assert.ok(
+      diagnostics.some((event) => /long utterance split/i.test(event.message)),
+      'the split is reported via onAudioDiagnostics'
+    );
+
+    // A second 60s of continuous speech (still no onSpeechEnd) produces a second split chunk,
+    // proving the accumulator actually reset rather than just refusing to grow further.
+    for (let i = 0; i < 61; i += 1) {
+      node.emitFrameProcessed(fakeSegment(16000, i));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 2, 'a second 60s of continuous speech produces a second split chunk');
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription: frames delivered outside a speech segment accumulate nothing, so stop() sends nothing', async () => {
+  await withFakeNavigator(async () => {
+    let fetchCalled = false;
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async () => {
+        fetchCalled = true;
+        return { ok: true, status: 200, json: async () => ({ text: 'hi' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    // No onSpeechStart -- these frames arrive while VAD considers this silence/non-speech.
+    node.emitFrameProcessed(fakeSegment(16000, 0));
+    node.emitFrameProcessed(fakeSegment(16000, 1));
+    await driver.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(fetchCalled, false, 'frames outside a speech segment must never be sent');
+  });
+});
+
+test('openai transcription: a 60s segment stays under the 25mb server limit (blocker regression guard)', async () => {
+  await withFakeNavigator(async () => {
+    let capturedBase64 = null;
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async (url, options) => {
+        capturedBase64 = JSON.parse(options.body).audioBase64;
+        return { ok: true, status: 200, json: async () => ({ text: 'segment' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+    for (let i = 0; i < 60; i += 1) {
+      node.emitFrameProcessed(fakeSegment(16000, i));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.ok(capturedBase64, 'the 60s segment was sent');
+    // 16 kHz mono int16 base64 is 42,667 bytes/second, so 60s should be ~2.5mb -- well under the
+    // 25mb express.json limit. A future change to either the cap or the limit should fail this
+    // loudly rather than silently 413ing during a real meeting.
+    assert.ok(
+      capturedBase64.length < 25 * 1024 * 1024,
+      `a 60s segment's base64 body (${capturedBase64.length} bytes) must stay under the 25mb server limit`
+    );
+
     await driver.stop();
   });
 });

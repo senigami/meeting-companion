@@ -225,7 +225,9 @@ test('oversized payload returns a json error response', async () => {
     url: '/api/transcribe',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      audioBase64: 'a'.repeat(1024 * 1024 + 32)
+      // The server limit is 25mb (see server.js), sized for a 60s speech segment; this needs to
+      // exceed that, not the old 1mb ceiling, to actually exercise the 413 path.
+      audioBase64: 'a'.repeat(25 * 1024 * 1024 + 32)
     })
   });
   const data = JSON.parse(response.body);
