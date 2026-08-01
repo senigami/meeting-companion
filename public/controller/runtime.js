@@ -178,6 +178,11 @@ function transcriptionStatusLevel(text) {
   return /error|microphone stopped/i.test(clean) ? 'problem' : undefined;
 }
 
+// A card built from one sentence cannot compress anything, so the reader pays for words that were
+// never summarized. 45 words is roughly 18 seconds of speech at a normal speaking pace: long enough
+// to be a thought, short enough that the wall is not blank while somebody is talking.
+const MIN_SUMMARIZE_WORDS = 45;
+
 export function createRuntime(ctx, deps = {}) {
   let transcriptionDriver = null;
   let summarizationDriver = null;
@@ -190,6 +195,9 @@ export function createRuntime(ctx, deps = {}) {
   let meterStabilizerState = null;
   const {
     createTranscriptionDriverFn = createTranscriptionDriver,
+    // Injectable so tests that are about mode runs, dimming or the rolling window can set 0 and
+    // keep using short fixtures. A dedicated test covers the gate itself.
+    minSummarizeWords = MIN_SUMMARIZE_WORDS,
     createSummarizationDriverFn = createSummarizationDriver,
     createMicProbeFn = createMicProbe,
     fetchImpl = fetch,
@@ -1225,6 +1233,15 @@ export function createRuntime(ctx, deps = {}) {
         // same set. A later mode in the bucket ends the run early: one summarize call must never span
         // two modes, since its prompt carries a single `Mode:` line.
         const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode });
+        // Hold a short run back until it has enough words to be worth a card. Measured over a whole
+        // simulated meeting (scripts/simulate-meeting.js): summarizing every sentence as it landed
+        // produced MORE cards than there were utterances (56 cards from 43) and 566 words for the
+        // reader, because a single sentence gives the summarizer nothing to compress. Waiting for a
+        // thought's worth of speech cut that to 41 cards and 437 words with no loss of names, times,
+        // hymn numbers or scripture references. settleMs === 0 is the forced final drain from
+        // stopListening and must never be held back, or the last thing said is lost (issue #19).
+        const runWords = String(run.text || '').trim().split(/\s+/).filter(Boolean).length;
+        if (settleMs !== 0 && runWords > 0 && runWords < minSummarizeWords) return;
         consumedChunks = run.chunks;
         sendMode = run.mode;
         recent = run.text;
