@@ -1,8 +1,9 @@
 import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
-import { createAudioConditioner, chunkContainsSpeech, NOISE_FLOOR_DBFS } from '../audio-processing.js';
+import { createAudioConditioner } from '../audio-processing.js';
 import { deviceIdConstraint, browserAudioConstraints } from '../audio-monitor.js';
+import { loadVad } from './vad-loader.js';
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -91,6 +92,9 @@ export function createOpenAITranscriptionDriver({
   onEvent = () => {},
   onStatus = () => {},
   fetchImpl = fetch,
+  // No longer used to size capture chunks -- Silero VAD decides chunk boundaries by real speech
+  // segments now (see micVad below). Kept only for backoff-timing compatibility (BASE_BACKOFF_MS)
+  // and so existing callers that pass it do not break.
   chunkMs = 3500,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -98,7 +102,10 @@ export function createOpenAITranscriptionDriver({
   audioContextFactory = () => (typeof AudioContext !== 'undefined' ? new AudioContext() : (typeof webkitAudioContext !== 'undefined' ? new webkitAudioContext() : null)),
   now = () => Date.now(),
   onAudioDiagnostics = () => {},
-  workletModuleUrl = new URL('./pcm-worklet-processor.js', import.meta.url)
+  vadFactory = async (options) => {
+    const vad = await loadVad();
+    return vad.MicVAD.new(options);
+  }
 } = {}) {
   let stream = null; // raw microphone stream, tracks stopped on stop()
   let conditionedStream = null; // what the capture graph actually receives
@@ -112,17 +119,12 @@ export function createOpenAITranscriptionDriver({
   // context came back as if someone had spoken it.
   let activeRequestController = null;
 
-  // AudioWorklet capture graph. Built fresh per start(), torn down fully on stop() so a leaked
-  // AudioContext or dangling worklet node can never hang the next recording -- or the test suite.
-  let captureCtx = null;
-  let captureSource = null;
-  let workletNode = null;
-  let nativeSampleRate = TARGET_SAMPLE_RATE;
-
-  // Native-rate Float32 frames accumulated between worklet messages, flushed into a WAV chunk
-  // every time enough native samples exist for `chunkMs` of audio. Reset on every start().
-  let sampleBuffer = [];
-  let sampleBufferLength = 0;
+  // Silero VAD instance (via @ricky0123/vad-web). Built fresh per start(), torn down fully on
+  // stop() so a leaked worker/model can never hang the next recording -- or the test suite. This
+  // replaces the AudioWorklet + fixed-interval sampleBuffer chunking entirely: chunk boundaries are
+  // now real speech segments (VAD onSpeechStart/onSpeechEnd), not wall-clock intervals that used to
+  // sever sentences mid-word (issue #24), and silence is never encoded or sent at all (issue #23).
+  let micVad = null;
 
   // Recovery state for repeated /api/transcribe failures. A sustained outage
   // must not turn into a tight failure loop firing every ~chunkMs, so after
@@ -146,7 +148,6 @@ export function createOpenAITranscriptionDriver({
   const MAX_PENDING_CHUNKS = 3;
   let pendingCount = 0;
   let droppedForBacklog = 0;
-  let silentChunksSkipped = 0;
 
   function emit(type, text, extra = {}) {
     const clean = normalizeText(text);
@@ -250,96 +251,59 @@ export function createOpenAITranscriptionDriver({
       });
   }
 
-  function samplesNeededForChunk() {
-    return Math.max(1, Math.round((chunkMs / 1000) * nativeSampleRate));
-  }
+  // Sets up Silero VAD against the already-conditioned stream. This replaces the old worklet +
+  // fixed-interval sampleBuffer chunking: every onSpeechEnd IS a chunk boundary, drawn at a real
+  // speech segment rather than an arbitrary wall-clock tick, and pure silence never reaches
+  // onSpeechEnd at all -- so there is nothing left to gate afterward the way the old
+  // chunkContainsSpeech energy check had to.
+  async function setupCapture(inputStream, currentSession) {
+    const speechStartedAt = new Map();
 
-  // Drains sampleBuffer into fixed-size, chunkMs-sized native-rate slices, each turned into a
-  // standalone WAV chunk and enqueued. Loops (rather than a single if) so a worklet message that
-  // pushes past two chunk boundaries at once (e.g. after a GC pause) still flushes every full
-  // chunk rather than only the first.
-  function drainSampleBuffer(currentSession) {
-    const needed = samplesNeededForChunk();
-    while (sampleBufferLength >= needed) {
-      const merged = new Float32Array(sampleBufferLength);
-      let offset = 0;
-      for (const part of sampleBuffer) {
-        merged.set(part, offset);
-        offset += part.length;
-      }
-      const slice = merged.subarray(0, needed);
-      const remainder = merged.subarray(needed);
-
-      const downsampled = downsampleTo16kMono(slice, nativeSampleRate);
-
-      // Silence gate (issue #23): the transcription model invents text from audio that contains
-      // no speech at all, so a chunk with nothing in it must never be sent. Reads the same
-      // audioSettings.noiseFloorDbfs the conditioner's effectiveNoiseFloorDbfs() reads (see
-      // audio-processing.js), rather than reaching into the conditioner, so the gate still works
-      // when conditioning is bypassed. This only catches dead air -- a sustained tone or loud
-      // noise has speech-level RMS and still passes; real voice activity detection is the
-      // follow-up for that.
-      const gateDbfs = Number.isFinite(audioSettings.noiseFloorDbfs) ? audioSettings.noiseFloorDbfs : NOISE_FLOOR_DBFS;
-      if (chunkContainsSpeech(downsampled, { gateDbfs, sampleRate: TARGET_SAMPLE_RATE })) {
-        const int16 = floatTo16BitPCM(downsampled);
+    micVad = await vadFactory({
+      model: 'v5',
+      baseAssetPath: '/vendor/vad/',
+      onnxWASMBasePath: '/vendor/ort/',
+      startOnLoad: false,
+      // MicVAD must never open its own microphone -- it gets the stream this driver already
+      // acquired (and conditioned). A second getUserMedia would light the browser's recording
+      // indicator twice, which ADR-0003's no-surprise-capture rule forbids.
+      getStream: async () => inputStream,
+      // The driver, not the VAD instance, owns the shared stream's lifecycle.
+      pauseStream: () => {},
+      resumeStream: () => {},
+      onSpeechStart: () => {
+        speechStartedAt.set(currentSession, now());
+      },
+      onSpeechEnd: (audio) => {
+        if (!listening || currentSession !== sessionId) return;
+        const startedAt = speechStartedAt.get(currentSession);
+        speechStartedAt.delete(currentSession);
+        onAudioDiagnostics({
+          message: `Speech segment captured (${audio.length} samples @ 16kHz).`,
+          at: now(),
+          durationMs: Number.isFinite(startedAt) ? now() - startedAt : undefined
+        });
+        const int16 = floatTo16BitPCM(audio);
         const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
         enqueueWavChunk(wavBytes, currentSession);
-      } else {
-        silentChunksSkipped += 1;
+      },
+      onVADMisfire: () => {
         onAudioDiagnostics({
-          message: `Skipped a silent audio chunk (below ${gateDbfs} dBFS gate) -- not sent for transcription.`,
+          message: 'Speech was too short to send (VAD misfire).',
           at: now()
         });
       }
+    });
 
-      sampleBuffer = remainder.length ? [Float32Array.from(remainder)] : [];
-      sampleBufferLength = remainder.length;
-    }
-  }
-
-  async function setupCapture(inputStream, currentSession) {
-    if (typeof AudioWorkletNode === 'undefined' || typeof audioContextFactory !== 'function') {
-      throw new Error('AudioWorklet capture is not available in this browser.');
-    }
-    const ctx = audioContextFactory();
-    if (!ctx || typeof ctx.audioWorklet?.addModule !== 'function' || typeof ctx.createMediaStreamSource !== 'function') {
-      throw new Error('AudioWorklet capture is not available in this browser.');
-    }
-
-    await ctx.audioWorklet.addModule(workletModuleUrl);
-    const source = ctx.createMediaStreamSource(inputStream);
-    const node = new AudioWorkletNode(ctx, 'pcm-capture-processor', { numberOfOutputs: 0 });
-    node.onprocessorerror = (error) => onStatus(`OpenAI transcription capture error: ${error?.message || 'worklet error'}`);
-    node.port.onmessage = (event) => {
-      if (!listening || currentSession !== sessionId) return;
-      sampleBuffer.push(event.data);
-      sampleBufferLength += event.data.length;
-      drainSampleBuffer(currentSession);
-    };
-    source.connect(node);
-
-    captureCtx = ctx;
-    captureSource = source;
-    workletNode = node;
-    nativeSampleRate = Number.isFinite(ctx.sampleRate) && ctx.sampleRate > 0 ? ctx.sampleRate : TARGET_SAMPLE_RATE;
+    micVad.start();
   }
 
   async function teardownCapture() {
-    if (workletNode) {
-      try { workletNode.port.onmessage = null; } catch {}
-      try { workletNode.disconnect(); } catch {}
-      workletNode = null;
+    if (micVad) {
+      try { micVad.pause(); } catch {}
+      try { micVad.destroy(); } catch {}
+      micVad = null;
     }
-    if (captureSource) {
-      try { captureSource.disconnect(); } catch {}
-      captureSource = null;
-    }
-    if (captureCtx) {
-      try { await captureCtx.close(); } catch {}
-      captureCtx = null;
-    }
-    sampleBuffer = [];
-    sampleBufferLength = 0;
   }
 
   async function stopTracks() {
@@ -365,10 +329,20 @@ export function createOpenAITranscriptionDriver({
       const track = mediaStream.getAudioTracks?.()?.[0];
       const settings = track?.getSettings?.();
       if (settings) {
+        // `track.label` is the human-readable device name (e.g. "UV1 (1397:0510)"), but it is an
+        // empty string until microphone permission has actually been granted -- say so honestly
+        // rather than printing an empty name that reads as a bug. settings.deviceId is a long
+        // opaque hash, so only its first 8 characters are shown, just enough to tell two similarly
+        // labelled devices apart at a glance.
+        const deviceLabel = track?.label ? track.label : 'name unavailable until permission is granted';
+        const shortDeviceId = settings.deviceId ? String(settings.deviceId).slice(0, 8) : null;
         onAudioDiagnostics({
-          message: `Microphone constraints granted: autoGainControl=${settings.autoGainControl}, noiseSuppression=${settings.noiseSuppression}, echoCancellation=${settings.echoCancellation}`,
+          message: `Microphone in use: ${deviceLabel}.${shortDeviceId ? ` (id ${shortDeviceId}…)` : ''} Constraints granted: autoGainControl=${settings.autoGainControl}, noiseSuppression=${settings.noiseSuppression}, echoCancellation=${settings.echoCancellation}`,
           // One-shot and worth the operator seeing, so it says so itself rather than leaving the
           // consumer to recognise it by its opening words. See the `notable` note in runtime.js.
+          // Which physical device got picked matters enough on its own (a wrong microphone with
+          // nothing on screen saying so cost hours of real meeting time) that this must reach the
+          // operator's status line, not just the console.
           notable: true,
           settings
         });
@@ -444,7 +418,6 @@ export function createOpenAITranscriptionDriver({
       resetFailureBackoff();
       pendingCount = 0;
       droppedForBacklog = 0;
-      silentChunksSkipped = 0;
 
       try {
         await setupCapture(conditionedStream || stream, currentSession);
