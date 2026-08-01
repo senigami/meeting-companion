@@ -25,7 +25,11 @@ export function createApp({
 } = {}) {
   const app = express();
 
-  app.use(express.json({ limit: '1mb' }));
+  // 16 kHz mono int16 PCM, base64-encoded, is 42,667 bytes per second of audio -- so a 1mb limit
+  // was a ~24.6s ceiling on any single speech segment. Silero VAD (see openai.js's onFrameProcessed
+  // accumulator) only forces a split every 60s, so the limit has to cover that: 60s * 42,667 B/s ~=
+  // 2.5mb, and 25mb leaves comfortable headroom (~10 minutes of speech) without inviting abuse.
+  app.use(express.json({ limit: '25mb' }));
   app.use(express.static('public'));
 
   app.get('/api/config', (req, res) => {
