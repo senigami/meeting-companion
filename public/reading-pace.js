@@ -22,10 +22,12 @@ function wordCount(text) {
 // Matches the live app's own read: public/controller/start-app.js reads the same 'fontSize' key
 // through clampFontSize, so a value this page never wrote (or an old one from a previous session)
 // still resolves exactly the way it would on the real display.
+function currentFontSize() {
+  return clampFontSize(localStorage.getItem('fontSize'), 84);
+}
+
 function applyDisplayFontSize() {
-  const stored = localStorage.getItem('fontSize');
-  const size = clampFontSize(stored, 84);
-  document.documentElement.style.setProperty('--font-size', `${size}px`);
+  document.documentElement.style.setProperty('--font-size', `${currentFontSize()}px`);
 }
 
 function loadStoredResults() {
@@ -69,9 +71,17 @@ function runMeasurementFlow() {
     cardShownAt = performance.now();
   }
 
+  // A press this fast is a double-press or a bounce, not a person reading. The median survives one
+  // 13,000 wpm outlier, but the longer-cards-read-slower slope does not: a single bad sample can
+  // invert that verdict. Ignoring the press costs him nothing (he presses again) and keeps the
+  // sample honest.
+  const MIN_PLAUSIBLE_PRESS_MS = 700;
+
   function advance() {
     const card = sequence[index];
     const ms = performance.now() - cardShownAt;
+
+    if (ms < MIN_PLAUSIBLE_PRESS_MS) return;
 
     if (!card.practice) {
       results.push({ text: card.text, words: wordCount(card.text), chars: card.text.length, ms });
@@ -82,7 +92,14 @@ function runMeasurementFlow() {
     if (index >= sequence.length) {
       cardScreen.hidden = true;
       doneScreen.hidden = false;
-      saveResults({ recordedAt: new Date().toISOString(), cards: results });
+      // Record the font size the run was measured at. It is the one variable that voids the whole
+      // exercise: a pace measured at a different type size does not transfer to the display, and
+      // without it stored there is no way to tell afterwards whether it did.
+      saveResults({
+        recordedAt: new Date().toISOString(),
+        fontSizePx: currentFontSize(),
+        cards: results
+      });
       return;
     }
 
@@ -174,7 +191,11 @@ function renderResults() {
   document.getElementById('resultsRecommendationMath').textContent =
     `Words: ${medianWpm.toFixed(1)} wpm / 60 * ${wordsRec.seconds}s = ${wordsRec.rawWords.toFixed(1)} words, ` +
     `snapped to ${wordsRec.words}. Interval: ${wordsRec.words} words / ${medianWpm.toFixed(1)} wpm * 60 = ` +
-    `${intervalRec.rawSeconds.toFixed(1)}s, rounded to ${intervalRec.seconds}s.`;
+    // "rounded" was a lie whenever the raw value fell outside the settings range: below about 16 wpm
+    // the raw interval exceeds the 30s ceiling and gets clamped, not rounded, and saying "rounded"
+    // there hides that the recommendation is the limit of what the app can be set to rather than
+    // what the arithmetic asked for.
+    `${intervalRec.rawSeconds.toFixed(1)}s, ${Math.round(intervalRec.rawSeconds) === intervalRec.seconds ? 'rounded' : 'clamped'} to ${intervalRec.seconds}s.`;
 
   const rawJson = document.getElementById('resultsRawJson');
   rawJson.value = JSON.stringify(stored, null, 2);

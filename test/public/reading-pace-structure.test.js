@@ -60,3 +60,19 @@ test('reading-pace page loads its own stylesheet and module script, not app.js',
   assert.match(html, /type="module" src="reading-pace\.js"/);
   assert.doesNotMatch(html, /app\.js/);
 });
+
+test('the press-again button uses a measured literal colour, not the accent token', async () => {
+  // This regressed once, from a "fix": var(--accent, #2f7bff) looks safe but base.css already
+  // defines --accent as #78b7ff, so the fallback was dead and white-on-token measured 2.10:1 --
+  // under the 3:1 large-text floor, on the only control a low-vision reader presses. Asserting the
+  // literal rather than the contrast because the value is what someone would casually "tidy" back
+  // into a token.
+  const css = await readFile(new URL('../../public/styles/reading-pace.css', import.meta.url), 'utf8');
+  const rule = css.slice(css.indexOf('.paceNextButton'));
+  assert.match(rule, /background:\s*#2f7bff/i, 'must set the measured literal');
+  assert.doesNotMatch(
+    rule.slice(0, rule.indexOf('}')),
+    /background:\s*var\(--accent/i,
+    'must NOT reach for --accent, which resolves lighter than the floor allows'
+  );
+});

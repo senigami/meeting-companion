@@ -158,13 +158,20 @@
    someone with low vision. It was quieter than the START button, which he presses once. Same
    treatment as START, and wide enough to hit without aiming. */
 .paceNextButton {
-  background: var(--accent, #2f7bff);
+  /* Literal, NOT var(--accent): base.css defines --accent as #78b7ff, so the fallback here was
+     dead and white-on-accent measured 2.10:1, under the 3:1 large-text floor, on the only control
+     a low-vision reader presses. #2f7bff measures 3.89:1. Do not swap this back to the token
+     without measuring what the token currently resolves to. */
+  background: #2f7bff;
   color: #fff;
   border: none;
   font-size: clamp(1.4rem, 3.5vw, 2.4rem);
   font-weight: 700;
   padding: 0.9em 2.4em;
-  min-width: min(60vw, 32rem);
+  /* The parent is a column flex with align-items:center, so the existing width:100% had nothing to
+     fill and the button rendered at 185px: a small target for someone with low vision, pressed ten
+     times. align-self:stretch is what actually makes it take the width the max-width allows. */
+  align-self: stretch;
   min-height: 4.5rem;
   border-radius: 0.6em;
 }
