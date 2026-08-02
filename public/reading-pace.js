@@ -39,12 +39,47 @@ function loadStoredResults() {
   }
 }
 
-function saveResults(results) {
+function saveResultsLocally(results) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(results));
   } catch {
     // Best-effort persistence only; a full/blocked localStorage should not stop the flow.
   }
+}
+
+// Durable save (issue #44, first slice of named reader profiles): persists the named result to disk
+// via the server instead of only localStorage, which loses the measurement on a cleared browser and
+// can't move between machines. localStorage is still written first, unconditionally, as the
+// fallback of last resort -- this call only ever adds to that, never replaces it.
+async function saveResultsToDisk(name, results) {
+  try {
+    const response = await fetch('/api/reading-pace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, payload: results })
+    });
+    if (!response.ok) return false;
+    const body = await response.json();
+    return Boolean(body?.ok);
+  } catch {
+    return false;
+  }
+}
+
+// Prefers the saved file on disk, falling back to whatever is in localStorage on this device.
+async function loadResultsForDisplay(name) {
+  if (name) {
+    try {
+      const response = await fetch(`/api/reading-pace/${encodeURIComponent(name)}`);
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload && Array.isArray(payload.cards)) return payload;
+      }
+    } catch {
+      // Fall through to localStorage below.
+    }
+  }
+  return loadStoredResults();
 }
 
 function runMeasurementFlow() {
@@ -54,6 +89,11 @@ function runMeasurementFlow() {
   const startButton = document.getElementById('startButton');
   const nextButton = document.getElementById('nextButton');
   const paceCardText = document.getElementById('paceCardText');
+  const saveProfileForm = document.getElementById('saveProfileForm');
+  const saveProfileName = document.getElementById('saveProfileName');
+  const saveProfileStatus = document.getElementById('saveProfileStatus');
+
+  let finalResults = null;
 
   // Practice cards first (times discarded), then the real, recorded cards.
   const sequence = [
@@ -95,11 +135,14 @@ function runMeasurementFlow() {
       // Record the font size the run was measured at. It is the one variable that voids the whole
       // exercise: a pace measured at a different type size does not transfer to the display, and
       // without it stored there is no way to tell afterwards whether it did.
-      saveResults({
+      finalResults = {
         recordedAt: new Date().toISOString(),
         fontSizePx: currentFontSize(),
         cards: results
-      });
+      };
+      // localStorage write is unconditional and happens immediately -- this is the fallback of last
+      // resort, not something contingent on the operator naming and saving the profile below.
+      saveResultsLocally(finalResults);
       return;
     }
 
@@ -113,13 +156,27 @@ function runMeasurementFlow() {
   });
 
   nextButton.addEventListener('click', advance);
+
+  // Naming prompt lives entirely on the done screen, asked only of the operator after the person
+  // being measured has already finished and stepped away -- never shown during the run itself.
+  saveProfileForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = saveProfileName.value.trim();
+    if (!name || !finalResults) return;
+
+    saveProfileStatus.textContent = 'Saving...';
+    const saved = await saveResultsToDisk(name, finalResults);
+    saveProfileStatus.textContent = saved
+      ? `Saved as "${name}".`
+      : `Could not save to disk. Kept on this device only (localStorage).`;
+  });
 }
 
 function formatWpm(wpm) {
   return `${Math.round(wpm)} wpm`;
 }
 
-function renderResults() {
+async function renderResults() {
   // Hide every other screen first. Without this the intro sat above the results with a live START
   // button: opening ?results in front of the reader showed him the instructions again, and a stray
   // press would have restarted the run and overwritten what had just been measured.
@@ -131,7 +188,10 @@ function renderResults() {
   const resultsScreen = document.getElementById('resultsScreen');
   resultsScreen.hidden = false;
 
-  const stored = loadStoredResults();
+  // ?results=NAME looks up the named saved profile on disk first; plain ?results (or a lookup
+  // failure) falls back to whatever this device has in localStorage.
+  const name = new URLSearchParams(window.location.search).get('results') || '';
+  const stored = await loadResultsForDisplay(name);
   const emptyBlock = document.getElementById('resultsEmpty');
   const body = document.getElementById('resultsBody');
 
