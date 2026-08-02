@@ -1362,13 +1362,27 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
+  // Pressing a mode button ALWAYS starts fresh, whether or not the mode actually changed.
+  //
+  // Changing mode has to clear the history, and that was a real bug: previousBlock was already
+  // mode-guarded, but summaryHistory was a flat list, so switching from speaker to prayer carried
+  // the outgoing speaker's testimony into the prayer as conversational context.
+  //
+  // Pressing the mode you are ALREADY on clears it too, which is Steve's idea and a better control
+  // than the one I built. During testimony meeting he never leaves speaker mode, so a
+  // mode-change-only reset would never fire, and the buttons are already under his hand.
   function setMode(mode) {
+    const changed = ctx.state.mode !== mode;
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
     }
     updateModeButtons(ctx);
-    updateStatus(ctx, `Mode changed to ${mode}.`);
+    // Fire and forget: this runs from a click handler and the drain is the same forced flush
+    // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
+    // context before the history is dropped.
+    void startNewSpeaker({ silent: true });
+    updateStatus(ctx, changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`);
   }
 
   function setFontSize(nextSize) {
@@ -1796,12 +1810,12 @@ export function createRuntime(ctx, deps = {}) {
   // last sentence is summarized with their own context rather than the next person's. Only then
   // clear. settleMs 0 is the same forced drain stopListening uses, for the same reason: nothing else
   // will ever come along to flush that tail.
-  async function startNewSpeaker() {
+  async function startNewSpeaker({ silent = false } = {}) {
     await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentBlock = null;
     ctx.state.lastSentText = '';
-    flashRailNote(ctx, 'New speaker. Starting fresh.', { setTimeoutFn, clearTimeoutFn });
+    if (!silent) flashRailNote(ctx, 'New speaker. Starting fresh.', { setTimeoutFn, clearTimeoutFn });
   }
 
   return {

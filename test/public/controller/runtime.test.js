@@ -4,6 +4,32 @@ import assert from 'node:assert/strict';
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 
+test('pressing a mode button clears the conversational history, even when the mode does not change', async () => {
+  // Steve's control. During testimony meeting he never leaves speaker mode, so a reset that only
+  // fired on a CHANGE would never fire at all. Pressing the mode you are already on is the gesture.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a', shown: 'A' }, { spoken: 'b', shown: 'B' }] }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('speaker');
+    await Promise.resolve();
+    assert.deepEqual(ctx.state.summaryHistory, [], 'pressing the current mode must still start fresh');
+  });
+});
+
+test('changing mode clears the history, so one speaker does not become context for a prayer', async () => {
+  // This was a real bug: previousBlock was mode-guarded but summaryHistory was not, so switching
+  // from speaker to prayer carried the outgoing speaker's testimony in as conversational context.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a testimony', shown: 'A testimony' }] }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('prayer');
+    await Promise.resolve();
+    assert.equal(ctx.state.mode, 'prayer');
+    assert.deepEqual(ctx.state.summaryHistory, []);
+    assert.equal(ctx.state.lastSentBlock, null, 'the previous block must not survive the switch either');
+  });
+});
+
 test('runtime falls back to Claude summarization when OpenAI is unavailable', async () => {
   await withRuntimeHarness({
     fetchConfig: {
