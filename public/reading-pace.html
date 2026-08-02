@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Setting up your display</title>
+  <link rel="stylesheet" href="styles/reading-pace.css" />
+</head>
+<body>
+  <main id="readingPaceRoot" class="readingPaceRoot">
+    <!-- Instruction screen (step 1). Plain language, a few words per line, one large START button. -->
+    <section id="introScreen" class="paceScreen" aria-labelledby="introHeading">
+      <h1 id="introHeading" class="paceIntroHeading">
+        Words will appear<br />on the screen.
+      </h1>
+      <p class="paceIntroLine">Read each one.</p>
+      <p class="paceIntroLine">When you have finished reading,<br />press the big button.</p>
+      <p class="paceIntroLine">There is no rush.</p>
+      <button id="startButton" type="button" class="paceButton paceStartButton">START</button>
+    </section>
+
+    <!-- Card screen (steps 2-3: two discarded practice cards, then 8 real cards). -->
+    <section id="cardScreen" class="paceScreen" hidden aria-label="Reading card">
+      <div class="paceCardArea">
+        <div id="paceCard" class="transcript-item transcript-item--speaker paceCard" data-active="true">
+          <p id="paceCardText" class="transcript-text paceCardText"></p>
+        </div>
+      </div>
+      <button id="nextButton" type="button" class="paceButton paceNextButton">Done reading</button>
+    </section>
+
+    <!-- Closing screen (step 4). Nothing else shown. -->
+    <section id="doneScreen" class="paceScreen" hidden aria-labelledby="doneHeading">
+      <h1 id="doneHeading" class="paceIntroHeading">All done.</h1>
+      <p class="paceIntroLine">Thank you.</p>
+    </section>
+
+    <!-- Results view, reached only via ?results so he cannot land on it by pressing anything here. -->
+    <section id="resultsScreen" class="paceScreen paceResultsScreen" hidden aria-labelledby="resultsHeading">
+      <h1 id="resultsHeading">Reading pace results</h1>
+
+      <div id="resultsEmpty" class="paceResultsBlock" hidden>
+        <p>No results saved yet on this device.</p>
+      </div>
+
+      <div id="resultsBody" class="paceResultsBlock" hidden>
+        <table id="resultsTable" class="paceResultsTable" aria-label="Words per minute per card">
+          <thead>
+            <tr>
+              <th scope="col">Card</th>
+              <th scope="col">Words</th>
+              <th scope="col">Seconds</th>
+              <th scope="col">Words / minute</th>
+            </tr>
+          </thead>
+          <tbody id="resultsTableBody"></tbody>
+        </table>
+
+        <dl class="paceResultsSummary">
+          <div>
+            <dt>Median words per minute</dt>
+            <dd id="resultsMedian"></dd>
+          </div>
+          <div>
+            <dt>Fastest card</dt>
+            <dd id="resultsFastest"></dd>
+          </div>
+          <div>
+            <dt>Slowest card</dt>
+            <dd id="resultsSlowest"></dd>
+          </div>
+          <div>
+            <dt>Do longer cards read proportionally slower?</dt>
+            <dd id="resultsSlope"></dd>
+          </div>
+        </dl>
+
+        <div class="paceResultsBlock">
+          <h2>Recommendation</h2>
+          <p id="resultsRecommendation"></p>
+          <p id="resultsRecommendationMath" class="paceResultsMath"></p>
+        </div>
+
+        <div class="paceResultsBlock">
+          <h2>Raw data</h2>
+          <textarea id="resultsRawJson" class="paceRawJson" readonly></textarea>
+          <button id="downloadResults" type="button" class="paceButton paceSecondaryButton">Download JSON</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="reading-pace.js"></script>
+</body>
+</html>
