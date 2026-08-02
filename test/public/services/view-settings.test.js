@@ -28,16 +28,19 @@ test('view settings clamp to safe display ranges', () => {
   assert.equal(clampDisplayMargin(-3), 0);
   assert.equal(clampDisplayMargin(99), 40);
   assert.equal(clampSummaryIntervalSeconds(1), 2);
-  assert.equal(clampSummaryIntervalSeconds(99), 15);
+  assert.equal(clampSummaryIntervalSeconds(99), 30);
   assert.equal(clampSummaryMaxWords(1), 8);
   assert.equal(clampSummaryMaxWords(99), 17);
   assert.equal(clampSummaryMaxWords('garbage'), 14);
   assert.equal(clampSummaryMaxWords(undefined), 14);
 });
 
-test('summary interval spans 2s to 15s', () => {
+test('summary interval spans 2s to 30s', () => {
   assert.equal(SUMMARY_INTERVAL_MIN_SECONDS, 2);
-  assert.equal(SUMMARY_INTERVAL_MAX_SECONDS, 15);
+  // Raised from 15 on measured evidence: 20s is where a whole talk stops outrunning a reader at 60
+  // words a minute, and 15s could not reach it. See the note in view-settings.js.
+  assert.equal(SUMMARY_INTERVAL_MAX_SECONDS, 30);
+  assert.equal(clampSummaryIntervalSeconds(20), 20, '20s must be reachable, which is the point of the change');
 });
 
 test('summary interval moves one second at a time, with no snapping to a coarse option set', () => {
@@ -51,7 +54,7 @@ test('summary interval moves one second at a time, with no snapping to a coarse 
 test('summary interval clamps to the range and rounds to a whole second', () => {
   assert.equal(clampSummaryIntervalSeconds(0), 2);
   assert.equal(clampSummaryIntervalSeconds(1), 2);
-  assert.equal(clampSummaryIntervalSeconds(99), 15);
+  assert.equal(clampSummaryIntervalSeconds(99), 30);
   assert.equal(clampSummaryIntervalSeconds(7.4), 7);
   assert.equal(clampSummaryIntervalSeconds(7.6), 8);
   assert.equal(clampSummaryIntervalSeconds('9'), 9);
