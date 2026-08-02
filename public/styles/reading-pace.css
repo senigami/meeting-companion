@@ -152,3 +152,24 @@
 .paceSecondaryButton {
   align-self: flex-start;
 }
+
+
+/* The button he presses after every card, so it is the one control that has to be unmissable for
+   someone with low vision. It was quieter than the START button, which he presses once. Same
+   treatment as START, and wide enough to hit without aiming. */
+.paceNextButton {
+  background: var(--accent, #2f7bff);
+  color: #fff;
+  border: none;
+  font-size: clamp(1.4rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  padding: 0.9em 2.4em;
+  min-width: min(60vw, 32rem);
+  min-height: 4.5rem;
+  border-radius: 0.6em;
+}
+
+.paceNextButton:focus-visible {
+  outline: 0.2em solid #fff;
+  outline-offset: 0.2em;
+}

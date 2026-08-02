@@ -103,6 +103,14 @@ function formatWpm(wpm) {
 }
 
 function renderResults() {
+  // Hide every other screen first. Without this the intro sat above the results with a live START
+  // button: opening ?results in front of the reader showed him the instructions again, and a stray
+  // press would have restarted the run and overwritten what had just been measured.
+  for (const id of ['introScreen', 'cardScreen', 'doneScreen']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+
   const resultsScreen = document.getElementById('resultsScreen');
   resultsScreen.hidden = false;
 
