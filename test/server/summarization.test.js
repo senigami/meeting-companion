@@ -350,3 +350,25 @@ test('regression: reconstructed real captured overflow (info-mode schedule line)
     assert.ok(next === '' || next === ' ', `${source}: cut mid-word, next char was ${JSON.stringify(next)}`);
   }
 });
+
+test('the words-per-card setting reaches the prompt, so the slider is not a dead control', async () => {
+  // It WAS dead: the minimal prompt hardcoded 15 while maxWords was still threaded to a function
+  // that no longer read it. The setting persisted, rendered, and did nothing, which reads to an
+  // operator as the app ignoring them.
+  let sent = null;
+  const client = {
+    chat: { completions: { create: async (params) => { sent = params; return { choices: [{ message: { content: 'a line' } }] }; } } }
+  };
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'speaker',
+    recentTranscript: 'Some speech that needs shortening for the display.',
+    maxWords: 8,
+    openaiClient: client
+  });
+
+  const system = sent.messages.find((m) => m.role === 'system').content;
+  assert.match(system, /no more than 8 words/, 'the configured word count must appear in the prompt');
+  assert.doesNotMatch(system, /no more than 15 words/, 'and the hardcoded default must not');
+});

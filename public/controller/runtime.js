@@ -1811,6 +1811,16 @@ export function createRuntime(ctx, deps = {}) {
   // clear. settleMs 0 is the same forced drain stopListening uses, for the same reason: nothing else
   // will ever come along to flush that tail.
   async function startNewSpeaker() {
+    // Wait out any call already in flight FIRST, exactly as stopListening does a few lines below,
+    // and for a sharper reason here. runSummarizeCurrentText returns early while summarizeInFlight
+    // is set, so without this the drain is silently skipped while the history is cleared anyway.
+    // The outgoing speaker's tail then stays in the bucket, and since testimony meeting never
+    // leaves speaker mode, takeOldestModeRun merges it into one contiguous run with the next
+    // speaker's opening: one card spanning two people, written in confident first person, which
+    // neither the operator nor a reader who cannot hear the room could detect.
+    if (ctx.state.summarizeCallPromise) {
+      await ctx.state.summarizeCallPromise;
+    }
     await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentBlock = null;

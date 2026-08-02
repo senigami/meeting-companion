@@ -69,7 +69,7 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
   // prompt proven in scripts/simulate-meeting.js (real user/assistant turns instead of prior
   // context pasted into one message). The Claude path below still uses buildSummarizePrompt --
   // that is NOT an oversight, it is the two providers being on different prompts for now.
-  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, history });
+  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, history });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,

@@ -4,6 +4,43 @@ import assert from 'node:assert/strict';
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 
+test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
+  // The drain is skippable: runSummarizeCurrentText returns early while summarizeInFlight is set.
+  // Without waiting, a mode press during a call clears the history but leaves the outgoing tail in
+  // the bucket, and since testimony meeting never leaves speaker mode, takeOldestModeRun merges
+  // that tail with the next speaker's opening into one card, in first person. Nobody in the room
+  // could detect it.
+  const seen = [];
+  let releaseInFlight;
+  const inFlight = new Promise((resolve) => { releaseInFlight = resolve; });
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'card' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      mode: 'speaker',
+      summarizeCallPromise: inFlight,
+      transcriptChunks: [{ text: 'The outgoing speaker finished saying this.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pressed = runtime.setMode('speaker') ?? Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(seen, [], 'must not drain while a call is still in flight');
+
+    releaseInFlight();
+    await pressed;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(seen, ['The outgoing speaker finished saying this.'],
+      'the outgoing tail must be summarized once the in-flight call clears');
+    assert.deepEqual(ctx.state.summaryHistory, [], 'and only then is the history dropped');
+  });
+});
+
 test('pressing a mode button clears the conversational history, even when the mode does not change', async () => {
   // Steve's control. During testimony meeting he never leaves speaker mode, so a reset that only
   // fired on a CHANGE would never fire at all. Pressing the mode you are already on is the gesture.
