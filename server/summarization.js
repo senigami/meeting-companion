@@ -1,4 +1,5 @@
 import { buildSummarizePrompt, cleanModelLines, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
 import { shortenToLimit } from '../public/services/text.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './model-config.js';
@@ -23,6 +24,7 @@ export async function summarizeWithSource({
   previousBlock = '',
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS,
+  history = [],
   openaiClient = null,
   anthropicApiKey = process.env.ANTHROPIC_API_KEY || '',
   anthropicModel = DEFAULT_ANTHROPIC_MODEL,
@@ -39,7 +41,8 @@ export async function summarizeWithSource({
         recentTranscript: text,
         previousBlock,
         visibleLines,
-        maxWords
+        maxWords,
+        history
       });
     case 'claude':
       return summarizeWithClaude({
@@ -57,12 +60,16 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlock, visibleLines, maxWords }) {
+async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlock, visibleLines, maxWords, history = [] }) {
   if (!client) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
 
-  const prompt = buildSummarizePrompt({ mode, recentTranscript, previousBlock, visibleLines, maxWords });
+  // OpenAI path only, deliberately: buildMinimalSummarizeMessages is the conversational-turns
+  // prompt proven in scripts/simulate-meeting.js (real user/assistant turns instead of prior
+  // context pasted into one message). The Claude path below still uses buildSummarizePrompt --
+  // that is NOT an oversight, it is the two providers being on different prompts for now.
+  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, history });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,
@@ -71,10 +78,7 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
     // this change, which is why raising it only mattered on the Anthropic branch below -- but a call
     // that also needs a per-line explanation for a dense chunk deserves the same headroom here.
     max_tokens: 300,
-    messages: [
-      { role: 'system', content: 'Return only the line text, one idea per line, or an empty string. No quotes. No markdown.' },
-      { role: 'user', content: prompt }
-    ]
+    messages
   });
 
   return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines);

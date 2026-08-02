@@ -217,6 +217,88 @@ test('transcription failure includes a safe, redacted error detail', async () =>
   assert.ok(!data.detail.includes('sk-ant-zzzzzzzzzz1234567890'));
 });
 
+test('/api/summarize passes well-formed history through to the provider call', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+  const app = createApp({ openaiClient });
+
+  const history = [
+    { spoken: 'Earlier chunk.', shown: 'Earlier card.' }
+  ];
+  const response = await invoke(app, {
+    method: 'POST',
+    url: '/api/summarize',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'speaker', recentTranscript: 'New text.', history })
+  });
+
+  assert.equal(response.statusCode, 200);
+  // system, user (history), assistant (history), user (new text)
+  assert.equal(sentMessages.length, 4);
+  assert.equal(sentMessages[1].content, 'Earlier chunk.');
+  assert.equal(sentMessages[2].content, 'Earlier card.');
+  assert.equal(sentMessages[3].content, 'New text.');
+});
+
+test('/api/summarize sanitises a malformed history to at most 8 well-formed entries rather than throwing', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+  const app = createApp({ openaiClient });
+
+  // 20 well-formed entries, plus junk entries that must be dropped rather than throwing.
+  const wellFormed = Array.from({ length: 20 }, (_, i) => ({ spoken: `spoken ${i}`, shown: `shown ${i}` }));
+  const malformedHistory = [
+    null,
+    'not an object',
+    42,
+    { spoken: 'missing shown' },
+    { shown: 'missing spoken' },
+    { spoken: 1, shown: 2 },
+    ...wellFormed
+  ];
+
+  const response = await invoke(app, {
+    method: 'POST',
+    url: '/api/summarize',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'speaker', recentTranscript: 'New text.', history: malformedHistory })
+  });
+
+  assert.equal(response.statusCode, 200);
+  // The server sanitises to the most recent 8 well-formed entries; buildMinimalSummarizeMessages
+  // further narrows to its own default historyTurns (4) when building the actual message array --
+  // system + (4 turns * 2 messages) + final user turn.
+  assert.equal(sentMessages.length, 1 + 4 * 2 + 1);
+  assert.equal(sentMessages[1].content, 'spoken 16');
+  assert.equal(sentMessages[sentMessages.length - 1].content, 'New text.');
+
+  const notArrayResponse = await invoke(app, {
+    method: 'POST',
+    url: '/api/summarize',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'speaker', recentTranscript: 'New text.', history: 'not an array' })
+  });
+  assert.equal(notArrayResponse.statusCode, 200);
+});
+
 test('oversized payload returns a json error response', async () => {
   const app = createApp();
 

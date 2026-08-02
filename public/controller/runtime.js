@@ -308,6 +308,7 @@ export function createRuntime(ctx, deps = {}) {
     }
     ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
+    ctx.state.summaryHistory = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';
     const text = `Cleared ${outgoing.length} ${lineWord} — press U or click Undo to bring them back.`;
@@ -1280,7 +1281,8 @@ export function createRuntime(ctx, deps = {}) {
         recentTranscript: recent,
         previousBlock,
         visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
-        maxWords: ctx.state.summaryMaxWords
+        maxWords: ctx.state.summaryMaxWords,
+        history: ctx.state.summaryHistory
       });
 
       // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
@@ -1318,6 +1320,9 @@ export function createRuntime(ctx, deps = {}) {
         // must read under the mode it was actually said in, even if the operator has since switched.
         addLine(result.line, { source: 'ai', mode: sendMode });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
+        // Same `recent`/result.line the recording above logs, so history and the recording can
+        // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
+        ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line }].slice(-6);
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
       }
@@ -1480,6 +1485,7 @@ export function createRuntime(ctx, deps = {}) {
       await ctx.state.summarizeCallPromise;
     }
     await summarizeCurrentText(undefined, { settleMs: 0 });
+    ctx.state.summaryHistory = [];
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
     if (!ctx.state.paused) {

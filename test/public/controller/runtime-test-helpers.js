@@ -250,6 +250,7 @@ export function createRuntimeHarness({
       listening: false,
       loopHandle: null,
       lastSentText: '',
+      summaryHistory: [],
       settingsOpen: false,
       panelOpen: false,
       registrationProvider: 'openai',

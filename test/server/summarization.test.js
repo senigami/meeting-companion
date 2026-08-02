@@ -4,6 +4,77 @@ import assert from 'node:assert/strict';
 import { summarizeWithSource } from '../../server/summarization.js';
 import { buildSummarizePrompt } from '../../public/services/summary-prompt.js';
 
+// OpenAI now sends a real message array (buildMinimalSummarizeMessages), not the single
+// buildSummarizePrompt user message the Claude path below still uses -- see
+// server/summarization.js's comment for why the two providers deliberately differ for now.
+test('OpenAI summarize with no history sends a system message plus one user turn', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'speaker',
+    recentTranscript: 'The new sentence.',
+    visibleLines: [],
+    openaiClient
+  });
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0].role, 'system');
+  assert.equal(sentMessages[1].role, 'user');
+  assert.equal(sentMessages[1].content, 'The new sentence.');
+});
+
+test('OpenAI summarize with two history entries sends system, user/assistant pairs, then the new turn', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+
+  const history = [
+    { spoken: 'First earlier chunk.', shown: 'First card.' },
+    { spoken: 'Second earlier chunk.', shown: 'Second card.' }
+  ];
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'information',
+    recentTranscript: 'The newest chunk.',
+    visibleLines: [],
+    history,
+    openaiClient
+  });
+
+  assert.equal(sentMessages.length, 6);
+  assert.equal(sentMessages[0].role, 'system');
+  assert.equal(sentMessages[1].role, 'user');
+  assert.equal(sentMessages[1].content, 'First earlier chunk.');
+  assert.equal(sentMessages[2].role, 'assistant');
+  assert.equal(sentMessages[2].content, 'First card.');
+  assert.equal(sentMessages[3].role, 'user');
+  assert.equal(sentMessages[3].content, 'Second earlier chunk.');
+  assert.equal(sentMessages[4].role, 'assistant');
+  assert.equal(sentMessages[4].content, 'Second card.');
+  assert.equal(sentMessages[5].role, 'user');
+  assert.equal(sentMessages[5].content, 'The newest chunk.');
+});
+
 test('server summarization routes claude requests through anthropic', async () => {
   let request = null;
 

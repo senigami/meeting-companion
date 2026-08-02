@@ -117,6 +117,7 @@ async function main() {
   let transcriptItems = [];
 
   const chatHistory = [];
+  const appHistory = [];
   const calls = [];
   let summarizeCalls = 0;
   let cardsProduced = 0;
@@ -179,6 +180,10 @@ async function main() {
         recentTranscript: recent,
         previousBlock,
         visibleLines,
+        // The app keeps a short history of what was said and what was shown, and sends it so the
+        // model sees its own prior output as prior output. Without this the harness would be
+        // measuring a path the app never takes.
+        history: appHistory,
         openaiClient
       });
     } catch (err) {
@@ -191,6 +196,10 @@ async function main() {
     }
 
     summarizeCalls += 1;
+    if (result.line) {
+      appHistory.push({ spoken: recent, shown: result.line });
+      if (appHistory.length > 6) appHistory.shift();
+    }
     const lines = result.line ? result.line.split('\n').filter(Boolean) : [];
 
     calls.push({
