@@ -16,7 +16,13 @@ export const DISPLAY_MARGIN_MAX = 40;
 // between them out of range. Words-per-card below still uses a small option set on purpose: reading
 // load is a perceptual judgement with a few sensible answers, where interval is a timing dial.
 export const SUMMARY_INTERVAL_MIN_SECONDS = 2;
-export const SUMMARY_INTERVAL_MAX_SECONDS = 15;
+// Raised from 15 after measuring a whole talk through the pipeline (scripts/simulate-meeting.js).
+// A longer interval gives the model more speech to compress, and compression improves with context:
+// at 15s a 7.2 minute talk produced 7.3 minutes of reading for someone at 60 words a minute, which
+// is breaking even. At 20s it produced 5.6 minutes, which is room to breathe, and still kept the
+// line the whole talk was built toward. At 30s that line was gone, so the useful range ends well
+// before the ceiling.
+export const SUMMARY_INTERVAL_MAX_SECONDS = 30;
 export const summaryMaxWordsOptions = [8, 11, 14, 17];
 export const summaryMaxWordsSliderMax = summaryMaxWordsOptions.length - 1;
 export const AUDIO_HIGH_PASS_HZ_MIN = 50;

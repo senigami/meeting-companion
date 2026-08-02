@@ -138,7 +138,9 @@ ideas into one line -- if the transcript holds several distinct facts (for examp
 or a hymn number and a separate assignment), write each on its own line, in the order they were
 spoken, rather than folding them into a single crowded sentence or dropping all but one.
 Only add a line when the transcript contains something useful that is new or more specific than the lines already shown.
-If the moment is vague or repetitive, return an empty string.
+Only return an empty string if the new transcript repeats what a visible line already says,
+or holds no words at all. Never return an empty string because what was said seems unimportant,
+small, or ordinary. If it is new, compress it and return it.
 Avoid lines like "He is talking about faith."
 
 Write a single short line that would help someone reading from across the room.
@@ -169,7 +171,7 @@ not, rather than returning it as written. Never cut a name, date, time, hymn num
 reference, or assignment to make room -- if the line cannot hold ${wordLimit} words AND every
 required detail verbatim, drop a surrounding word instead, never the detail.
 Do not add information.
-If nothing new or useful was communicated, return an empty string.
+Do not return an empty string merely because the content seems minor. Compress it instead.
 Do not repeat what a visible line already says.
 When the transcript holds more than one card's worth of speech, write the core message as it stands
 now, not the opening of it -- a reader who gets the gist a little late can still follow the meeting; a

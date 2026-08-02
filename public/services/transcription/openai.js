@@ -305,6 +305,17 @@ export function createOpenAITranscriptionDriver({
       baseAssetPath: '/vendor/vad/',
       onnxWASMBasePath: '/vendor/ort/',
       startOnLoad: false,
+      // The library's 1400ms default ends a segment on any pause longer than that, which is well
+      // inside the pauses a person leaves mid-sentence at a pulpit. Measured on a real run: "Okay,
+      // the last bit of text that came in was" and "didn't actually pick anything up" arrived as
+      // two separate segments, were transcribed without each other's context, and were then
+      // summarized separately into incoherent cards. A longer window costs a little latency and
+      // buys three things: sentences that survive intact, better transcription (short fragments
+      // transcribe badly because the model has no context), and cards built from whole thoughts.
+      redemptionMs: 2500,
+      // Slightly above the 400ms default so a cough, a chair, or a page turn does not become a
+      // segment of its own.
+      minSpeechMs: 600,
       // MicVAD must never open its own microphone -- it gets the stream this driver already
       // acquired (and conditioned). A second getUserMedia would light the browser's recording
       // indicator twice, which ADR-0003's no-surprise-capture rule forbids.
