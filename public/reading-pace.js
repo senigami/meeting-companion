@@ -89,9 +89,6 @@ function runMeasurementFlow() {
   const startButton = document.getElementById('startButton');
   const nextButton = document.getElementById('nextButton');
   const paceCardText = document.getElementById('paceCardText');
-  const saveProfileForm = document.getElementById('saveProfileForm');
-  const saveProfileName = document.getElementById('saveProfileName');
-  const saveProfileStatus = document.getElementById('saveProfileStatus');
 
   let finalResults = null;
 
@@ -157,19 +154,6 @@ function runMeasurementFlow() {
 
   nextButton.addEventListener('click', advance);
 
-  // Naming prompt lives entirely on the done screen, asked only of the operator after the person
-  // being measured has already finished and stepped away -- never shown during the run itself.
-  saveProfileForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const name = saveProfileName.value.trim();
-    if (!name || !finalResults) return;
-
-    saveProfileStatus.textContent = 'Saving...';
-    const saved = await saveResultsToDisk(name, finalResults);
-    saveProfileStatus.textContent = saved
-      ? `Saved as "${name}".`
-      : `Could not save to disk. Kept on this device only (localStorage).`;
-  });
 }
 
 function formatWpm(wpm) {
@@ -192,6 +176,38 @@ async function renderResults() {
   // failure) falls back to whatever this device has in localStorage.
   const name = new URLSearchParams(window.location.search).get('results') || '';
   const stored = await loadResultsForDisplay(name);
+
+  // The save handler belongs HERE, not in runMeasurementFlow. The form lives on this screen and
+  // this screen is the only one that renders on ?results, so a listener attached in the other
+  // entrypoint never exists when the button is pressed. Worse than dead: with no handler the form
+  // did a native GET, dropping ?results, landing on the intro screen with a live START, and arming
+  // a re-run that would overwrite the very results being saved.
+  const saveProfileForm = document.getElementById('saveProfileForm');
+  const saveProfileName = document.getElementById('saveProfileName');
+  const saveProfileStatus = document.getElementById('saveProfileStatus');
+
+  if (saveProfileForm) {
+    saveProfileForm.addEventListener('submit', async (event) => {
+      // Unconditional, and first: a native submit is what caused the failure above, so it must be
+      // prevented even when there is nothing to save.
+      event.preventDefault();
+      const readerName = saveProfileName.value.trim();
+      if (!readerName) {
+        saveProfileStatus.textContent = 'Give it a name first.';
+        return;
+      }
+      if (!stored) {
+        saveProfileStatus.textContent = 'Nothing to save: no results on this device.';
+        return;
+      }
+
+      saveProfileStatus.textContent = 'Saving...';
+      const saved = await saveResultsToDisk(readerName, stored);
+      saveProfileStatus.textContent = saved
+        ? `Saved as "${readerName}".`
+        : 'Could not save to disk. Still kept on this device.';
+    });
+  }
   const emptyBlock = document.getElementById('resultsEmpty');
   const body = document.getElementById('resultsBody');
 
