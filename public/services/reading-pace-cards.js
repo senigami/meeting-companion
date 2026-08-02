@@ -14,9 +14,9 @@ export const READING_PACE_CARDS = [
   'The working bee starts Saturday morning.',
   'Please stand for the closing hymn.',
   // ~11 words
-  'Brother Whitfield will lead the opening hymn this morning.',
-  'The funeral service is Thursday at eleven in the chapel.',
-  'A reading from John, chapter three, verses sixteen to eighteen.',
+  'Brother Whitfield will lead the opening hymn for us this morning.',
+  'The funeral service is this Thursday at eleven in the chapel.',
+  'A short reading from John, chapter three, verses sixteen to eighteen.',
   // ~16 words
   'Margaret Ellis and her family are in our thoughts after the passing of her husband Tom.',
   'Tom had been part of this community for forty-two years, right up until the end.',
