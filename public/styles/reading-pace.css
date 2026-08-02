@@ -1,0 +1,182 @@
+/*
+ * Standalone page (public/reading-pace.html), not linked from the main app UI. Imports base.css
+ * for shared tokens (--font-size, --bg, --text, etc.) and layout.css for .transcript-item /
+ * .transcript-text so a reading card here is styled byte-identical to a real summary card on the
+ * TV display -- the whole point of this page is that a pace measured at a different type size
+ * does not transfer. reading-pace.js sets --font-size from the same localStorage key
+ * (public/services/view-settings.js) the live app reads, via the same clampFontSize.
+ */
+@import url("./base.css");
+@import url("./layout.css");
+
+.readingPaceRoot {
+  width: 100%;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+
+.paceScreen {
+  width: 100%;
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+.paceScreen[hidden] {
+  display: none !important;
+}
+
+.paceIntroHeading {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.paceIntroLine {
+  margin: 0;
+  font-size: clamp(1.4rem, 3.5vw, 2rem);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.paceButton {
+  min-height: 88px;
+  min-width: 260px;
+  padding: 1rem 2rem;
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  border-radius: 24px;
+}
+
+.paceStartButton {
+  margin-top: 1rem;
+  background: var(--chrome-accent);
+  color: #ffffff;
+  border-color: var(--chrome-accent);
+}
+
+.paceCardArea {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  min-height: 40vh;
+}
+
+/*
+ * .transcript-item / .transcript-text (from layout.css) carry the real display's card
+ * chrome and type -- this rule only widens the card to a comfortable reading measure for a
+ * standalone page that has no operator rail competing for width.
+ */
+.paceCard {
+  width: 100%;
+  max-width: 44rem;
+}
+
+.paceCardText {
+  text-align: center;
+}
+
+.paceNextButton {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.paceResultsScreen {
+  max-width: 60rem;
+  align-items: stretch;
+  text-align: left;
+  gap: 1rem;
+}
+
+.paceResultsBlock {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.paceResultsBlock[hidden] {
+  display: none !important;
+}
+
+.paceResultsTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.paceResultsTable th,
+.paceResultsTable td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--panel-line);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.paceResultsSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.paceResultsSummary dt {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.paceResultsSummary dd {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.paceResultsMath {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.paceRawJson {
+  width: 100%;
+  min-height: 8rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.paceSecondaryButton {
+  align-self: flex-start;
+}
+
+
+/* The button he presses after every card, so it is the one control that has to be unmissable for
+   someone with low vision. It was quieter than the START button, which he presses once. Same
+   treatment as START, and wide enough to hit without aiming. */
+.paceNextButton {
+  /* Literal, NOT var(--accent): base.css defines --accent as #78b7ff, so the fallback here was
+     dead and white-on-accent measured 2.10:1, under the 3:1 large-text floor, on the only control
+     a low-vision reader presses. #2f7bff measures 3.89:1. Do not swap this back to the token
+     without measuring what the token currently resolves to. */
+  background: #2f7bff;
+  color: #fff;
+  border: none;
+  font-size: clamp(1.4rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  padding: 0.9em 2.4em;
+  /* The parent is a column flex with align-items:center, so the existing width:100% had nothing to
+     fill and the button rendered at 185px: a small target for someone with low vision, pressed ten
+     times. align-self:stretch is what actually makes it take the width the max-width allows. */
+  align-self: stretch;
+  min-height: 4.5rem;
+  border-radius: 0.6em;
+}
+
+.paceNextButton:focus-visible {
+  outline: 0.2em solid #fff;
+  outline-offset: 0.2em;
+}
