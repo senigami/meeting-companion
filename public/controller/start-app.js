@@ -236,7 +236,6 @@ export function startApp() {
       replayRecordingSelect: $('replayRecordingSelect'),
       replaySpeedSelect: $('replaySpeedSelect'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
-      nextSpeaker: document.getElementById('nextSpeaker'),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
       summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
       settingsNavButtons: Array.from(document.querySelectorAll('[data-settings-nav]')),
@@ -442,7 +441,6 @@ function bindViewerControls(ctx, runtime) {
 
 function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.modeButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setMode(btn.dataset.mode)));
-  ctx.dom.nextSpeaker?.addEventListener('click', () => runtime.startNewSpeaker());
   ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
   ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
 }
@@ -573,12 +571,6 @@ function bindKeyboardShortcuts(ctx, runtime) {
     if (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       runtime.undoLine();
-      return;
-    }
-
-    if (key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      ctx.dom.nextSpeaker?.click();
       return;
     }
 

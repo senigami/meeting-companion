@@ -1381,7 +1381,7 @@ export function createRuntime(ctx, deps = {}) {
     // Fire and forget: this runs from a click handler and the drain is the same forced flush
     // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
     // context before the history is dropped.
-    void startNewSpeaker({ silent: true });
+    void startNewSpeaker();
     updateStatus(ctx, changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`);
   }
 
@@ -1810,17 +1810,15 @@ export function createRuntime(ctx, deps = {}) {
   // last sentence is summarized with their own context rather than the next person's. Only then
   // clear. settleMs 0 is the same forced drain stopListening uses, for the same reason: nothing else
   // will ever come along to flush that tail.
-  async function startNewSpeaker({ silent = false } = {}) {
+  async function startNewSpeaker() {
     await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentBlock = null;
     ctx.state.lastSentText = '';
-    if (!silent) flashRailNote(ctx, 'New speaker. Starting fresh.', { setTimeoutFn, clearTimeoutFn });
   }
 
   return {
     addLine,
-    startNewSpeaker,
     cancelClearArm,
     clearLines,
     handleTranscriptEvent,
