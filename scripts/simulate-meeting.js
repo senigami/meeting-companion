@@ -9,19 +9,26 @@
 // (a close cousin of, but simpler than, demo.js's own natural-pause model, which this script does
 // not need since nothing here streams word-by-word).
 //
-// Usage: node scripts/simulate-meeting.js [--prompt current|variant] [--speed N] [--fixture demo|talk]
+// Usage: node scripts/simulate-meeting.js [--prompt current|variant] [--speed N] [--fixture demo|talk|testimony] [--noise]
 // --fixture selects the source script: "demo" (default) is the announcement-heavy scripted
 // meeting in public/services/transcription/demo.js; "talk" is the original narrative talk in
 // scripts/fixtures/sample-talk.js, used to judge summary quality on a real story rather than a
-// list of announcements.
+// list of announcements; "testimony" is the fast-and-testimony fixture in
+// scripts/fixtures/sample-testimony-meeting.js, many short unrelated speakers rather than one arc.
 // --speed is accepted but ignored for waiting -- there is no real waiting to scale, only a virtual
 // clock -- and exists purely so a future caller can scale the (currently fixed) 900ms virtual gap.
+// --noise runs each utterance through scripts/fixtures/transcription-noise.js's degrade() before
+// it enters the bucket, reproducing the errors our own transcription pipeline actually makes.
+// Off by default; when on, a banner line is printed with the seed used so a run's output is never
+// mistaken for clean input.
 
 import 'dotenv/config';
 import OpenAI from 'openai';
 
 import { DEMO_SCRIPT } from '../public/services/transcription/demo.js';
 import { SAMPLE_TALK } from './fixtures/sample-talk.js';
+import { SAMPLE_TESTIMONY_MEETING } from './fixtures/sample-testimony-meeting.js';
+import { degrade, shouldMergeWithNext } from './fixtures/transcription-noise.js';
 import { partitionBucket, takeOldestModeRun, removeConsumed, BUCKET_SETTLE_MS } from '../public/services/transcript-bucket.js';
 import { normalizeText } from '../public/services/text.js';
 import { createTranscriptItems, appendTranscriptItems } from '../public/services/transcript-display.js';
@@ -35,14 +42,19 @@ const TICK_MS = Number(process.argv.find((a) => a.startsWith('--tick='))?.split(
 const MIN_WORDS = Number(process.argv.find((a) => a.startsWith('--minwords='))?.split('=')[1] || 0);
 
 function parseArgs(argv) {
-  const args = { prompt: 'current', speed: 1, fixture: 'demo' };
+  const args = { prompt: 'current', speed: 1, fixture: 'demo', noise: false };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--prompt') args.prompt = argv[++i];
     else if (argv[i] === '--speed') args.speed = Number(argv[++i]) || 1;
     else if (argv[i] === '--fixture') args.fixture = argv[++i];
+    else if (argv[i] === '--noise') args.noise = true;
   }
   return args;
 }
+
+// A run-specific but reproducible seed: fixed by default so a bare `--noise` run is still
+// deterministic, but overridable via env for exploring different noise rolls.
+const NOISE_SEED = process.env.NOISE_SEED || 'simulate-meeting';
 
 function truncate(text, max) {
   const clean = String(text || '');
@@ -62,12 +74,17 @@ async function main() {
     return;
   }
 
-  if (args.fixture !== 'demo' && args.fixture !== 'talk') {
-    console.error(`Unknown --fixture value "${args.fixture}". Use "demo" or "talk".`);
+  if (!['demo', 'talk', 'testimony'].includes(args.fixture)) {
+    console.error(`Unknown --fixture value "${args.fixture}". Use "demo", "talk" or "testimony".`);
     process.exitCode = 1;
     return;
   }
-  const script = args.fixture === 'talk' ? SAMPLE_TALK : DEMO_SCRIPT;
+  const script =
+    args.fixture === 'talk' ? SAMPLE_TALK : args.fixture === 'testimony' ? SAMPLE_TESTIMONY_MEETING : DEMO_SCRIPT;
+
+  if (args.noise) {
+    console.log(`Noise ENABLED (seed="${NOISE_SEED}") -- this output reflects degraded transcription, not clean input.`);
+  }
 
   if (args.prompt === 'variant') {
     let variantModule;
@@ -117,6 +134,7 @@ async function main() {
   let transcriptItems = [];
 
   const chatHistory = [];
+  const appHistory = [];
   const calls = [];
   let summarizeCalls = 0;
   let cardsProduced = 0;
@@ -179,6 +197,10 @@ async function main() {
         recentTranscript: recent,
         previousBlock,
         visibleLines,
+        // The app keeps a short history of what was said and what was shown, and sends it so the
+        // model sees its own prior output as prior output. Without this the harness would be
+        // measuring a path the app never takes.
+        history: appHistory,
         openaiClient
       });
     } catch (err) {
@@ -191,6 +213,10 @@ async function main() {
     }
 
     summarizeCalls += 1;
+    if (result.line) {
+      appHistory.push({ spoken: recent, shown: result.line });
+      if (appHistory.length > 6) appHistory.shift();
+    }
     const lines = result.line ? result.line.split('\n').filter(Boolean) : [];
 
     calls.push({
@@ -220,11 +246,25 @@ async function main() {
 
   let nextTickAt = TICK_MS;
 
-  for (const entry of script) {
+  for (const [index, entry] of script.entries()) {
     if (entry.mode) mode = entry.mode;
     if (entry.pauseBeforeMs) now += entry.pauseBeforeMs;
 
-    bucket = [...bucket, { at: now, text: entry.text, mode }];
+    let text = entry.text;
+    if (args.noise) {
+      text = degrade(text, { seed: NOISE_SEED });
+      // Reproduces the observed "...for Sunday March 9th we will open by singing..." seam: glue
+      // this degraded utterance directly onto the previous bucket entry, no separator, as long as
+      // they share a mode -- the pipeline never merges across a mode boundary.
+      const previous = bucket[bucket.length - 1];
+      if (previous && previous.mode === mode && shouldMergeWithNext(NOISE_SEED, index)) {
+        bucket = [...bucket.slice(0, -1), { ...previous, text: `${previous.text} ${text}` }];
+      } else {
+        bucket = [...bucket, { at: now, text, mode }];
+      }
+    } else {
+      bucket = [...bucket, { at: now, text, mode }];
+    }
 
     const durationMs = (wordCount(entry.text) / WORDS_PER_MINUTE) * 60 * 1000;
     now += durationMs + GAP_MS;

@@ -120,7 +120,7 @@ export function createApp({
 
   app.post('/api/summarize', async (req, res) => {
     try {
-      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords } = req.body || {};
+      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, history = [] } = req.body || {};
       const result = await summarizeWithSource({
         source,
         mode,
@@ -128,6 +128,7 @@ export function createApp({
         previousBlock,
         visibleLines,
         maxWords,
+        history: sanitizeSummaryHistory(history),
         openaiClient: resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore }),
         anthropicApiKey: source === 'claude'
           ? resolveAnthropicKey({ apiKey, anthropicApiKey, providerKeyStore })
@@ -345,6 +346,18 @@ function describeOpenAIKeySource({ apiKey = '', providerKeyStore, openaiClient }
 
 function resolveAnthropicKey({ apiKey = '', anthropicApiKey = '', providerKeyStore }) {
   return normalizeText(apiKey || providerKeyStore?.get?.('claude') || anthropicApiKey);
+}
+
+// Untrusted client input: history must be an array of { spoken, shown } string pairs, dropping
+// anything else rather than throwing, and capped at the most recent 8 regardless of what the
+// client sent so a malformed or hostile client cannot grow the prompt without bound.
+const MAX_SUMMARY_HISTORY_ENTRIES = 8;
+function sanitizeSummaryHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const clean = history.filter(
+    (turn) => turn && typeof turn === 'object' && typeof turn.spoken === 'string' && typeof turn.shown === 'string'
+  ).map((turn) => ({ spoken: turn.spoken, shown: turn.shown }));
+  return clean.slice(-MAX_SUMMARY_HISTORY_ENTRIES);
 }
 
 const MAX_ERROR_DETAIL_LENGTH = 200;

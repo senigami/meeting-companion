@@ -4,6 +4,77 @@ import assert from 'node:assert/strict';
 import { summarizeWithSource } from '../../server/summarization.js';
 import { buildSummarizePrompt } from '../../public/services/summary-prompt.js';
 
+// OpenAI now sends a real message array (buildMinimalSummarizeMessages), not the single
+// buildSummarizePrompt user message the Claude path below still uses -- see
+// server/summarization.js's comment for why the two providers deliberately differ for now.
+test('OpenAI summarize with no history sends a system message plus one user turn', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'speaker',
+    recentTranscript: 'The new sentence.',
+    visibleLines: [],
+    openaiClient
+  });
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0].role, 'system');
+  assert.equal(sentMessages[1].role, 'user');
+  assert.equal(sentMessages[1].content, 'The new sentence.');
+});
+
+test('OpenAI summarize with two history entries sends system, user/assistant pairs, then the new turn', async () => {
+  let sentMessages = null;
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: async ({ messages }) => {
+          sentMessages = messages;
+          return { choices: [{ message: { content: 'A short line.' } }] };
+        }
+      }
+    }
+  };
+
+  const history = [
+    { spoken: 'First earlier chunk.', shown: 'First card.' },
+    { spoken: 'Second earlier chunk.', shown: 'Second card.' }
+  ];
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'information',
+    recentTranscript: 'The newest chunk.',
+    visibleLines: [],
+    history,
+    openaiClient
+  });
+
+  assert.equal(sentMessages.length, 6);
+  assert.equal(sentMessages[0].role, 'system');
+  assert.equal(sentMessages[1].role, 'user');
+  assert.equal(sentMessages[1].content, 'First earlier chunk.');
+  assert.equal(sentMessages[2].role, 'assistant');
+  assert.equal(sentMessages[2].content, 'First card.');
+  assert.equal(sentMessages[3].role, 'user');
+  assert.equal(sentMessages[3].content, 'Second earlier chunk.');
+  assert.equal(sentMessages[4].role, 'assistant');
+  assert.equal(sentMessages[4].content, 'Second card.');
+  assert.equal(sentMessages[5].role, 'user');
+  assert.equal(sentMessages[5].content, 'The newest chunk.');
+});
+
 test('server summarization routes claude requests through anthropic', async () => {
   let request = null;
 
@@ -278,4 +349,26 @@ test('regression: reconstructed real captured overflow (info-mode schedule line)
     const next = long.charAt(line.length);
     assert.ok(next === '' || next === ' ', `${source}: cut mid-word, next char was ${JSON.stringify(next)}`);
   }
+});
+
+test('the words-per-card setting reaches the prompt, so the slider is not a dead control', async () => {
+  // It WAS dead: the minimal prompt hardcoded 15 while maxWords was still threaded to a function
+  // that no longer read it. The setting persisted, rendered, and did nothing, which reads to an
+  // operator as the app ignoring them.
+  let sent = null;
+  const client = {
+    chat: { completions: { create: async (params) => { sent = params; return { choices: [{ message: { content: 'a line' } }] }; } } }
+  };
+
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'speaker',
+    recentTranscript: 'Some speech that needs shortening for the display.',
+    maxWords: 8,
+    openaiClient: client
+  });
+
+  const system = sent.messages.find((m) => m.role === 'system').content;
+  assert.match(system, /no more than 8 words/, 'the configured word count must appear in the prompt');
+  assert.doesNotMatch(system, /no more than 15 words/, 'and the hardcoded default must not');
 });

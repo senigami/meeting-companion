@@ -1,4 +1,6 @@
-// An experiment, not yet wired into the app.
+// The prompt the OpenAI summarization path uses. (It began as an experiment beside the original
+// summary-prompt.js, which the Claude path still uses; that asymmetry is deliberate, see
+// server/summarization.js.)
 //
 // Steve's rule, and the thing to get right here: these are TWO different jobs, chosen by mode.
 //
@@ -43,8 +45,9 @@ faster to read and harder to misread at a distance.
 Do not add anything that was not said. Do not say the same thing twice. Return only the text, with
 no preamble.`;
 
-export function buildMinimalSummarizePrompt({ recentTranscript = '', mode = 'speaker' } = {}) {
+export function buildMinimalSummarizePrompt({ recentTranscript = '', mode = 'speaker', maxWords = CARD_WORDS } = {}) {
   const text = String(recentTranscript).trim();
+  const cardWords = Number.isFinite(maxWords) && maxWords > 0 ? Math.round(maxWords) : CARD_WORDS;
 
   // CONDENSE: the speaker's own words, made shorter. Their voice is the point.
   if (mode === 'speaker' || mode === 'prayer') {
@@ -58,7 +61,7 @@ ${READER}
 
 ${shape}
 
-Write ONE line of no more than ${CARD_WORDS} words. One line, not two, not three. Whatever the
+Write ONE line of no more than ${cardWords} words. One line, not two, not three. Whatever the
 length of the text below, it becomes a single short line: pick what matters most and say only that.
 
 Shortening is the whole job: do not retell it, do not explain it, and never describe the speaker
@@ -83,7 +86,7 @@ This is meeting information: announcements, dates, times, assignments, logistics
 wording does not matter, the facts do. Third person is correct here, and there is no need to keep
 anybody's voice.
 
-Write one line of no more than ${CARD_WORDS} words per SEPARATE announcement, and no more than
+Write one line of no more than ${cardWords} words per SEPARATE announcement, and no more than
 three lines in total. Two announcements are two lines; one announcement said at length is still one
 line. Lead with the thing itself ("Working bee Saturday"), never with a clause about it ("If you
 are able to help...").
@@ -112,13 +115,14 @@ ${text}
 export function buildMinimalSummarizeMessages({
   recentTranscript = '',
   mode = 'speaker',
+  maxWords = CARD_WORDS,
   history = [],
   historyTurns = 4
 } = {}) {
   const text = String(recentTranscript).trim();
   // Reuse the single-message builder for the rules, then strip the transcript it appends: the text
   // belongs in its own final turn, not inside the instructions.
-  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode });
+  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords });
   const rules = full.replace(/\n*Text:\n*$/, '').trim();
 
   const messages = [{ role: 'system', content: rules }];

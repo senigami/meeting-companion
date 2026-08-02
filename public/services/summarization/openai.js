@@ -11,7 +11,7 @@ export function createOpenAISummarizer({
   return {
     id: 'openai',
     label: 'OpenAI',
-    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, history = [] } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -23,7 +23,8 @@ export function createOpenAISummarizer({
           recentTranscript: text,
           previousBlock,
           visibleLines,
-          maxWords
+          maxWords,
+          history
         })
       }, { setTimeoutFn, clearTimeoutFn });
 

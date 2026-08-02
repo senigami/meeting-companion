@@ -4,6 +4,69 @@ import assert from 'node:assert/strict';
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 
+test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
+  // The drain is skippable: runSummarizeCurrentText returns early while summarizeInFlight is set.
+  // Without waiting, a mode press during a call clears the history but leaves the outgoing tail in
+  // the bucket, and since testimony meeting never leaves speaker mode, takeOldestModeRun merges
+  // that tail with the next speaker's opening into one card, in first person. Nobody in the room
+  // could detect it.
+  const seen = [];
+  let releaseInFlight;
+  const inFlight = new Promise((resolve) => { releaseInFlight = resolve; });
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'card' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      mode: 'speaker',
+      summarizeCallPromise: inFlight,
+      transcriptChunks: [{ text: 'The outgoing speaker finished saying this.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    const pressed = runtime.setMode('speaker') ?? Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(seen, [], 'must not drain while a call is still in flight');
+
+    releaseInFlight();
+    await pressed;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(seen, ['The outgoing speaker finished saying this.'],
+      'the outgoing tail must be summarized once the in-flight call clears');
+    assert.deepEqual(ctx.state.summaryHistory, [], 'and only then is the history dropped');
+  });
+});
+
+test('pressing a mode button clears the conversational history, even when the mode does not change', async () => {
+  // Steve's control. During testimony meeting he never leaves speaker mode, so a reset that only
+  // fired on a CHANGE would never fire at all. Pressing the mode you are already on is the gesture.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a', shown: 'A' }, { spoken: 'b', shown: 'B' }] }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('speaker');
+    await Promise.resolve();
+    assert.deepEqual(ctx.state.summaryHistory, [], 'pressing the current mode must still start fresh');
+  });
+});
+
+test('changing mode clears the history, so one speaker does not become context for a prayer', async () => {
+  // This was a real bug: previousBlock was mode-guarded but summaryHistory was not, so switching
+  // from speaker to prayer carried the outgoing speaker's testimony in as conversational context.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a testimony', shown: 'A testimony' }] }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('prayer');
+    await Promise.resolve();
+    assert.equal(ctx.state.mode, 'prayer');
+    assert.deepEqual(ctx.state.summaryHistory, []);
+    assert.equal(ctx.state.lastSentBlock, null, 'the previous block must not survive the switch either');
+  });
+});
+
 test('runtime falls back to Claude summarization when OpenAI is unavailable', async () => {
   await withRuntimeHarness({
     fetchConfig: {
@@ -503,6 +566,27 @@ test('a scheduled tick that finds the previous summarize call still in flight fr
   } finally {
     global.setInterval = originalSetInterval;
   }
+});
+
+test('summaryHistory is cleared when listening stops', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    ctx.state.summaryHistory = [{ spoken: 'x', shown: 'y' }];
+
+    await runtime.stopListening();
+
+    assert.deepEqual(ctx.state.summaryHistory, []);
+  });
 });
 
 test('stopping active transcription returns the rail indicator to manual', async () => {
@@ -1734,6 +1818,53 @@ test('a failed call does not advance the previous-block slot and consumes nothin
   });
 });
 
+test('a successful summarize with a non-empty line appends {spoken, shown} to summaryHistory', async () => {
+  const driver = { id: 'openai', summarize: async () => ({ line: 'A card.' }) };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { transcriptChunks: [{ text: 'Some speech.', at: now, mode: 'speaker' }] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    assert.deepEqual(ctx.state.summaryHistory, [{ spoken: 'Some speech.', shown: 'A card.' }]);
+  });
+});
+
+test('summaryHistory is not appended to when the summarizer returns an empty line', async () => {
+  const driver = { id: 'openai', summarize: async () => ({ line: '' }) };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { transcriptChunks: [{ text: 'Some speech.', at: now, mode: 'speaker' }] }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    assert.deepEqual(ctx.state.summaryHistory, []);
+  });
+});
+
+test('summaryHistory is capped at the most recent 6 entries', async () => {
+  let n = 0;
+  const driver = { id: 'openai', summarize: async () => ({ line: `Card ${n}.` }) };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { transcriptChunks: [] }
+  }, async ({ ctx, runtime }) => {
+    for (n = 0; n < 8; n += 1) {
+      ctx.state.transcriptChunks.push({ text: `Speech ${n}.`, at: now, mode: 'speaker' });
+      ctx.state.lastSentText = null;
+      await runtime.summarizeCurrentText();
+    }
+
+    assert.equal(ctx.state.summaryHistory.length, 6);
+    assert.deepEqual(ctx.state.summaryHistory[0], { spoken: 'Speech 2.', shown: 'Card 2.' });
+    assert.deepEqual(ctx.state.summaryHistory[5], { spoken: 'Speech 7.', shown: 'Card 7.' });
+  });
+});
+
 test('nothing is consumed twice across the four-tick rolling sequence', async () => {
   const consumedTotals = [];
   const succeedingDriver = {
@@ -2144,6 +2275,20 @@ test('confirming an armed clear wipes the transcript, snapshots it, and announce
     assert.equal(ctx.state.lastClearedItems.length, 2);
     assert.equal(elements.status.textContent, 'Cleared 2 lines — press U or click Undo to bring them back.');
     assert.equal(elements.clearLabel.textContent, 'Clear');
+  });
+});
+
+test('confirming an armed clear also clears summaryHistory', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ text: 'first line' }],
+      summaryHistory: [{ spoken: 'x', shown: 'y' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.clearLines();
+    runtime.clearLines();
+
+    assert.deepEqual(ctx.state.summaryHistory, []);
   });
 });
 

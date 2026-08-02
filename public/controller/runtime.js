@@ -308,6 +308,7 @@ export function createRuntime(ctx, deps = {}) {
     }
     ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
+    ctx.state.summaryHistory = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';
     const text = `Cleared ${outgoing.length} ${lineWord} — press U or click Undo to bring them back.`;
@@ -1280,7 +1281,8 @@ export function createRuntime(ctx, deps = {}) {
         recentTranscript: recent,
         previousBlock,
         visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
-        maxWords: ctx.state.summaryMaxWords
+        maxWords: ctx.state.summaryMaxWords,
+        history: ctx.state.summaryHistory
       });
 
       // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
@@ -1318,6 +1320,9 @@ export function createRuntime(ctx, deps = {}) {
         // must read under the mode it was actually said in, even if the operator has since switched.
         addLine(result.line, { source: 'ai', mode: sendMode });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
+        // Same `recent`/result.line the recording above logs, so history and the recording can
+        // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
+        ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line }].slice(-6);
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
       }
@@ -1357,13 +1362,27 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
+  // Pressing a mode button ALWAYS starts fresh, whether or not the mode actually changed.
+  //
+  // Changing mode has to clear the history, and that was a real bug: previousBlock was already
+  // mode-guarded, but summaryHistory was a flat list, so switching from speaker to prayer carried
+  // the outgoing speaker's testimony into the prayer as conversational context.
+  //
+  // Pressing the mode you are ALREADY on clears it too, which is Steve's idea and a better control
+  // than the one I built. During testimony meeting he never leaves speaker mode, so a
+  // mode-change-only reset would never fire, and the buttons are already under his hand.
   function setMode(mode) {
+    const changed = ctx.state.mode !== mode;
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
     }
     updateModeButtons(ctx);
-    updateStatus(ctx, `Mode changed to ${mode}.`);
+    // Fire and forget: this runs from a click handler and the drain is the same forced flush
+    // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
+    // context before the history is dropped.
+    void startNewSpeaker();
+    updateStatus(ctx, changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`);
   }
 
   function setFontSize(nextSize) {
@@ -1480,6 +1499,7 @@ export function createRuntime(ctx, deps = {}) {
       await ctx.state.summarizeCallPromise;
     }
     await summarizeCurrentText(undefined, { settleMs: 0 });
+    ctx.state.summaryHistory = [];
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
     if (!ctx.state.paused) {
@@ -1780,6 +1800,32 @@ export function createRuntime(ctx, deps = {}) {
   // otherwise a page load with recording on by default would show nothing until the first summarize
   // tick, an honest-looking gap that is itself a small dishonesty (INV-10).
   updateRecordingIndicator();
+
+  // Fast-and-testimony meeting: ten or more unrelated people in an hour, usually not introduced by
+  // name. Stopping and starting between them would reset context, but it tears down the microphone
+  // and the VAD for about a second, and a second is a large fraction of a ninety second testimony.
+  // This gives the same fresh start with no gap in capture.
+  //
+  // Order matters. Drain FIRST, while the outgoing speaker's history is still in place, so their
+  // last sentence is summarized with their own context rather than the next person's. Only then
+  // clear. settleMs 0 is the same forced drain stopListening uses, for the same reason: nothing else
+  // will ever come along to flush that tail.
+  async function startNewSpeaker() {
+    // Wait out any call already in flight FIRST, exactly as stopListening does a few lines below,
+    // and for a sharper reason here. runSummarizeCurrentText returns early while summarizeInFlight
+    // is set, so without this the drain is silently skipped while the history is cleared anyway.
+    // The outgoing speaker's tail then stays in the bucket, and since testimony meeting never
+    // leaves speaker mode, takeOldestModeRun merges it into one contiguous run with the next
+    // speaker's opening: one card spanning two people, written in confident first person, which
+    // neither the operator nor a reader who cannot hear the room could detect.
+    if (ctx.state.summarizeCallPromise) {
+      await ctx.state.summarizeCallPromise;
+    }
+    await summarizeCurrentText(undefined, { settleMs: 0 });
+    ctx.state.summaryHistory = [];
+    ctx.state.lastSentBlock = null;
+    ctx.state.lastSentText = '';
+  }
 
   return {
     addLine,
