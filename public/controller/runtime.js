@@ -1787,8 +1787,26 @@ export function createRuntime(ctx, deps = {}) {
   // tick, an honest-looking gap that is itself a small dishonesty (INV-10).
   updateRecordingIndicator();
 
+  // Fast-and-testimony meeting: ten or more unrelated people in an hour, usually not introduced by
+  // name. Stopping and starting between them would reset context, but it tears down the microphone
+  // and the VAD for about a second, and a second is a large fraction of a ninety second testimony.
+  // This gives the same fresh start with no gap in capture.
+  //
+  // Order matters. Drain FIRST, while the outgoing speaker's history is still in place, so their
+  // last sentence is summarized with their own context rather than the next person's. Only then
+  // clear. settleMs 0 is the same forced drain stopListening uses, for the same reason: nothing else
+  // will ever come along to flush that tail.
+  async function startNewSpeaker() {
+    await summarizeCurrentText(undefined, { settleMs: 0 });
+    ctx.state.summaryHistory = [];
+    ctx.state.lastSentBlock = null;
+    ctx.state.lastSentText = '';
+    flashRailNote(ctx, 'New speaker. Starting fresh.', { setTimeoutFn, clearTimeoutFn });
+  }
+
   return {
     addLine,
+    startNewSpeaker,
     cancelClearArm,
     clearLines,
     handleTranscriptEvent,
