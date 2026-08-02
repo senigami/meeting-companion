@@ -76,3 +76,20 @@ test('the press-again button uses a measured literal colour, not the accent toke
     'must NOT reach for --accent, which resolves lighter than the floor allows'
   );
 });
+
+test('the reader is never asked for anything, including his own name', async () => {
+  // This regressed: the naming form was placed on the done screen because the spec said "after
+  // All done, thank you". But the done screen IS his screen -- he presses the last button and
+  // reads what follows it -- so a name field there appears to be asking him. Naming belongs on
+  // the ?results view, which only the operator reaches.
+  const html = await readHtml();
+  const doneScreen = html.slice(html.indexOf('id="doneScreen"'), html.indexOf('id="resultsScreen"'));
+
+  assert.doesNotMatch(doneScreen, /<form/i, 'the done screen must not contain a form');
+  assert.doesNotMatch(doneScreen, /<input/i, 'nor an input');
+  assert.doesNotMatch(doneScreen, /name/i, 'nor ask for a name in any wording');
+
+  const results = html.slice(html.indexOf('id="resultsScreen"'));
+  assert.match(results, /id="saveProfileForm"/, 'and the naming form must live on the operator view');
+});
+

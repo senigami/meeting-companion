@@ -9,6 +9,7 @@ import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
 import { createSessionRecorder } from './server/session-recorder.js';
+import { createReadingPaceStore } from './server/reading-pace-store.js';
 
 const MAIN_FILE = fileURLToPath(import.meta.url);
 
@@ -21,7 +22,8 @@ export function createApp({
   fetchImpl = fetch,
   listAvailableSourcesFn = listAvailableSources,
   providerKeyStore = createProviderKeyStore(),
-  sessionRecorder = createSessionRecorder()
+  sessionRecorder = createSessionRecorder(),
+  readingPaceStore = createReadingPaceStore()
 } = {}) {
   const app = express();
 
@@ -220,6 +222,44 @@ export function createApp({
     }
   });
 
+  // Reading-pace measurement save (issue #44, first slice of named reader profiles). The result is a
+  // one-time, in-person reading-speed measurement of a real person, calibrated to at that font size --
+  // losing it to a cleared browser or an unmovable localStorage entry loses the only copy. Same
+  // discipline as /api/recording/append: a write failure degrades to { ok: false } and is never
+  // thrown, and the measured cards/timings never appear in the response.
+  // Defined here rather than beside the recording routes because the reading-pace POST below is the
+  // first user of it. Reads `req.socket.remoteAddress` -- the raw connection peer -- rather than
+  // `req.ip`, because `req.ip` can become header-derived if `trust proxy` is ever enabled, and a
+  // header-spoofable privacy guard is worse than none: it reads as protection while offering none.
+  const loopbackOnly = (message) => (req, res, next) => {
+    if (!isLoopbackAddress(req.socket?.remoteAddress)) {
+      return res.status(403).json({ error: message });
+    }
+    next();
+  };
+
+  // ORDERING MATTERS, same reason as /api/recording/append above: this route must stay registered
+  // ABOVE the refuseUnlessLoopback USE-mounts (further down), which sit on the
+  // `/api/reading-pace/:name` prefix that also matches this path.
+  //
+  // But unlike /api/recording/append, this one IS loopback-gated, explicitly, via the guard passed
+  // as route middleware. That precedent does not carry here: an append writes into a session file
+  // the operator already started, while this creates a NAMED file about an identifiable person. A
+  // machine on the same network should not be able to do that.
+  app.post('/api/reading-pace', loopbackOnly('Saving a reader profile is disabled for requests not originating from this machine.'), async (req, res) => {
+    try {
+      const { name = '', payload = null } = req.body || {};
+      const result = await readingPaceStore.save(name, payload);
+      if (!result.ok) {
+        return res.status(400).json({ ok: false, error: safeErrorDetail(result.error || 'write failed') });
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ ok: false, error: safeErrorDetail(error) });
+    }
+  });
+
   // Read-side companions to /api/recording/append. Unlike the append route, these serve raw
   // recorded transcript text back over the network with no auth of their own. ADR-0004 decided
   // that writing recordings to local disk was safe; it never decided that reading them back over
@@ -233,12 +273,7 @@ export function createApp({
   // `req.socket.remoteAddress` -- the raw connection peer address -- rather than `req.ip`, because
   // `req.ip` can become header-derived if `trust proxy` is ever enabled; a header-spoofable privacy
   // guard is worse than no guard at all, since it reads as protection while offering none.
-  const refuseUnlessLoopback = (req, res, next) => {
-    if (!isLoopbackAddress(req.socket?.remoteAddress)) {
-      return res.status(403).json({ error: 'Recording readback is disabled for requests not originating from this machine.' });
-    }
-    next();
-  };
+  const refuseUnlessLoopback = loopbackOnly('Recording readback is disabled for requests not originating from this machine.');
   app.use('/api/recording/list', refuseUnlessLoopback);
   app.use('/api/recording/:id', refuseUnlessLoopback);
 
@@ -262,6 +297,35 @@ export function createApp({
     } catch (error) {
       console.error(safeErrorDetail(error));
       res.status(500).json({ error: 'Reading recording failed.', detail: safeErrorDetail(error) });
+    }
+  });
+
+  // Read-side companions to /api/reading-pace (POST, above). Same reasoning as the recording
+  // readback guard just above: this is personal data -- a real person's measured reading speed --
+  // and must never leave the machine.
+  app.use('/api/reading-pace/list', refuseUnlessLoopback);
+  app.use('/api/reading-pace/:name', refuseUnlessLoopback);
+
+  app.get('/api/reading-pace/list', async (req, res) => {
+    try {
+      const profiles = await readingPaceStore.list();
+      res.json({ profiles });
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Listing reading-pace profiles failed.', detail: safeErrorDetail(error) });
+    }
+  });
+
+  app.get('/api/reading-pace/:name', async (req, res) => {
+    try {
+      const payload = await readingPaceStore.read(req.params.name);
+      if (payload === null) {
+        return res.status(404).json({ error: 'Reading-pace profile not found.' });
+      }
+      res.json(payload);
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).json({ error: 'Reading reading-pace profile failed.', detail: safeErrorDetail(error) });
     }
   });
 

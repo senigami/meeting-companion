@@ -10,6 +10,12 @@ node_modules/
 # code can run.
 recordings/
 
+# Reader profiles (issue #44): named reading-pace results written to local disk instead of
+# localStorage. Ignored because this is one real person's measured reading speed, not test fixture
+# data -- the directory is created and written to only by server/reading-pace-store.js, and this
+# line must exist before that code can run.
+reader-profiles/
+
 # Everything under .claude/ is local by default: agent identities, the OD decision log, and the hooks
 # that enforce our own working discipline. Default-deny on purpose — twice in one day a rule that
 # listed what to hide missed something new (gate records in .agent/, then the decision log), and a

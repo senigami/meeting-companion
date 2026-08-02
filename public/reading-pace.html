@@ -39,6 +39,17 @@
     <section id="resultsScreen" class="paceScreen paceResultsScreen" hidden aria-labelledby="resultsHeading">
       <h1 id="resultsHeading">Reading pace results</h1>
 
+      <!-- Naming lives HERE, not on the done screen. The done screen is HIS screen: he is the one
+           who presses the last button and reads what follows it, so a field asking for his name
+           appears to be asking HIM. This view is reached only by typing ?results, which is the
+           operator deliberately stepping away from him. -->
+      <form id="saveProfileForm" class="paceSaveForm">
+        <label for="saveProfileName">Save these results as</label>
+        <input id="saveProfileName" name="name" type="text" autocomplete="off" />
+        <button id="saveProfileButton" type="submit" class="paceButton paceSecondaryButton">Save</button>
+        <p id="saveProfileStatus" class="paceSaveStatus" role="status"></p>
+      </form>
+
       <div id="resultsEmpty" class="paceResultsBlock" hidden>
         <p>No results saved yet on this device.</p>
       </div>
