@@ -56,8 +56,8 @@ function wordCount(text) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  if (!['current', 'variant', 'minimal'].includes(args.prompt)) {
-    console.error(`Unknown --prompt value "${args.prompt}". Use "current", "variant" or "minimal".`);
+  if (!['current', 'variant', 'minimal', 'chat'].includes(args.prompt)) {
+    console.error(`Unknown --prompt value "${args.prompt}". Use "current", "variant", "minimal" or "chat".`);
     process.exitCode = 1;
     return;
   }
@@ -116,6 +116,7 @@ async function main() {
   let lastSentBlock = null; // { text, mode }
   let transcriptItems = [];
 
+  const chatHistory = [];
   const calls = [];
   let summarizeCalls = 0;
   let cardsProduced = 0;
@@ -144,6 +145,21 @@ async function main() {
     let result;
     let error = null;
     try {
+      if (args.prompt === 'chat') {
+        // Real turns: rules as system, each earlier block as a user turn with the card we actually
+        // showed as the assistant turn answering it, then the new block.
+        const { buildMinimalSummarizeMessages } = await import('../public/services/summary-prompt-minimal.js');
+        const completion = await openaiClient.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          temperature: 0.2,
+          max_tokens: 400,
+          messages: buildMinimalSummarizeMessages({ recentTranscript: recent, mode: sendMode, history: chatHistory })
+        });
+        const line = (completion.choices[0]?.message?.content || '').trim();
+        chatHistory.push({ spoken: recent, shown: line });
+        result = { line };
+        throw { __handled: true, result };
+      }
       if (args.prompt === 'minimal') {
         // The minimal prompt is a single compression instruction with a target length, so it does
         // not go through summarizeWithSource's prompt assembly at all -- that is the point of it.

@@ -94,3 +94,39 @@ Text:
 ${text}
 `.trim();
 }
+
+
+// ---------------------------------------------------------------------------
+// Steve's question, 2026-08-01: are we sending prior context the right way?
+//
+// No. Everything above builds ONE user message with the previous block and the already-shown lines
+// pasted in as prose sections. The model is handed a description of a conversation rather than a
+// conversation. That makes "do not repeat what is already shown" a request it can ignore, which is
+// exactly where issue #25 keeps failing.
+//
+// This builds real turns instead: the rules as a system message, then each earlier block as a user
+// turn with the card we actually displayed as the assistant turn that answered it, then the new
+// block. The model can now SEE what it already wrote, in the position where its own prior output
+// belongs, so not repeating itself is structural rather than instructed.
+
+export function buildMinimalSummarizeMessages({
+  recentTranscript = '',
+  mode = 'speaker',
+  history = [],
+  historyTurns = 4
+} = {}) {
+  const text = String(recentTranscript).trim();
+  // Reuse the single-message builder for the rules, then strip the transcript it appends: the text
+  // belongs in its own final turn, not inside the instructions.
+  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode });
+  const rules = full.replace(/\n*Text:\n*$/, '').trim();
+
+  const messages = [{ role: 'system', content: rules }];
+  for (const turn of history.slice(-historyTurns)) {
+    if (!turn?.spoken || !turn?.shown) continue;
+    messages.push({ role: 'user', content: String(turn.spoken).trim() });
+    messages.push({ role: 'assistant', content: String(turn.shown).trim() });
+  }
+  messages.push({ role: 'user', content: text });
+  return messages;
+}
