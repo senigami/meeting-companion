@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
+import { cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -11,7 +11,7 @@ export function createClaudeSummarizer({
   return {
     id: 'claude',
     label: 'Claude',
-    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, level, history = [] } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -24,7 +24,11 @@ export function createClaudeSummarizer({
           recentTranscript: text,
           previousBlock,
           visibleLines,
-          maxWords
+          maxWords,
+          // #47: without these two, selecting Claude silently dropped the summarization level and all
+          // prior context, so the same setting produced a different application.
+          level,
+          history
         })
       }, { setTimeoutFn, clearTimeoutFn });
 
@@ -40,7 +44,6 @@ export function createClaudeSummarizer({
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,
-        prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }),
         wasShortened: Boolean(data.wasShortened)
       };
     }

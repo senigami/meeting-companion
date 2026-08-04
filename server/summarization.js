@@ -1,4 +1,5 @@
-import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { cleanModelLines, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { packLinesIntoCards } from '../public/services/card-packing.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
@@ -15,10 +16,29 @@ const ANTHROPIC_API_VERSION = '2023-06-01';
 // how the line got there.
 const DISPLAY_LINE_MAX_CHARS = 140;
 
-// maxWords arrives as untrusted client input and its only consumer is buildSummarizePrompt, which
-// clamps it there -- next to the prompt text it protects, so a prompt can never claim a limit that
-// was not honoured. It is deliberately NOT re-clamped here: a second clamp would be a second home for
-// the same rule, and the two could drift apart while both looked correct.
+// maxWords arrives as untrusted request input, and the comment that used to sit here said its only
+// consumer was buildSummarizePrompt, which clamped it. That stopped being true when the minimal prompt
+// took over: it clamps nothing, so `maxWords: 100000` produced a prompt reading "no more than 100000
+// words". Measured 2026-08-04 while bringing the Claude path to parity (#47), which would have widened
+// the gap to both providers.
+//
+// The ceiling is DERIVED so it cannot bind on any real reader, and that property is the whole point.
+// A first version used a flat 40, and Cato showed the comment defending it was false: readingBudget has
+// no upper clamp, so an 80 wpm reader at a 30 second interval already reaches 40 and anything faster was
+// silently losing budget. A bound that can quietly reduce what the reader gets is a reading-load
+// decision, and those belong to Ansel, not here.
+//
+// So it is pinned to something no person does: the longest interval the app allows, times a reading
+// pace far above any human reading a wall display. That bounds absurd input while provably never
+// touching a derived budget. If a real calibration ever approaches it, this is the wrong constant and
+// the fix is Ansel's, not a bigger number here.
+const IMPLAUSIBLE_WPM = 400;
+const MAX_WORDS_HARD_CEILING = Math.round((IMPLAUSIBLE_WPM / 60) * SUMMARY_INTERVAL_MAX_SECONDS);
+const boundWords = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return SUMMARY_MAX_WORDS;
+  return Math.min(Math.round(numeric), MAX_WORDS_HARD_CEILING);
+};
 export async function summarizeWithSource({
   source = 'openai',
   mode = 'speaker',
@@ -35,6 +55,7 @@ export async function summarizeWithSource({
 } = {}) {
   const text = String(recentTranscript).trim();
   if (!text) return { line: '' };
+  const words = boundWords(maxWords);
 
   switch (source || 'openai') {
     case 'openai':
@@ -44,7 +65,7 @@ export async function summarizeWithSource({
         recentTranscript: text,
         previousBlock,
         visibleLines,
-        maxWords,
+        maxWords: words,
         // The requested level is honoured -- the client derives it from the reading budget and this
         // layer must not second-guess that. The ONE thing enforced here is the information-mode
         // guard, because brief keeps a single line and an announcement round then loses facts
@@ -62,7 +83,11 @@ export async function summarizeWithSource({
         recentTranscript: text,
         previousBlock,
         visibleLines,
-        maxWords
+        maxWords: words,
+        // Same information-mode guard as the OpenAI branch, for the same reason: brief keeps one
+        // line, so an announcements round would lose every fact after the first.
+        level: mode === 'information' ? 'condense' : (isSummaryLevel(level) ? level : 'condense'),
+        history
       });
     default:
       throw new Error(`Unsupported summarization source: ${source}`);
@@ -90,29 +115,32 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
     messages
   });
 
+  return finishReply(completion.choices?.[0]?.message?.content || '', visibleLines, { mode, maxWords, level });
+}
+
+// The post-processing both providers share. It was inline in the OpenAI branch, and bringing Claude to
+// parity (#47) meant re-deriving every rule in it -- which is precisely how the two drifted into being
+// different applications wearing one setting. One function now, so a rule added for one provider
+// cannot silently miss the other.
+function finishReply(rawText, visibleLines, { mode, maxWords, level }) {
   // brief is ONE card by contract: nothing to pack, and no second line to accept. Letting either
-  // through would quietly hand the reader more than the level promised, which is the whole quantity
-  // the level exists to control.
+  // through would hand the reader more than the level promised, which is the whole quantity the level
+  // exists to control.
   if (level === 'brief') {
-    return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines, { maxLines: 1 });
+    return finishLines(rawText, visibleLines, { maxLines: 1 });
   }
 
   // Packing applies to the CONDENSE modes only. In information mode each line is a separate
-  // announcement, and merging two of them into one card because they happened to fit the word
-  // budget is wrong -- "Closing hymn 301" and "Sister Ellsworth will offer the benediction" are two
-  // things a reader looks for separately, not one sentence. (Caught by the line-order test, which
-  // failed the moment packing was applied to every mode.)
+  // announcement, and merging two because they happened to fit the word budget is wrong -- a hymn
+  // number and a benediction assignment are two things a reader looks for separately.
   //
-  // For the condense modes, maxLines goes well above MAX_LINES_PER_CALL on purpose: the prompt now
-  // returns one thought per line, so three would truncate a long testimony mid-way. 12 is a runaway
-  // guard, not a display limit -- packLinesIntoCards decides how many cards those become.
-  // 12 for information mode too, not the MAX_LINES_PER_CALL default of 3 (#49). Announcements are
-  // one line each, so three was a hard ceiling on how many facts could survive one tick: a fourth
-  // was dropped silently. Ansel ruled 12 here as well -- a runaway guard, matching the speaker path,
-  // with the release queue doing the actual pacing. The constant is shared with the client drivers,
-  // which used to re-cap this at 3 and undo it.
+  // RUNAWAY_LINE_GUARD for every mode including information, not the MAX_LINES_PER_CALL default of 3
+  // (#49): announcements are one line each, so 3 was a hard ceiling on how many facts could survive a
+  // tick, and the fourth was dropped silently. Ansel ruled 12, with the release queue doing the
+  // pacing rather than the cap. The same constant is imported by the client drivers, which used to
+  // re-cap at 3 and undo all of it (#63).
   const packs = mode === 'speaker' || mode === 'prayer';
-  return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines, {
+  return finishLines(rawText, visibleLines, {
     cardWords: packs ? maxWords : null,
     maxLines: RUNAWAY_LINE_GUARD
   });
@@ -148,13 +176,28 @@ async function summarizeWithClaude({
   recentTranscript,
   previousBlock,
   visibleLines,
-  maxWords
+  maxWords,
+  level = 'condense',
+  history = []
 }) {
   if (!anthropicApiKey) {
     return { line: '', reason: 'ANTHROPIC_API_KEY is not set. Manual mode still works.' };
   }
 
-  const prompt = buildSummarizePrompt({ mode, recentTranscript, previousBlock, visibleLines, maxWords });
+  // Steve on #47, 2026-08-04: "Claude is supported for live transcription but untested as I do not
+  // have claude api key. In theory it should work the same as the openai one." So it runs the SAME
+  // prompt, levels and line guard now, rather than the older buildSummarizePrompt.
+  //
+  // What it was before: one pasted-context user message, no summarization levels, no third-person
+  // brief, no card packing, and a line cap of 3 -- so an announcements round on Claude still dropped
+  // the fourth announcement long after #49 was fixed for OpenAI, and switching provider mid-meeting
+  // moved the behaviour under the operator with nothing saying so.
+  //
+  // buildMinimalSummarizeMessages returns [system, ...history turns, user]. Anthropic takes the system
+  // prompt as its own top-level field rather than as a message, so it is split off here; the
+  // remaining user/assistant turns map across unchanged.
+  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
+  const [systemMessage, ...turns] = messages;
   const response = await fetchImpl(ANTHROPIC_API_URL, {
     method: 'POST',
     headers: {
@@ -169,13 +212,8 @@ async function summarizeWithClaude({
       // cleanly, which is worse. 300 matches the OpenAI path's headroom.
       max_tokens: 300,
       temperature: 0.2,
-      system: 'Return only the line text, one idea per line, or an empty string. No quotes. No markdown.',
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      system: systemMessage.content,
+      messages: turns.map((turn) => ({ role: turn.role, content: turn.content }))
     })
   });
 
@@ -187,5 +225,6 @@ async function summarizeWithClaude({
   const output = Array.isArray(data.content)
     ? data.content.filter((chunk) => chunk?.type === 'text').map((chunk) => chunk.text || '').join('\n')
     : '';
-  return finishLines(output, visibleLines);
+  // Identical post-processing to the OpenAI path, through the same function so the two cannot drift.
+  return finishReply(output, visibleLines, { mode, maxWords, level });
 }

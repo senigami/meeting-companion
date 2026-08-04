@@ -196,9 +196,15 @@ export function buildMinimalSummarizeMessages({
 
   const messages = [{ role: 'system', content: rules }];
   for (const turn of history.slice(-historyTurns)) {
-    if (!turn?.spoken || !turn?.shown) continue;
-    messages.push({ role: 'user', content: String(turn.spoken).trim() });
-    messages.push({ role: 'assistant', content: String(turn.shown).trim() });
+    // Trim BEFORE the guard, not after. A whitespace-only entry passed the truthiness check and then
+    // trimmed to '', producing an empty content block. OpenAI tolerates that; Anthropic rejects the
+    // whole request with a 400, so once the Claude path started using these messages (#47) it became a
+    // failed summarize call rather than a slightly odd turn. Found by Cato before it shipped.
+    const spoken = String(turn?.spoken ?? '').trim();
+    const shown = String(turn?.shown ?? '').trim();
+    if (!spoken || !shown) continue;
+    messages.push({ role: 'user', content: spoken });
+    messages.push({ role: 'assistant', content: shown });
   }
   messages.push({ role: 'user', content: text });
   return messages;

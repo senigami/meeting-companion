@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
+import { cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -43,7 +43,6 @@ export function createOpenAISummarizer({
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,
-        prompt: buildSummarizePrompt({ mode, recentTranscript: text, previousBlock, visibleLines, maxWords }),
         // Passed straight through from server/summarization.js's own before/after shortenToLimit
         // comparison -- the recording instrument's (ADR-0004) measurement of whether the prompt-side
         // length fix in 909fe1e actually fires, not just whether the line happened to be long.

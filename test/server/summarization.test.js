@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { summarizeWithSource } from '../../server/summarization.js';
 import { buildSummarizePrompt } from '../../public/services/summary-prompt.js';
+import { readingBudget } from '../../public/services/reading-pace.js';
+import { SUMMARY_INTERVAL_MAX_SECONDS } from '../../public/services/view-settings.js';
 
 // OpenAI now sends a real message array (buildMinimalSummarizeMessages), not the single
 // buildSummarizePrompt user message the Claude path below still uses -- see
@@ -133,10 +135,15 @@ test('server preserves line order across providers and rejoins multiple ideas wi
   assert.equal(openaiResult.line, multiLine);
 });
 
-test('server caps a model reply at three lines and drops only a sibling line matching a visible line, not the whole reply', async () => {
+test('a line duplicating one already on screen is dropped, and only that line', async () => {
+  // Was "caps a model reply at three lines": the Claude path capped at 3 and this asserted it. Since
+  // #47 it runs the same guard as OpenAI, so four items now survive four items. The behaviour this
+  // test actually protects -- one sibling dropped for matching a visible line, the rest kept -- is
+  // unchanged and is the part worth pinning.
   const modelReply = 'Hymn 241 selected.\nFirst item.\nSecond item.\nThird item.';
   const result = await summarizeWithSource({
     source: 'claude',
+    mode: 'information',
     recentTranscript: 'irrelevant transcript text.',
     visibleLines: ['Hymn 241 selected.'],
     anthropicApiKey: 'test-key',
@@ -161,77 +168,91 @@ test('Anthropic max_tokens is raised well past the old 64-token cap to hold thre
   assert.ok(sentMaxTokens >= 200, `expected max_tokens >= 200, got ${sentMaxTokens}`);
 });
 
-test('server clamps an out-of-range or non-numeric maxWords to the shared default before it reaches the prompt', async () => {
-  async function promptSentFor(maxWords) {
-    let request = null;
+test('an out-of-range or non-numeric maxWords is bounded before it reaches any prompt', async () => {
+  // Rewritten with the clamp's home. It used to assert buildSummarizePrompt's internal clamp, which
+  // only ever protected the Claude path; the minimal prompt clamps nothing, so once OpenAI moved to it
+  // `maxWords: 100000` produced a prompt reading "no more than 100000 words". Bringing Claude to
+  // parity (#47) would have widened that to both providers, so the bound now lives at the request
+  // boundary and this test checks the words that actually reach the model.
+  async function wordsInPromptFor(maxWords, source) {
+    let seen = null;
+    const openaiClient = {
+      chat: { completions: { create: async ({ messages }) => { seen = messages[0].content; return { choices: [{ message: { content: 'x' } }] }; } } }
+    };
     await summarizeWithSource({
-      source: 'claude',
+      source,
       mode: 'speaker',
+      // brief, because the CONDENSE prompt deliberately names no word count any more (the model
+      // ignored it, so packLinesIntoCards enforces the budget in code instead). brief is the branch
+      // that still states a number, so it is where an unbounded value would actually surface.
+      level: 'brief',
       recentTranscript: 'A neighbor was forgiven.',
-      visibleLines: [],
       maxWords,
+      openaiClient,
       anthropicApiKey: 'test-key',
-      anthropicModel: 'claude-sonnet-test',
       fetchImpl: async (url, options) => {
-        request = { url, options };
-        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'Forgiven neighbor' }] }) };
+        seen = JSON.parse(options.body).system;
+        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
       }
     });
-    return JSON.parse(request.options.body).messages[0].content;
+    const match = seen.match(/no more than (\d+) words/);
+    return match ? Number(match[1]) : null;
   }
 
-  const defaultPrompt = buildSummarizePrompt({ mode: 'speaker', recentTranscript: 'A neighbor was forgiven.' });
-  assert.match(defaultPrompt, /Maximum 14 words/);
+  // Both providers, because the whole point of #47 is that they stopped being different applications.
+  for (const source of ['openai', 'claude']) {
+    const absurd = await wordsInPromptFor(100000, source);
+    assert.ok(absurd < 100000 && absurd > 0, `${source}: an absurd value must be bounded, got ${absurd}`);
+    assert.equal(await wordsInPromptFor(-5, source), 14, `${source}: a nonsense value falls back to the default`);
+    assert.equal(await wordsInPromptFor('nope', source), 14, `${source}: so does a non-number`);
+    assert.equal(await wordsInPromptFor(10, source), 10, `${source}: and a real budget passes through untouched`);
 
-  assert.match(await promptSentFor(4), /Maximum 14 words/);
-  assert.match(await promptSentFor(100), /Maximum 14 words/);
-  assert.match(await promptSentFor('nope'), /Maximum 14 words/);
-  assert.match(await promptSentFor(8), /Maximum 8 words/);
-});
-
-// The rolling two-block window (.agent/rolling-window-brief.md) reaches the model only if the
-// server layer forwards previousBlock into the prompt it hands to the outgoing Anthropic request.
-test('server threads previousBlock into the prompt sent to the provider', async () => {
-  let request = null;
-  const result = await summarizeWithSource({
-    source: 'claude',
-    mode: 'speaker',
-    recentTranscript: 'The new sentence.',
-    previousBlock: 'The earlier sentence.',
-    visibleLines: [],
-    anthropicApiKey: 'test-key',
-    anthropicModel: 'claude-sonnet-test',
-    fetchImpl: async (url, options) => {
-      request = { url, options };
-      return { ok: true, json: async () => ({ content: [{ type: 'text', text: '' }] }) };
+    // The property that matters, not the ceiling's value. A first version of this bound was a flat 40,
+    // and Cato showed an 80 wpm reader at a 30s interval already reached it, so the bound was silently
+    // reducing a real derived budget -- which makes it a reading-load decision rather than input
+    // validation. It must never bind on anything readingBudget can produce for a plausible reader.
+    for (const wpm of [30, 60, 90, 120, 200]) {
+      const budget = readingBudget(wpm, SUMMARY_INTERVAL_MAX_SECONDS).words;
+      assert.equal(await wordsInPromptFor(budget, source), budget,
+        `${source}: a ${wpm}wpm reader's budget of ${budget} must reach the model unclamped`);
     }
-  });
-
-  const sentPrompt = JSON.parse(request.options.body).messages[0].content;
-  assert.match(sentPrompt, /Previous block \(already summarized/i);
-  assert.match(sentPrompt, /The earlier sentence\./);
-  assert.match(sentPrompt, /New transcript \(summarize this\):\s*\nThe new sentence\./);
-  assert.equal(result.line, '');
+  }
 });
 
-test('server omits previousBlock cleanly when absent, matching current prompt behavior', async () => {
+// previousBlock reaches NO prompt any more, and these two tests used to be the only thing asserting
+// otherwise. They covered the Claude path only, which was its last consumer: buildMinimalSummarizeMessages
+// (the OpenAI path since #43, and now Claude too since #47) carries prior context as real
+// user/assistant turns in `history` instead of pasting a described block into one message.
+//
+// So the parameter is now accepted, threaded through two functions, and used nowhere. Filed rather
+// than deleted here, because removing it touches the route, both client drivers and the runtime, and
+// that is not a provider-parity change.
+test('prior context reaches Claude as conversation turns, the same way it reaches OpenAI', async () => {
   let request = null;
   await summarizeWithSource({
     source: 'claude',
     mode: 'speaker',
     recentTranscript: 'The new sentence.',
+    previousBlock: 'The earlier sentence.',
+    history: [{ spoken: 'An earlier chunk.', shown: 'An earlier card.' }],
     visibleLines: [],
     anthropicApiKey: 'test-key',
-    anthropicModel: 'claude-sonnet-test',
     fetchImpl: async (url, options) => {
       request = { url, options };
       return { ok: true, json: async () => ({ content: [{ type: 'text', text: '' }] }) };
     }
   });
 
-  const sentPrompt = JSON.parse(request.options.body).messages[0].content;
-  assert.doesNotMatch(sentPrompt, /Previous block/i);
-  assert.match(sentPrompt, /Recent transcript:\s*\nThe new sentence\./);
+  const body = JSON.parse(request.options.body);
+  // System prompt as its own field, not as a message -- that is Anthropic's shape.
+  assert.match(body.system, /large display read by one person who is Deaf/);
+  assert.deepEqual(body.messages.map((m) => m.role), ['user', 'assistant', 'user']);
+  assert.equal(body.messages[0].content, 'An earlier chunk.');
+  assert.equal(body.messages[1].content, 'An earlier card.');
+  assert.equal(body.messages[2].content, 'The new sentence.');
+  // And the superseded mechanism is genuinely gone rather than duplicated alongside it.
+  assert.doesNotMatch(body.system, /Previous block/i);
+  assert.ok(!body.messages.some((m) => /The earlier sentence/.test(m.content)));
 });
 
 // Regression coverage for the fixed-offset clamp bug: `server/summarization.js:70,120` used to
@@ -495,4 +516,63 @@ test('the information prompt no longer names a line count, since the model ignor
   });
   assert.doesNotMatch(seenSystem, /three lines in total/);
   assert.match(seenSystem, /per SEPARATE announcement/, 'the per-announcement rule must survive');
+});
+
+test('both providers run the same prompt, levels and line guard (#47)', async () => {
+  // Steve, 2026-08-04: "Claude is supported for live transcription but untested as I do not have
+  // claude api key. In theory it should work the same as the openai one." Before this, they were two
+  // applications wearing one setting: Claude got a pasted-context single message, no levels, no
+  // third-person brief, no packing, and a line cap of 3 -- so #49's fix never applied to it.
+  const FOUR = 'Closing hymn is 301.\nSister Ellsworth offers the benediction.\nWorking bee Saturday at 9:00.\nWard council at 6:30.';
+
+  async function announcementsVia(source) {
+    return summarizeWithSource({
+      source,
+      mode: 'information',
+      recentTranscript: 'Announcements.',
+      maxWords: 10,
+      openaiClient: { chat: { completions: { create: async () => ({ choices: [{ message: { content: FOUR } }] }) } } },
+      anthropicApiKey: 'test-key',
+      fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: FOUR }] }) })
+    });
+  }
+
+  const openai = await announcementsVia('openai');
+  const claude = await announcementsVia('claude');
+  assert.equal(claude.line, openai.line, 'the same reply must survive identically on both providers');
+  assert.equal(claude.line.split('\n').filter(Boolean).length, 4, 'including the fourth announcement');
+  assert.match(claude.line, /6:30/);
+});
+
+test('brief keeps one line on Claude too, not just on OpenAI', async () => {
+  const reply = 'First thing.\nSecond thing.\nThird thing.';
+  const result = await summarizeWithSource({
+    source: 'claude',
+    mode: 'speaker',
+    level: 'brief',
+    recentTranscript: 'A testimony.',
+    maxWords: 10,
+    anthropicApiKey: 'test-key',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: reply }] }) })
+  });
+  assert.equal(result.line, 'First thing.');
+});
+
+test('the Claude prompt is the third-person brief one, not the old voice-preserving prompt', async () => {
+  let system = null;
+  await summarizeWithSource({
+    source: 'claude',
+    mode: 'speaker',
+    level: 'brief',
+    recentTranscript: 'A testimony.',
+    maxWords: 10,
+    anthropicApiKey: 'test-key',
+    fetchImpl: async (url, options) => {
+      system = JSON.parse(options.body).system;
+      return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
+    }
+  });
+  assert.match(system, /third person/i, 'Ansel ruled brief is reported, not voiced');
+  assert.match(system, /most important/i);
+  assert.doesNotMatch(system, /Maximum \d+ words/, 'the old buildSummarizePrompt wording must be gone');
 });
