@@ -95,7 +95,8 @@ governs audio). Two record shapes share the file, correlated by chunk `id`:
   "error": null,
   "latencyMs": 812,
   "wasShortened": false,
-  "discardedByCap": 0
+  "discardedByCap": 0,
+  "discardedByCapClient": 0
 }
 ```
 

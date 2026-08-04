@@ -67,8 +67,13 @@ async function main() {
   // clean, which is exactly how #49, #63 and #65 each survived being fixed. Found by Cato (#58).
   const linesLost = pairs.reduce((total, p) => total + (Number(p.discardedByCap) || 0), 0);
   const clientLost = pairs.reduce((total, p) => total + (Number(p.discardedByCapClient) || 0), 0);
+  // A recording made before #58 carries no count at all, and rendering that unknown as a confident 0
+  // is the same failure one step removed: the reader cannot tell "nothing was lost" from "nobody was
+  // counting". Cato's finding while gating this. Say which it is.
+  const countWasRecorded = pairs.some((p) => typeof p.discardedByCap === 'number');
+  const lossText = countWasRecorded ? `${linesLost} line(s) DISCARDED` : 'discards NOT RECORDED (predates this field)';
 
-  console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened, ${linesLost} line(s) DISCARDED.\n`);
+  console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened, ${lossText}.\n`);
   if (linesLost > 0) {
     console.log(`WARNING: ${linesLost} line(s) of real speech never reached the display, dropped by a line cap.\n`);
   }
