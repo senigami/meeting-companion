@@ -31,8 +31,9 @@ import { SAMPLE_TESTIMONY_MEETING } from './fixtures/sample-testimony-meeting.js
 import { degrade, shouldMergeWithNext } from './fixtures/transcription-noise.js';
 import { partitionBucket, takeOldestModeRun, removeConsumed, BUCKET_SETTLE_MS } from '../public/services/transcript-bucket.js';
 import { normalizeText } from '../public/services/text.js';
+import { SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { createTranscriptItems, appendTranscriptItems } from '../public/services/transcript-display.js';
-import { summarizeWithSource } from '../server/summarization.js';
+import { summarizeWithSource, replyTokenBudget } from '../server/summarization.js';
 
 const WORDS_PER_MINUTE = 150;
 const GAP_MS = 900;
@@ -170,7 +171,11 @@ async function main() {
         const completion = await openaiClient.chat.completions.create({
           model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
           temperature: 0.2,
-          max_tokens: 400,
+          // The SAME allowance production derives (#65). It was a hardcoded 400, which after that
+          // change is BELOW what the app asks for at any word budget of 14 or more -- so this harness,
+          // the one the OpenAI prompt was proven in, would truncate where production does not and could
+          // no longer reproduce the thing it exists to measure. Found by Cato.
+          max_tokens: replyTokenBudget({ level: 'condense', maxWords: SUMMARY_MAX_WORDS }),
           messages: buildMinimalSummarizeMessages({ recentTranscript: recent, mode: sendMode, history: chatHistory })
         });
         const line = (completion.choices[0]?.message?.content || '').trim();
@@ -185,7 +190,7 @@ async function main() {
         const completion = await openaiClient.chat.completions.create({
           model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
           temperature: 0.2,
-          max_tokens: 400,
+          max_tokens: replyTokenBudget({ level: 'condense', maxWords: SUMMARY_MAX_WORDS }),
           messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent, mode: sendMode }) }]
         });
         result = { line: (completion.choices[0]?.message?.content || '').trim() };

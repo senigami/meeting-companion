@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { summarizeWithSource } from '../../server/summarization.js';
-import { buildSummarizePrompt } from '../../public/services/summary-prompt.js';
+import { buildSummarizePrompt, RUNAWAY_LINE_GUARD } from '../../public/services/summary-prompt.js';
 import { readingBudget } from '../../public/services/reading-pace.js';
 import { SUMMARY_INTERVAL_MAX_SECONDS } from '../../public/services/view-settings.js';
 
@@ -575,4 +575,69 @@ test('the Claude prompt is the third-person brief one, not the old voice-preserv
   assert.match(system, /third person/i, 'Ansel ruled brief is reported, not voiced');
   assert.match(system, /most important/i);
   assert.doesNotMatch(system, /Maximum \d+ words/, 'the old buildSummarizePrompt wording must be gone');
+});
+
+// #65. max_tokens was a flat 300 on both paths, with a comment describing "three 14-word lines" -- a
+// cap that stopped existing in #59. Twelve lines at a high word budget is roughly 400 tokens, so the
+// reply was cut mid-line, and a cut line is displayed as a finished card. The reader gets a fragment
+// with the same confidence as a whole thought, and nothing reports it.
+test('the token allowance can always hold the text we actually asked for', async () => {
+  // The WORST-case rate and a LITERAL line count, both deliberately independent of the code.
+  //
+  // The first version of this test used RUNAWAY_LINE_GUARD on both sides, so the line count cancelled
+  // and all it really asserted was that the rate beat 1.3 -- plain prose. Cato caught that: it reads as
+  // a sufficiency check and was a rate comparison. And 1.3 was the wrong bar anyway, because the
+  // content that must survive verbatim tokenizes far worse than prose ("John 14:26-27" is about 6
+  // tokens for 2 words).
+  const DENSE_TOKENS_PER_WORD = 3;
+  const MODEL_LINES = 12; // literal on purpose: if the guard rises, this test must fail rather than follow
+
+  async function allowanceFor({ level, maxWords, source }) {
+    let seen = null;
+    await summarizeWithSource({
+      source,
+      mode: 'speaker',
+      level,
+      maxWords,
+      recentTranscript: 'Some speech.',
+      openaiClient: { chat: { completions: { create: async (params) => { seen = params.max_tokens; return { choices: [{ message: { content: 'x' } }] }; } } } },
+      anthropicApiKey: 'test-key',
+      fetchImpl: async (url, options) => {
+        seen = JSON.parse(options.body).max_tokens;
+        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
+      }
+    });
+    return seen;
+  }
+
+  for (const source of ['openai', 'claude']) {
+    for (const maxWords of [4, 10, 14, 17, 24, 30]) {
+      const condense = await allowanceFor({ level: 'condense', maxWords, source });
+      const needed = MODEL_LINES * maxWords * DENSE_TOKENS_PER_WORD;
+      assert.ok(condense >= needed,
+        `${source} at ${maxWords} words: allowance ${condense} cannot hold ${MODEL_LINES} reference-dense lines (~${needed} tokens)`);
+
+      // brief is one line by contract, so it must not reserve room for twelve.
+      const brief = await allowanceFor({ level: 'brief', maxWords, source });
+      assert.ok(brief < condense, `${source}: brief should ask for less than condense, got ${brief} vs ${condense}`);
+      assert.ok(brief >= maxWords * DENSE_TOKENS_PER_WORD, `${source}: brief must still fit its own dense line`);
+    }
+  }
+});
+
+test('the old flat allowance would not have fitted a full reply, which is why this is derived', async () => {
+  // Documents the defect rather than just the fix: at the top of the word range the previous hardcoded
+  // 300 was below what twelve lines needs, so the reply was cut mid-line rather than arriving whole.
+  const OLD_FLAT_ALLOWANCE = 300;
+  let seen = null;
+  await summarizeWithSource({
+    source: 'openai',
+    mode: 'speaker',
+    level: 'condense',
+    maxWords: 24,
+    recentTranscript: 'Some speech.',
+    openaiClient: { chat: { completions: { create: async (params) => { seen = params.max_tokens; return { choices: [{ message: { content: 'x' } }] }; } } } }
+  });
+  assert.ok(seen > OLD_FLAT_ALLOWANCE,
+    `the derived allowance (${seen}) must exceed the old flat ${OLD_FLAT_ALLOWANCE} where the old one was too small`);
 });

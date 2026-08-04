@@ -39,6 +39,40 @@ const boundWords = (value) => {
   if (!Number.isFinite(numeric) || numeric <= 0) return SUMMARY_MAX_WORDS;
   return Math.min(Math.round(numeric), MAX_WORDS_HARD_CEILING);
 };
+// How many tokens the reply is allowed, DERIVED from what we actually asked for.
+//
+// It was a flat 300 on both paths, with a comment describing "three 14-word lines" -- a cap that
+// stopped existing in #59. Cato found it while tracing every bound on one call (#65): twelve lines at
+// a high word budget is roughly 400 tokens and cannot fit in 300, so the reply is cut mid-line.
+//
+// That is worse than a dropped line, and the distinction is the point. A dropped line is absent. A cut
+// line arrives as a partial sentence and is displayed as a finished card, so the reader gets a
+// fragment presented with the same confidence as a whole thought, and nothing reports it: wasShortened
+// describes shortenToLimit, which is a different mechanism (#58).
+//
+// So it is derived from the two numbers that decide how much text we asked for. The rate is set for
+// the WORST case rather than the average one, and the worst case here is the protected category:
+// plain English runs about 1.3 tokens a word, but the things this prompt must keep verbatim tokenize
+// far worse. "John 14:26-27" is roughly 6 tokens for 2 words, "9:00 a.m." 4 to 5 for 2, and names and
+// hymn numbers 2 to 3 each, so a reference-dense line runs 2.5 to 3.
+//
+// 3, not the 2 I first wrote. Cato measured the dense case and showed 2 was reachable at a 14-word
+// budget: 12 lines needed about 470 tokens against an allowance of 416, and a line cut THERE is the
+// costliest fragment possible, because it is exactly the content the reader cannot afford to have
+// mangled. Overestimating costs nothing (max_tokens is a ceiling, not a reservation; the worst case
+// works out around 7300, well inside both providers' limits) while underestimating puts a fragment on
+// the wall.
+const TOKENS_PER_WORD = 3;
+// Newlines and a short refusal or empty reply. Punctuation is already inside the per-word rate.
+// Confirmed adequate for a twelve line reply; it deliberately does NOT try to absorb a per-word
+// shortfall, which would scale across every word and is the rate's job.
+const TOKEN_SLACK = 80;
+
+export function replyTokenBudget({ level, maxWords }) {
+  const lines = level === 'brief' ? 1 : RUNAWAY_LINE_GUARD;
+  return lines * maxWords * TOKENS_PER_WORD + TOKEN_SLACK;
+}
+
 export async function summarizeWithSource({
   source = 'openai',
   mode = 'speaker',
@@ -107,11 +141,7 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
     temperature: 0.2,
-    // Up to three 14-word lines plus newlines and punctuation is roughly 70-90 tokens; 300 gives
-    // headroom without inviting the model to ramble. Left unset (no cap) on the OpenAI path before
-    // this change, which is why raising it only mattered on the Anthropic branch below -- but a call
-    // that also needs a per-line explanation for a dense chunk deserves the same headroom here.
-    max_tokens: 300,
+    max_tokens: replyTokenBudget({ level, maxWords }),
     messages
   });
 
@@ -207,10 +237,7 @@ async function summarizeWithClaude({
     },
     body: JSON.stringify({
       model: anthropicModel,
-      // Was 64: enough for one 14-word line but not three -- three lines plus newlines runs
-      // roughly 70-90 tokens, so 64 would truncate the third line mid-sentence rather than drop it
-      // cleanly, which is worse. 300 matches the OpenAI path's headroom.
-      max_tokens: 300,
+      max_tokens: replyTokenBudget({ level, maxWords }),
       temperature: 0.2,
       system: systemMessage.content,
       messages: turns.map((turn) => ({ role: turn.role, content: turn.content }))
