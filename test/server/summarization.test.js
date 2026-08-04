@@ -454,3 +454,45 @@ test('a speaker-mode brief request is still honoured, so the server guard is nar
   });
   assert.equal(result.line, 'One.');
 });
+
+test('a fourth announcement in one tick survives, instead of being dropped without a word (#49)', async () => {
+  // cleanModelLines capped information mode at MAX_LINES_PER_CALL (3) and the prompt asked for "no
+  // more than three lines in total", so the two agreed and nothing looked wrong. A fourth
+  // announcement was discarded with no error, no telemetry and wasShortened false. A cap that matches
+  // the prompt rather than the speech is the whole shape of that bug.
+  const reply = [
+    'Closing hymn is 301.',
+    'Sister Ellsworth offers the benediction.',
+    'Working bee Saturday at 9:00.',
+    'Youth activity moved to Thursday.',
+    'Ward council meets at 6:30.'
+  ].join('\n');
+  const client = { chat: { completions: { create: async () => ({ choices: [{ message: { content: reply } }] }) } } };
+
+  const result = await summarizeWithSource({
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiClient: client
+  });
+  const cards = result.line.split('\n').filter(Boolean);
+  assert.equal(cards.length, 5, 'every announcement must survive; the release queue paces them, not a cap');
+  // The specific things a cap silently ate: a hymn number, a time, an assignment.
+  assert.match(result.line, /301/);
+  assert.match(result.line, /9:00/);
+  assert.match(result.line, /6:30/);
+  assert.match(result.line, /benediction/);
+  assert.match(result.line, /Thursday/);
+});
+
+test('the information prompt no longer names a line count, since the model ignored it anyway', async () => {
+  // Measured 2026-08-02: asked for "no more than 3 lines" this model returned 8, and three different
+  // configurations produced byte-identical output. A runaway guard belongs in code, not in prose the
+  // model does not follow -- and stating it in both places is what made the cap look agreed.
+  let seenSystem = null;
+  const client = {
+    chat: { completions: { create: async ({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; } } }
+  };
+  await summarizeWithSource({
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiClient: client
+  });
+  assert.doesNotMatch(seenSystem, /three lines in total/);
+  assert.match(seenSystem, /per SEPARATE announcement/, 'the per-announcement rule must survive');
+});

@@ -137,6 +137,17 @@ ${text}
   }
 
   // SUMMARIZE: announcements and logistics. Facts survive, wording does not.
+  //
+  // Note what this no longer says: a total number of lines. It used to cap at three, and
+  // cleanModelLines capped at three too, so the two agreed and nothing looked wrong -- while a fourth
+  // announcement in one tick was discarded with no error, no telemetry and wasShortened false (#49).
+  // A cap that matches the prompt rather than the speech is the whole shape of that bug.
+  //
+  // Ansel's ruling, 2026-08-04: the 3 was only ever burst control for a display that rendered a
+  // whole result at once, and that display is gone -- the release queue hands over one card every few
+  // seconds however many lines a call returns, so the queue is what protects him from a burst, not
+  // the cap. A runaway guard belongs in code (maxLines, now 12 to match the speaker path), never in
+  // the model's instructions.
   return `
 ${READER}
 
@@ -144,10 +155,9 @@ This is meeting information: announcements, dates, times, assignments, logistics
 wording does not matter, the facts do. Third person is correct here, and there is no need to keep
 anybody's voice.
 
-Write one line of no more than ${cardWords} words per SEPARATE announcement, and no more than
-three lines in total. Two announcements are two lines; one announcement said at length is still one
-line. Lead with the thing itself ("Working bee Saturday"), never with a clause about it ("If you
-are able to help...").
+Write one line of no more than ${cardWords} words per SEPARATE announcement. Two announcements are
+two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
+bee Saturday"), never with a clause about it ("If you are able to help...").
 
 ${VERBATIM}
 
