@@ -582,10 +582,15 @@ test('the Claude prompt is the third-person brief one, not the old voice-preserv
 // reply was cut mid-line, and a cut line is displayed as a finished card. The reader gets a fragment
 // with the same confidence as a whole thought, and nothing reports it.
 test('the token allowance can always hold the text we actually asked for', async () => {
-  // 1.3 tokens per English word is the realistic cost; the allowance uses 2 for headroom. This asserts
-  // the allowance covers the realistic need at every configuration, which is the property that matters
-  // rather than the constants behind it.
-  const REALISTIC_TOKENS_PER_WORD = 1.3;
+  // The WORST-case rate and a LITERAL line count, both deliberately independent of the code.
+  //
+  // The first version of this test used RUNAWAY_LINE_GUARD on both sides, so the line count cancelled
+  // and all it really asserted was that the rate beat 1.3 -- plain prose. Cato caught that: it reads as
+  // a sufficiency check and was a rate comparison. And 1.3 was the wrong bar anyway, because the
+  // content that must survive verbatim tokenizes far worse than prose ("John 14:26-27" is about 6
+  // tokens for 2 words).
+  const DENSE_TOKENS_PER_WORD = 3;
+  const MODEL_LINES = 12; // literal on purpose: if the guard rises, this test must fail rather than follow
 
   async function allowanceFor({ level, maxWords, source }) {
     let seen = null;
@@ -608,14 +613,14 @@ test('the token allowance can always hold the text we actually asked for', async
   for (const source of ['openai', 'claude']) {
     for (const maxWords of [4, 10, 14, 17, 24, 30]) {
       const condense = await allowanceFor({ level: 'condense', maxWords, source });
-      const needed = RUNAWAY_LINE_GUARD * maxWords * REALISTIC_TOKENS_PER_WORD;
+      const needed = MODEL_LINES * maxWords * DENSE_TOKENS_PER_WORD;
       assert.ok(condense >= needed,
-        `${source} at ${maxWords} words: allowance ${condense} cannot hold ${RUNAWAY_LINE_GUARD} lines (~${Math.round(needed)} tokens)`);
+        `${source} at ${maxWords} words: allowance ${condense} cannot hold ${MODEL_LINES} reference-dense lines (~${needed} tokens)`);
 
       // brief is one line by contract, so it must not reserve room for twelve.
       const brief = await allowanceFor({ level: 'brief', maxWords, source });
       assert.ok(brief < condense, `${source}: brief should ask for less than condense, got ${brief} vs ${condense}`);
-      assert.ok(brief >= maxWords * REALISTIC_TOKENS_PER_WORD, `${source}: brief must still fit its own line`);
+      assert.ok(brief >= maxWords * DENSE_TOKENS_PER_WORD, `${source}: brief must still fit its own dense line`);
     }
   }
 });
