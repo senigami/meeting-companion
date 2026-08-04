@@ -63,11 +63,19 @@ export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCK
 // before this ever runs, so a run should never exceed it. If it somehow does, this throws instead
 // of silently sending a slice while a caller consumes the whole (larger) run -- that mismatch is
 // exactly how the head of a backlog was destroyed before (see the note on bucketText below).
-// speaker (issue #40) is carried alongside mode, taken from the run's own first chunk rather than
-// split into its own boundary: this run already only breaks on a mode change, and a second
-// dimension of run-splitting (one card per speaker too) is the "resolve pronouns" follow-up the
-// issue explicitly defers, not this change. A run that happens to cross a speaker change still
-// reports the run's leading speaker, which addLine attaches to the resulting card(s).
+// speaker (issue #40) breaks a run exactly as mode does, and issue #51 is why. Carrying it from the
+// leading chunk without splitting looked like the conservative reading of #40's deferral, and it
+// produced a card asserting one person's name over another person's words. Reproduced before the fix:
+// two chunks, "I know the Church is true." (Brother Ashcroft) then "Thank you Brother Ashcroft. I
+// lost my job last year." (Sister Ellsworth), summarized as one run and labelled Brother Ashcroft.
+//
+// The reader cannot hear the room, so he has no way to detect that. An unlabelled card asserts
+// nothing; that one asserts something false about a real person in front of the congregation, which
+// makes the labelled state worse than the unlabelled state it replaced.
+//
+// This is NOT the deferred work. #40 defers speaker-aware SUMMARIZATION -- pronoun resolution, the
+// prompt knowing who is talking -- and the prompt stays completely speaker-blind here. Where a run
+// ends is a bucket decision, and the bucket has always been allowed to make it.
 export function takeOldestModeRun(consumable = [], { defaultMode = null, defaultSpeaker = null, maxChars = BUCKET_MAX_CHARS } = {}) {
   const list = (Array.isArray(consumable) ? consumable : []).filter((chunk) => chunk && normalizeText(chunk.text));
   if (!list.length) return { chunks: [], mode: defaultMode, speaker: defaultSpeaker, text: '' };
@@ -77,6 +85,10 @@ export function takeOldestModeRun(consumable = [], { defaultMode = null, default
   const chunks = [];
   for (const chunk of list) {
     if ((chunk.mode ?? defaultMode) !== runMode) break;
+    // Same nullish fallback as mode, for the same reason: a chunk carrying no speaker (buffered
+    // before #40, or a null round-tripped through a replayed recording) must not break a run or
+    // start a spurious one. It inherits the run's speaker rather than being treated as a change.
+    if ((chunk.speaker ?? runSpeaker) !== runSpeaker) break;
     chunks.push(chunk);
   }
 

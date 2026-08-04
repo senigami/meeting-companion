@@ -175,3 +175,50 @@ test('takeOldestModeRun returns nothing for an empty or all-blank bucket', () =>
     { chunks: [], mode: 'speaker', speaker: null, text: '' }
   );
 });
+
+// Issue #51. Reproduced from the real shape before the fix: one run spanning two speakers was
+// labelled with the leading speaker, so a card asserted Brother Ashcroft said "I lost my job last
+// year" when Sister Ellsworth said it. A reader who cannot hear the room cannot detect that, which
+// makes a wrong label worse than no label.
+test('a run breaks on a speaker change, so a card never carries one person name over another person words', () => {
+  const chunks = [
+    { text: 'I know the Church is true.', at: 1, mode: 'speaker', speaker: 'Brother Ashcroft' },
+    { text: 'Thank you Brother Ashcroft. I lost my job last year.', at: 2, mode: 'speaker', speaker: 'Sister Ellsworth' }
+  ];
+
+  const first = takeOldestModeRun(chunks, { defaultMode: 'speaker', defaultSpeaker: '' });
+  assert.equal(first.speaker, 'Brother Ashcroft');
+  assert.equal(first.text, 'I know the Church is true.');
+  assert.ok(!first.text.includes('lost my job'), 'the second speaker words must not be in the first card');
+
+  const second = takeOldestModeRun(chunks.slice(first.chunks.length), { defaultMode: 'speaker', defaultSpeaker: '' });
+  assert.equal(second.speaker, 'Sister Ellsworth');
+  assert.match(second.text, /lost my job/);
+});
+
+test('a chunk carrying no speaker inherits the run rather than breaking it or starting a false one', () => {
+  // Untagged chunks are real: anything buffered before #40 shipped, or a null round-tripped through
+  // a replayed recording. Treating absent as a change would split a single person mid-sentence and
+  // attach whatever the operator has typed right now to the remainder.
+  const chunks = [
+    { text: 'First part of one thought.', at: 1, mode: 'speaker', speaker: 'Brother Ashcroft' },
+    { text: 'Second part of the same thought.', at: 2, mode: 'speaker' },
+    { text: 'Now somebody else.', at: 3, mode: 'speaker', speaker: 'Sister Ellsworth' }
+  ];
+
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker', defaultSpeaker: 'Someone Typed Later' });
+  assert.equal(run.chunks.length, 2, 'the untagged chunk stays with the speaker it followed');
+  assert.equal(run.speaker, 'Brother Ashcroft');
+  assert.ok(!run.text.includes('somebody else'), 'and the real speaker change still ends the run');
+});
+
+test('mode still breaks a run even when the speaker has not changed', () => {
+  // The speaker boundary is additional, not a replacement.
+  const chunks = [
+    { text: 'Talking about the meeting.', at: 1, mode: 'speaker', speaker: 'Brother Ashcroft' },
+    { text: 'Closing hymn is 301.', at: 2, mode: 'information', speaker: 'Brother Ashcroft' }
+  ];
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker', defaultSpeaker: '' });
+  assert.equal(run.chunks.length, 1);
+  assert.equal(run.mode, 'speaker');
+});
