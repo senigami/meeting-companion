@@ -3611,3 +3611,50 @@ test('a multi-line summary becomes multiple cards, not one merged run-on card', 
     assert.match(ctx.state.transcriptItems[1].text, /^Sister Ellsworth will offer the benediction\.$/);
   });
 });
+
+test('the first card does not wait out an interval, and later ones do (#31)', async () => {
+  // At the honest 20s interval the reader watched a blank wall for up to 20 seconds after the meeting
+  // started, with no way to tell the app was working, while speech sat in the bucket waiting on a
+  // clock. Steve's call: summarize the first complete chunk on arrival, then let the interval own the
+  // cadence.
+  const calls = [];
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A first card.' }; }
+    }),
+    stateOverrides: { summaryIntervalSeconds: 20, openAiReady: true, summarizationSource: 'openai' }
+  }, async ({ ctx, runtime }) => {
+    // Falsy, not literally false: the harness deliberately does not seed what start-app.js seeds, so
+    // this is undefined here. The code tests `!firstCardShown`, so undefined and false behave the same
+    // and asserting the literal would be stricter than the contract.
+    assert.ok(!ctx.state.firstCardShown, 'sanity: the wall starts empty');
+
+    // One complete sentence arrives. No interval tick has happened.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'I would like to bear my testimony.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, 'the first complete chunk must be summarized on arrival');
+    assert.equal(ctx.state.firstCardShown, true, 'and the wall is no longer empty');
+
+    // A second chunk must NOT trigger another immediate call: the interval owns the cadence now.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'I know the Church is true.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls.length, 1, 'later chunks wait for the interval rather than summarizing on arrival');
+  });
+});
+
+test('clearing the wall makes the first-card path live again (#31)', async () => {
+  // Ansel's framing, which holds however this is solved: the empty-screen problem is not the first
+  // line of a meeting, it is any moment the card area is blank while speech is being heard.
+  await withRuntimeHarness({
+    stateOverrides: { firstCardShown: true, transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }] }
+  }, async ({ ctx, runtime }) => {
+    runtime.clearLines(); // arms
+    runtime.clearLines(); // confirms
+    assert.equal(ctx.state.transcriptItems.length, 0);
+    assert.equal(ctx.state.firstCardShown, false, 'an empty wall means the next chunk should not wait on a clock');
+  });
+});

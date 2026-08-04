@@ -369,6 +369,10 @@ export function createRuntime(ctx, deps = {}) {
     // Anything still queued belongs to what was just cleared. Without this it would arrive a few
     // seconds later on a screen the operator deliberately emptied.
     cardReleaseQueue.clear();
+    // The wall is empty again, so the first-card problem is live again (#31). Ansel's framing, which
+    // holds regardless of how it is solved: this is not about the first line of a meeting, it is about
+    // any moment the card area is blank while speech is being heard.
+    ctx.state.firstCardShown = false;
     ctx.state.summaryHistory = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';
@@ -608,6 +612,25 @@ export function createRuntime(ctx, deps = {}) {
       // itself was tagged with, so the recorded id always matches the bucket's own.
       if (ctx.state.transcriptChunks.length > beforeLength) {
         queueRecord(() => buildChunkRecord({ at: capturedAt, mode: capturedMode, speaker: capturedSpeaker, text: event.text }));
+        // While the wall is still empty, don't make him wait out an interval for a card (#31).
+        //
+        // Steve's call, 2026-08-04: "the interval timer does not start until after the first release
+        // from the summarizer... that way we get an initial summary, not verbatim, it fits the required
+        // length, gives something right away". At his honest 20s interval the reader watched a blank
+        // screen for up to 20 seconds after the meeting had started, with no way to tell the app was
+        // working, while speech sat in the bucket waiting on a clock.
+        //
+        // Deliberately ADDITIVE: the interval loop is untouched and remains the backstop, so if this
+        // path ever fails to fire, cards still arrive on the normal schedule. An earlier attempt made
+        // the loop itself poll fast until the first card, which forced the progress bar either to lie
+        // about a 20s sweep or to flicker every poll -- four existing tests caught that, correctly.
+        //
+        // Nothing about WHAT is shown changes: same prompt, same level, same word budget. It is the
+        // same card, sooner, which is why it needed no readability ruling (unlike the verbatim first
+        // line this card originally asked for, which Ansel blocked). partitionBucket still decides
+        // what is safe to send, so this cannot summarize half a sentence: it either finds a complete
+        // run or does nothing.
+        if (!ctx.state.firstCardShown) void summarizeCurrentText();
       }
     } else if (event.type === 'partial') {
       ctx.state.transcriptPreview = normalizeText(event.text);
@@ -1402,6 +1425,10 @@ export function createRuntime(ctx, deps = {}) {
         // backlogged speech must read under the mode and speaker it was actually said in, even if
         // the operator has since switched modes or retyped the speaker field (issue #40).
         addLine(result.line, { source: 'ai', mode: sendMode, speaker: sendSpeaker, paced: true });
+        // The wall is no longer empty, so stop summarizing on arrival and let the interval own the
+        // cadence from here (#31). Set before anything else that could throw, so a failure downstream
+        // cannot leave this stuck on and summarize every single chunk for the rest of the meeting.
+        ctx.state.firstCardShown = true;
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
