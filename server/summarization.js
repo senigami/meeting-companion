@@ -1,4 +1,5 @@
 import { cleanModelLines, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { packLinesIntoCards } from '../public/services/card-packing.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
@@ -16,17 +17,23 @@ const ANTHROPIC_API_VERSION = '2023-06-01';
 const DISPLAY_LINE_MAX_CHARS = 140;
 
 // maxWords arrives as untrusted request input, and the comment that used to sit here said its only
-// consumer was buildSummarizePrompt, which clamped it. That stopped being true when the minimal
-// prompt took over: it clamps nothing, so `maxWords: 100000` produced a prompt reading "no more than
-// 100000 words". Measured 2026-08-04 while bringing the Claude path to parity (#47), which would have
-// widened the gap to both providers.
+// consumer was buildSummarizePrompt, which clamped it. That stopped being true when the minimal prompt
+// took over: it clamps nothing, so `maxWords: 100000` produced a prompt reading "no more than 100000
+// words". Measured 2026-08-04 while bringing the Claude path to parity (#47), which would have widened
+// the gap to both providers.
 //
-// So it is bounded HERE, at the boundary where untrusted input arrives, and the bound is deliberately
-// crude: it exists to stop absurd input, not to express anything about reading load. Every real
-// reading-load decision lives in reading-pace.js and belongs to Ansel -- do not move those numbers
-// here or read this ceiling as one of them. The client derives maxWords from a measured pace and
-// cannot produce anything near this.
-const MAX_WORDS_HARD_CEILING = 40;
+// The ceiling is DERIVED so it cannot bind on any real reader, and that property is the whole point.
+// A first version used a flat 40, and Cato showed the comment defending it was false: readingBudget has
+// no upper clamp, so an 80 wpm reader at a 30 second interval already reaches 40 and anything faster was
+// silently losing budget. A bound that can quietly reduce what the reader gets is a reading-load
+// decision, and those belong to Ansel, not here.
+//
+// So it is pinned to something no person does: the longest interval the app allows, times a reading
+// pace far above any human reading a wall display. That bounds absurd input while provably never
+// touching a derived budget. If a real calibration ever approaches it, this is the wrong constant and
+// the fix is Ansel's, not a bigger number here.
+const IMPLAUSIBLE_WPM = 400;
+const MAX_WORDS_HARD_CEILING = Math.round((IMPLAUSIBLE_WPM / 60) * SUMMARY_INTERVAL_MAX_SECONDS);
 const boundWords = (value) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return SUMMARY_MAX_WORDS;

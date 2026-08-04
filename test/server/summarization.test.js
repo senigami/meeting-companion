@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { summarizeWithSource } from '../../server/summarization.js';
 import { buildSummarizePrompt } from '../../public/services/summary-prompt.js';
+import { readingBudget } from '../../public/services/reading-pace.js';
+import { SUMMARY_INTERVAL_MAX_SECONDS } from '../../public/services/view-settings.js';
 
 // OpenAI now sends a real message array (buildMinimalSummarizeMessages), not the single
 // buildSummarizePrompt user message the Claude path below still uses -- see
@@ -199,10 +201,21 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
 
   // Both providers, because the whole point of #47 is that they stopped being different applications.
   for (const source of ['openai', 'claude']) {
-    assert.equal(await wordsInPromptFor(100000, source), 40, `${source}: an absurd value must be bounded`);
+    const absurd = await wordsInPromptFor(100000, source);
+    assert.ok(absurd < 100000 && absurd > 0, `${source}: an absurd value must be bounded, got ${absurd}`);
     assert.equal(await wordsInPromptFor(-5, source), 14, `${source}: a nonsense value falls back to the default`);
     assert.equal(await wordsInPromptFor('nope', source), 14, `${source}: so does a non-number`);
     assert.equal(await wordsInPromptFor(10, source), 10, `${source}: and a real budget passes through untouched`);
+
+    // The property that matters, not the ceiling's value. A first version of this bound was a flat 40,
+    // and Cato showed an 80 wpm reader at a 30s interval already reached it, so the bound was silently
+    // reducing a real derived budget -- which makes it a reading-load decision rather than input
+    // validation. It must never bind on anything readingBudget can produce for a plausible reader.
+    for (const wpm of [30, 60, 90, 120, 200]) {
+      const budget = readingBudget(wpm, SUMMARY_INTERVAL_MAX_SECONDS).words;
+      assert.equal(await wordsInPromptFor(budget, source), budget,
+        `${source}: a ${wpm}wpm reader's budget of ${budget} must reach the model unclamped`);
+    }
   }
 });
 
