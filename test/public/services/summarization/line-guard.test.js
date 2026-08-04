@@ -50,5 +50,11 @@ test('the two constants are deliberately different numbers and must not be merge
   // RUNAWAY_LINE_GUARD is a fault bound on a prompt that asks for one thought per line. Collapsing
   // them would either re-break #49 or silently change what the older prompt promises.
   assert.equal(MAX_LINES_PER_CALL, 3);
+  // The VALUE, not just "greater than the other one". Cato measured that with only the relational
+  // assertion, changing RUNAWAY_LINE_GUARD from 12 to 5 left all 637 tests passing -- so Ansel's
+  // ruling of 12 was asserted nowhere, in the test written to protect it. Every other assertion here
+  // compares against the constant itself, which pins "the drivers use the constant" and says nothing
+  // about what the constant is.
+  assert.equal(RUNAWAY_LINE_GUARD, 12, "Ansel's ruling (2026-08-04); changing it needs his, not a test edit");
   assert.ok(RUNAWAY_LINE_GUARD > MAX_LINES_PER_CALL);
 });
