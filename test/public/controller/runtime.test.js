@@ -53,6 +53,20 @@ test('pressing a mode button clears the conversational history, even when the mo
   });
 });
 
+test('pressing a mode button says so on a surface visible with the settings panel closed', async () => {
+  // The message used to go only to #status, which lives inside the closed settings dialog. Pressing
+  // the mode you are already on is the gesture during testimony meeting, and it changes nothing else
+  // on screen -- so the operator got no confirmation at all that the clear had happened.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker' }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('speaker');
+    await Promise.resolve();
+    assert.match(ctx.dom.railNote.textContent, /starting fresh/i,
+      'the rail note is the only feedback surface readable with the panel closed');
+  });
+});
+
 test('changing mode clears the history, so one speaker does not become context for a prayer', async () => {
   // This was a real bug: previousBlock was mode-guarded but summaryHistory was not, so switching
   // from speaker to prayer carried the outgoing speaker's testimony in as conversational context.
@@ -1684,6 +1698,33 @@ test('a chunk captured before a mode change is summarized under, and labelled wi
     assert.equal(sentMode, 'information');
     assert.equal(ctx.state.transcriptItems.at(-1).mode, 'information');
     assert.equal(ctx.state.mode, 'speaker');
+  });
+});
+
+// Issue #40: a paced AI card must carry the speaker who was actually talking when the chunk was
+// captured, exactly the same precedent as mode above -- reading current state at release time
+// would mislabel every card after the operator retypes the name field while a card is still queued.
+test('a chunk captured under one speaker is summarized under, and labelled with, its own speaker', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'A line from the earlier speaker.' })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      // The chunk was captured while the operator had typed "Alpha"; they have since retyped the
+      // field to "Beta", which is what ctx.state.speakerName reads now. The resulting card must
+      // still carry "Alpha" -- the speaker active when the words were said, not read at drain time.
+      speakerName: 'Beta',
+      transcriptChunks: [{ text: 'A line from the earlier speaker.', at: now - 1000, mode: 'speaker', speaker: 'Alpha' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.at(-1).speaker, 'Alpha');
+    assert.equal(ctx.state.speakerName, 'Beta');
   });
 });
 
@@ -3480,5 +3521,93 @@ test('inferred sentence-end punctuation is recorded as a follow-up record sharin
     assert.equal(chunkRecords[1].text, 'the offering will be received.');
     assert.equal(chunkRecords[1].inferred, true);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the offering will be received.');
+  });
+});
+
+test('several cards from one summary are released one at a time, not dropped on the wall together', async () => {
+  // A testimony is now four or five cards (the model splits by thought, packLinesIntoCards sizes
+  // them). Four appearing in the same frame costs a slow reader their place, which is the exact
+  // thing the display exists to protect.
+  const timers = [];
+  await withRuntimeHarness({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutFn: () => {}
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('First thought.\nSecond thought.\nThird thought.', { source: 'ai', paced: true });
+
+    assert.equal(ctx.state.transcriptItems.length, 1, 'only the first card goes up immediately');
+    assert.match(ctx.state.transcriptItems[0].text, /First thought/);
+
+    const tick = () => timers.filter((t) => t.ms === 5000).pop();
+    tick().fn();
+    assert.equal(ctx.state.transcriptItems.length, 2);
+    tick().fn();
+    assert.equal(ctx.state.transcriptItems.length, 3);
+    assert.match(ctx.state.transcriptItems[2].text, /Third thought/);
+  });
+});
+
+// Issue #40: a paced card's speaker is captured when the card is CREATED (inside addLine, before
+// it ever reaches the release queue), not read from ctx.state.speakerName again when the queue
+// finally releases it -- otherwise a speaker change mid-queue mislabels every card still waiting.
+test('a speaker change mid-queue labels the still-queued cards with the speaker active when each was created, not at release', async () => {
+  const timers = [];
+  await withRuntimeHarness({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutFn: () => {},
+    stateOverrides: { speakerName: 'Alpha' }
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('First thought.\nSecond thought.\nThird thought.', { source: 'ai', paced: true });
+    assert.equal(ctx.state.transcriptItems[0].speaker, 'Alpha', 'the first card is created (and shown) under Alpha');
+
+    // The operator changes speaker while the second and third cards are still queued.
+    runtime.setSpeakerName('Beta');
+
+    const tick = () => timers.filter((t) => t.ms === 5000).pop();
+    tick().fn();
+    tick().fn();
+
+    assert.equal(ctx.state.transcriptItems.length, 3);
+    assert.equal(ctx.state.transcriptItems[1].speaker, 'Alpha', 'created under Alpha, must not inherit the later change');
+    assert.equal(ctx.state.transcriptItems[2].speaker, 'Alpha', 'same for the third queued card');
+  });
+});
+
+test('a manual line is never paced -- the operator pressed Show now', async () => {
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    runtime.addLine('Typed by hand.', { source: 'manual' });
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    assert.match(ctx.state.transcriptItems[0].text, /Typed by hand/);
+  });
+});
+
+test('Clear drops cards still queued, so they cannot land on a screen just emptied', async () => {
+  const timers = [];
+  await withRuntimeHarness({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutFn: () => {}
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('One.\nTwo.\nThree.', { source: 'ai', paced: true });
+    assert.equal(ctx.state.transcriptItems.length, 1);
+
+    runtime.clearLines(); // arms
+    runtime.clearLines(); // confirms
+    assert.equal(ctx.state.transcriptItems.length, 0);
+
+    for (const t of timers.filter((t) => t.ms === 5000)) t.fn();
+    assert.equal(ctx.state.transcriptItems.length, 0, 'a queued card must not reappear after a Clear');
+  });
+});
+
+test('a multi-line summary becomes multiple cards, not one merged run-on card', async () => {
+  // Regression, found 2026-08-02: addLine ran normalizeText over the whole reply, and normalizeText
+  // collapses /\s+/ -- newlines included. createTranscriptItems' AI path splits on newlines and
+  // nothing else, so by the time it ran there were no breaks left to split on. Every multi-line
+  // result had been arriving as one card, silently, including information mode's announcements.
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    runtime.addLine('Closing hymn is number 301.\nSister Ellsworth will offer the benediction.', { source: 'ai' });
+    assert.equal(ctx.state.transcriptItems.length, 2, 'two announcements must be two cards');
+    assert.match(ctx.state.transcriptItems[0].text, /^Closing hymn is number 301\.$/);
+    assert.match(ctx.state.transcriptItems[1].text, /^Sister Ellsworth will offer the benediction\.$/);
   });
 });

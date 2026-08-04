@@ -112,7 +112,11 @@ export function createTranscriptItems({
   mode,
   source = 'ai',
   createdAt = Date.now(),
-  maxChars = DEFAULT_MAX_CHARS
+  maxChars = DEFAULT_MAX_CHARS,
+  // Display-only (issue #40): who was speaking when this card's text was captured. Never fed to
+  // any summarization prompt -- see runtime.js's addLine callers for where this is captured at
+  // creation time, not read from current state when a paced AI card is finally released.
+  speaker = ''
 } = {}) {
   // One model response is one card: an AI line is never sentence-split, only guarded against a
   // runaway length (see segmentAiResponseText above). Raw/manually-typed text still goes through
@@ -121,12 +125,15 @@ export function createTranscriptItems({
     ? segmentAiResponseText(text, { maxChars: Math.max(maxChars, AI_LINE_SAFETY_MAX_CHARS) })
     : segmentTranscriptText(text, { maxChars });
 
+  const cleanSpeaker = normalizeText(speaker);
+
   return segments.map((segment, index) => ({
     id: `transcript-${createdAt}-${nextTranscriptItemId + index}`,
     mode,
     text: segment,
     createdAt,
-    source
+    source,
+    speaker: cleanSpeaker
   }));
 }
 

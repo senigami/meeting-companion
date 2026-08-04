@@ -202,6 +202,39 @@ test('onModeChange fires before the chunk that changed mode, and only when the m
   assert.ok(modeIndex < finalIndex, 'expected the mode change before the final text it applies to');
 });
 
+// Issue #40: a replay must reproduce the same speaker labels the operator actually saw, so a
+// recorded speaker change is re-applied the same way a recorded mode change already is above.
+test('onSpeakerChange fires before the chunk that changed speaker, including a change back to no name', async () => {
+  const clock = fakeTimers();
+  const calls = [];
+  const records = [
+    { t: 'chunk', at: '2026-07-30T10:00:00.000Z', id: '1', mode: 'speaker', speaker: 'Alpha', text: 'Alpha speaks first.' },
+    { t: 'chunk', at: '2026-07-30T10:00:04.000Z', id: '2', mode: 'speaker', speaker: 'Alpha', text: 'Alpha again.' },
+    { t: 'chunk', at: '2026-07-30T10:00:10.000Z', id: '3', mode: 'speaker', speaker: '', text: 'No name typed for this one.' }
+  ];
+  const driver = createReplayTranscriptionDriver({
+    onEvent: (event) => calls.push({ kind: 'event', ...event }),
+    onStatus: () => {},
+    onSpeakerChange: (speaker) => calls.push({ kind: 'speaker', speaker }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    fetchImpl: fetchReturning(ndjson(records)),
+    recordingId: 'rec-1'
+  });
+
+  await driver.start({ currentMode: 'speaker' });
+  while (clock.pendingCount() > 0) clock.flush();
+
+  const speakerCalls = calls.filter((call) => call.kind === 'speaker');
+  // Only two changes: 'Alpha' once (not re-announced on the repeat), then '' when the recording
+  // says the operator had cleared the field.
+  assert.deepEqual(speakerCalls.map((call) => call.speaker), ['Alpha', '']);
+
+  const secondSpeakerIndex = calls.findIndex((call) => call.kind === 'speaker' && call.speaker === '');
+  const thirdEventIndex = calls.findIndex((call) => call.kind === 'event' && call.text === 'No name typed for this one.');
+  assert.ok(secondSpeakerIndex < thirdEventIndex, 'the clear must apply before the card it belongs to');
+});
+
 test('stop clears pending timers and nothing further emits', async () => {
   const clock = fakeTimers();
   const events = [];

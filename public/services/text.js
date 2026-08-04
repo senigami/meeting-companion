@@ -13,12 +13,16 @@ export function appendUniqueText(list, text) {
   return [...list, clean];
 }
 
-export function appendUniqueChunk(chunks, text, at = Date.now(), mode = null) {
+// speaker (issue #40) is captured onto the chunk the same way mode already is: at the moment the
+// words were actually said, not read from current state later -- a backlogged chunk must keep the
+// speaker who was actually talking when it was captured, even if the operator has since retyped
+// the name field for whoever is talking now.
+export function appendUniqueChunk(chunks, text, at = Date.now(), mode = null, speaker = null) {
   const clean = normalizeText(text);
   if (!clean) return chunks;
   const last = chunks[chunks.length - 1];
   if (toLowerKey(last?.text || '') === toLowerKey(clean)) return chunks;
-  return [...chunks, { text: clean, at, mode }];
+  return [...chunks, { text: clean, at, mode, speaker }];
 }
 
 // A sentence boundary for shortening purposes: terminal punctuation, optionally followed by a

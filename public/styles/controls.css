@@ -584,6 +584,37 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
   font-size: 12px;
 }
 
+/* Issue #40: as fast to change as the mode buttons above it, so it sits right beside them rather
+   than in Settings -- typed on the fly between speakers, never pre-configured. */
+.speakerNameRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.speakerNameLabel {
+  color: var(--chrome-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.speakerNameInput {
+  min-width: 0;
+  height: 38px;
+  border-radius: var(--chrome-radius-sm);
+  padding: 0 0.75rem;
+  background: var(--chrome-bg-control);
+  border: 1px solid var(--chrome-separator);
+  font-size: 13px;
+  box-shadow: none;
+}
+
 .mode-icon {
   width: 1.25rem;
   height: 1.25rem;

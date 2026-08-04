@@ -36,6 +36,32 @@ test('creates transcript items with mode and source metadata', () => {
   assert.equal(items[1].text, 'Please sit down.');
 });
 
+// Issue #40: speaker is a plain display field on the item, attached once per card at creation and
+// otherwise inert to segmentation -- multiple cards split from one source text all carry the same
+// speaker, since they are all still one person's speech.
+test('createTranscriptItems attaches a trimmed speaker to every card split from the same text', () => {
+  const items = createTranscriptItems({
+    text: 'Welcome everyone. Please sit down.',
+    mode: 'speaker',
+    source: 'manual',
+    speaker: '  Bro. Ashcroft  '
+  });
+
+  assert.equal(items.length, 2);
+  assert.equal(items[0].speaker, 'Bro. Ashcroft');
+  assert.equal(items[1].speaker, 'Bro. Ashcroft');
+});
+
+test('createTranscriptItems defaults speaker to empty, never inventing a placeholder', () => {
+  const items = createTranscriptItems({
+    text: 'A line with no speaker set.',
+    mode: 'speaker',
+    source: 'manual'
+  });
+
+  assert.equal(items[0].speaker, '');
+});
+
 test('a title or initial does not end a sentence, so no card ever reads just "Bro."', () => {
   assert.deepEqual(
     segmentTranscriptText('Bro. Smith will speak on service this morning at eleven.'),

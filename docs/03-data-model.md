@@ -20,6 +20,7 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | --- | --- | --- |
 | `transcriptItems` | `TranscriptItem[]` | The ordered output cards shown on the TV, capped in memory and rendered as a scrollable stack. |
 | `mode` | `speaker` \| `information` \| `song` \| `prayer` | The summarization mode chosen by the helper. |
+| `speakerName` | `string` | Who is talking, typed by the helper next to the mode buttons. Empty is valid and means no label. Not persisted as a setting, deliberately, since it belongs to whoever is at the pulpit right now rather than to the machine. It IS written to the ADR-0004 session recording when recording is armed, which it is by default, so a name typed here does reach a file on disk (see the chunk record below). Never sent to a provider (see #40 and the display-only rule). |
 | `paused` | `boolean` | Whether AI summarization and transcription should stop producing new lines. |
 | `fontSize` | `number` | The large-print size used by the TV display, clamped from 24px to 144px. |
 | `displayMargin` | `number` | Percentage-based inset, clamped from 0 to 40, used to set the transcript text-flow width and place matching red display guides. |
@@ -48,6 +49,7 @@ type TranscriptItem = {
   text: string;
   createdAt: number;
   source?: 'ai' | 'manual';
+  speaker?: string;
 };
 ```
 
@@ -58,8 +60,13 @@ Transcript text must be normalized before storage so duplicates and accidental s
 Transcript chunks are stored as:
 
 ```json
-{ "text": "short cleaned transcript text", "at": 1710000000000 }
+{ "text": "short cleaned transcript text", "at": 1710000000000, "mode": "speaker", "speaker": "Brother Ashcroft" }
 ```
+
+`mode` and `speaker` are carried on the chunk rather than read from current state when the chunk is
+finally used. Cards are released to the display one at a time now, several seconds apart, so a chunk
+summarised after the helper has moved on must still be labelled with the mode and the person it was
+actually said under.
 
 Only recent chunks are used to build the summary input. Old chunks are pruned opportunistically, not persisted.
 
@@ -71,7 +78,7 @@ record: it has no viewer, is not human-facing, and audio is never written to it 
 governs audio). Two record shapes share the file, correlated by chunk `id`:
 
 ```json
-{ "t": "chunk", "at": "2026-07-29T12:00:00.000Z", "id": "1710000000000", "mode": "speaker", "text": "..." }
+{ "t": "chunk", "at": "2026-07-29T12:00:00.000Z", "id": "1710000000000", "mode": "speaker", "speaker": "Brother Ashcroft", "text": "..." }
 ```
 
 ```json

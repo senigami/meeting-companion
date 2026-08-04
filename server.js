@@ -122,7 +122,7 @@ export function createApp({
 
   app.post('/api/summarize', async (req, res) => {
     try {
-      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, history = [] } = req.body || {};
+      const { source = 'openai', apiKey = '', mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, level, history = [] } = req.body || {};
       const result = await summarizeWithSource({
         source,
         mode,
@@ -130,6 +130,7 @@ export function createApp({
         previousBlock,
         visibleLines,
         maxWords,
+        level,
         history: sanitizeSummaryHistory(history),
         openaiClient: resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore }),
         anthropicApiKey: source === 'claude'

@@ -291,6 +291,16 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   text-transform: uppercase;
 }
 
+/* Issue #40: the speaker name, present only on the card where the speaker changed. Deliberately
+   NOT uppercase/letter-spaced like the mode label beside it -- a name is content the reader is
+   identifying a person by, not chrome describing the card, so it reads in the card's own text
+   color rather than the muted meta color. */
+.transcript-speaker {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
 .transcript-time {
   margin-left: auto;
   font-variant-numeric: tabular-nums;

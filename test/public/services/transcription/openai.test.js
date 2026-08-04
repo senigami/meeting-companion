@@ -683,7 +683,9 @@ test('openai transcription: less than 0.3s accumulated at stop() sends nothing',
   });
 });
 
-test('openai transcription: frames past 60s while still speaking split into chunks without onSpeechEnd firing', async () => {
+test('openai transcription: unbroken speech past the hard cap splits without onSpeechEnd firing', async () => {
+  // Every frame here is fully voiced (isSpeech 1), so there is never a quiet frame to cut at and
+  // the backstop is the only thing that can fire. That is the case it exists for.
   await withFakeNavigator(async () => {
     const capturedBodies = [];
     const diagnostics = [];
@@ -701,28 +703,126 @@ test('openai transcription: frames past 60s while still speaking split into chun
     const node = getNode();
     node.emitSpeechStart();
 
-    // 61 one-second frames (16000 samples each) with no pause -- crosses the 60s cap mid-speech.
-    for (let i = 0; i < 61; i += 1) {
-      node.emitFrameProcessed(fakeSegment(16000, i));
-    }
+    for (let i = 0; i < 31; i += 1) node.emitFrameProcessed(fakeSegment(16000, i));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.equal(capturedBodies.length, 1, 'first 60s split produced exactly one chunk');
+    assert.equal(capturedBodies.length, 1, 'the hard cap produced exactly one chunk');
     assert.ok(
       diagnostics.some((event) => /long utterance split/i.test(event.message)),
       'the split is reported via onAudioDiagnostics'
     );
 
-    // A second 60s of continuous speech (still no onSpeechEnd) produces a second split chunk,
-    // proving the accumulator actually reset rather than just refusing to grow further.
-    for (let i = 0; i < 61; i += 1) {
-      node.emitFrameProcessed(fakeSegment(16000, i));
+    for (let i = 0; i < 31; i += 1) node.emitFrameProcessed(fakeSegment(16000, i));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 2, 'the accumulator reset rather than refusing to grow');
+
+    await driver.stop();
+  });
+});
+
+test('openai transcription: a long utterance is cut at a breath, not at the wall-clock deadline', async () => {
+  // Steve, live 2026-08-02: "VAD system is blocking all output until it detects a pause." A steady
+  // speaker used to send nothing for 40+ seconds. Now a quiet frame past the soft budget releases
+  // what has been said so far, and it releases at the QUIET frame rather than wherever the clock
+  // happened to land.
+  await withFakeNavigator(async () => {
+    const capturedBodies = [];
+    const diagnostics = [];
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      onAudioDiagnostics: (event) => diagnostics.push(event),
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'segment' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+
+    // 13s of speech with a breath at the 10s mark, well short of the 30s backstop.
+    for (let i = 0; i < 13; i += 1) {
+      const breath = i === 9;
+      node.emitFrameProcessed(fakeSegment(16000, i), { isSpeech: breath ? 0.1 : 0.95 });
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.equal(capturedBodies.length, 2, 'a second 60s of continuous speech produces a second split chunk');
+    assert.equal(capturedBodies.length, 1, 'text was released mid-utterance instead of being held');
+    assert.ok(
+      diagnostics.some((event) => /split at a pause/i.test(event.message)),
+      'and the split is reported as a pause-cut, not a deadline-cut'
+    );
+    // 10 frames of 16000 samples, 2 bytes each, plus a 44-byte header.
+    const bytes = Buffer.from(capturedBodies[0].audioBase64, 'base64');
+    assert.equal(bytes.length, 44 + 10 * 16000 * 2, 'the cut landed on the quiet frame, not the deadline');
 
     await driver.stop();
+  });
+});
+
+test('openai transcription: after a split, onSpeechEnd sends only the tail -- never the whole segment again', async () => {
+  // The library hands onSpeechEnd the entire segment from its start. Once part of that segment has
+  // already been transmitted, using it would resend every word -- the reader would see the first
+  // half of a testimony twice, in first person, with nothing in the transcript to show why.
+  await withFakeNavigator(async () => {
+    const capturedBodies = [];
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'segment' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+
+    for (let i = 0; i < 13; i += 1) {
+      node.emitFrameProcessed(fakeSegment(16000, i), { isSpeech: i === 9 ? 0.1 : 0.95 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(capturedBodies.length, 1);
+
+    // The library now reports the whole 13s segment. Only the 3s tail may go out.
+    node.emitSpeechEnd(fakeSegment(13 * 16000, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 2, 'the tail was sent');
+    const tailBytes = Buffer.from(capturedBodies[1].audioBase64, 'base64');
+    assert.equal(tailBytes.length, 44 + 3 * 16000 * 2, 'only the 3s since the cut, not the whole 13s');
+  });
+});
+
+test('openai transcription: a segment that never split still uses the library audio, keeping its pre-speech padding', async () => {
+  // The tail-only path above must not become the default: our accumulator starts at
+  // onSpeechStart, so using it unconditionally would clip the first phoneme off every utterance.
+  await withFakeNavigator(async () => {
+    const capturedBodies = [];
+    const { factory, getNode } = makeFakeVadFactory();
+    const driver = createOpenAITranscriptionDriver({
+      vadFactory: factory,
+      fetchImpl: async (url, options) => {
+        capturedBodies.push(JSON.parse(options.body));
+        return { ok: true, status: 200, json: async () => ({ text: 'segment' }) };
+      }
+    });
+
+    await driver.start({ currentMode: 'speaker' });
+    const node = getNode();
+    node.emitSpeechStart();
+    node.emitFrameProcessed(fakeSegment(16000, 0), { isSpeech: 0.95 });
+    // Library reports MORE than we accumulated -- that extra is the pre-speech padding.
+    node.emitSpeechEnd(fakeSegment(2 * 16000, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(capturedBodies.length, 1);
+    const bytes = Buffer.from(capturedBodies[0].audioBase64, 'base64');
+    assert.equal(bytes.length, 44 + 2 * 16000 * 2, 'the padded library buffer was sent, not our 1s copy');
   });
 });
 

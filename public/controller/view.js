@@ -231,7 +231,18 @@ export function renderDisplay(ctx) {
   const previousScrollTop = ctx.dom.transcriptViewport.scrollTop || 0;
   const reducedMotion = Boolean(ctx.state.prefersReducedMotion);
 
-  const nodes = renderItems.map((item, index) => createTranscriptCard(item, index === renderItems.length - 1));
+  // Issue #40: the label shows only on a change of speaker, walked forward through the items in
+  // display order -- a name repeated on every card is reading load a slow reader pays for nothing.
+  // previousSpeaker starts as null (not ''), so a genuinely empty first card's speaker ('') is
+  // still correctly treated as "no change from nothing" (no label) rather than "changed from null".
+  let previousSpeaker = null;
+  const nodes = renderItems.map((item, index) => {
+    const speaker = typeof item.speaker === 'string' ? item.speaker.trim() : '';
+    // Empty is a valid state and never gets a label, no matter what came before it.
+    const showSpeaker = Boolean(speaker) && speaker !== previousSpeaker;
+    previousSpeaker = speaker;
+    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker });
+  });
   if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
     ctx.dom.transcriptStack.replaceChildren(...nodes);
   } else {
@@ -724,7 +735,7 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
   }
 }
 
-function createTranscriptCard(item, active = false) {
+function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
   const visualMode = isManual ? 'manual' : item.mode || 'speaker';
@@ -758,6 +769,17 @@ function createTranscriptCard(item, active = false) {
   label.className = 'transcript-meta-label';
   label.textContent = modeMeta.label;
   meta.append(label);
+
+  // Issue #40: rendered as its own node alongside the mode label, never woven into transcript-text
+  // -- a display attribute, not something the summarizer's text passed through. Only present at
+  // all when this card is where the speaker changed (showSpeaker), computed by the caller so this
+  // function stays a pure per-item renderer with no knowledge of what came before it.
+  if (showSpeaker && speaker) {
+    const speakerLabel = createNode('span');
+    speakerLabel.className = 'transcript-speaker';
+    speakerLabel.textContent = speaker;
+    meta.append(speakerLabel);
+  }
 
   if (item.createdAt) {
     const time = createNode('time');

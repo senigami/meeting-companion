@@ -24,12 +24,16 @@ export function createRecordingSessionId(at = Date.now()) {
 // it can be tied back to the original, byte-verbatim spoken record. Never silently fabricate text
 // into these recordings without this flag -- they are the evidence used to compare microphones and
 // prompts, and an unmarked inferred character would poison that comparison.
-export function buildChunkRecord({ at, mode, text, inferred = false }) {
+// `speaker` (issue #40): the operator-typed name active when this chunk was captured, so a replay
+// of the recording reproduces the same speaker labels the operator actually saw, not whatever name
+// happens to be in the field when the recording is replayed back through the pipeline.
+export function buildChunkRecord({ at, mode, text, speaker = null, inferred = false }) {
   return {
     t: 'chunk',
     at: new Date(at).toISOString(),
     id: String(at),
     mode: mode || null,
+    speaker: speaker || null,
     text: text || '',
     inferred: Boolean(inferred)
   };

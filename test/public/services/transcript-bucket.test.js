@@ -148,6 +148,30 @@ test('takeOldestModeRun throws rather than silently sending a slice of a run lar
   assert.throws(() => takeOldestModeRun(chunks, { defaultMode: 'speaker', maxChars: 1600 }));
 });
 
+// Issue #40: the run reports the speaker its own leading chunk was captured under, the same
+// precedent already established for mode -- a card must read under the speaker who actually said
+// it, not whoever the operator has since typed into the name field.
+test('takeOldestModeRun carries the run\'s own leading speaker, not the current one', () => {
+  const chunks = [
+    { at: NOW, text: 'first sentence', mode: 'speaker', speaker: 'Alpha' },
+    { at: NOW + 1, text: 'second sentence', mode: 'speaker', speaker: 'Alpha' }
+  ];
+
+  // defaultSpeaker stands in for "whoever is typed in right now" -- deliberately different from
+  // the chunks' own recorded speaker, to prove the run reports the CHUNK's speaker, not the default.
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker', defaultSpeaker: 'Someone Else Entirely' });
+  assert.equal(run.speaker, 'Alpha');
+});
+
+test('takeOldestModeRun falls back to defaultSpeaker for a chunk that was never speaker-tagged', () => {
+  const chunks = [{ at: NOW, text: 'untagged legacy chunk', mode: 'speaker' }];
+  const run = takeOldestModeRun(chunks, { defaultMode: 'speaker', defaultSpeaker: 'Fallback Name' });
+  assert.equal(run.speaker, 'Fallback Name');
+});
+
 test('takeOldestModeRun returns nothing for an empty or all-blank bucket', () => {
-  assert.deepEqual(takeOldestModeRun([], { defaultMode: 'speaker' }), { chunks: [], mode: 'speaker', text: '' });
+  assert.deepEqual(
+    takeOldestModeRun([], { defaultMode: 'speaker' }),
+    { chunks: [], mode: 'speaker', speaker: null, text: '' }
+  );
 });
