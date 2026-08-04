@@ -63,11 +63,25 @@ export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCK
 // before this ever runs, so a run should never exceed it. If it somehow does, this throws instead
 // of silently sending a slice while a caller consumes the whole (larger) run -- that mismatch is
 // exactly how the head of a backlog was destroyed before (see the note on bucketText below).
-// speaker (issue #40) is carried alongside mode, taken from the run's own first chunk rather than
-// split into its own boundary: this run already only breaks on a mode change, and a second
-// dimension of run-splitting (one card per speaker too) is the "resolve pronouns" follow-up the
-// issue explicitly defers, not this change. A run that happens to cross a speaker change still
-// reports the run's leading speaker, which addLine attaches to the resulting card(s).
+// speaker (issue #40) breaks a run exactly as mode does, and issue #51 is why.
+//
+// What this guarantees, stated precisely because the obvious phrasing overclaims: two DIFFERENTLY
+// TAGGED speakers are never merged into one card. It cannot fix an operator who has not retyped the
+// name yet -- those chunks carry the previous name, nothing breaks, and the #51 harm happens anyway.
+// That is inherent to a human-supplied label and is the residual risk #40 accepted when it chose a
+// typed name over a guessed one. Carrying it from the
+// leading chunk without splitting looked like the conservative reading of #40's deferral, and it
+// produced a card asserting one person's name over another person's words. Reproduced before the fix:
+// two chunks, "I know the Church is true." (Brother Ashcroft) then "Thank you Brother Ashcroft. I
+// lost my job last year." (Sister Ellsworth), summarized as one run and labelled Brother Ashcroft.
+//
+// The reader cannot hear the room, so he has no way to detect that. An unlabelled card asserts
+// nothing; that one asserts something false about a real person in front of the congregation, which
+// makes the labelled state worse than the unlabelled state it replaced.
+//
+// This is NOT the deferred work. #40 defers speaker-aware SUMMARIZATION -- pronoun resolution, the
+// prompt knowing who is talking -- and the prompt stays completely speaker-blind here. Where a run
+// ends is a bucket decision, and the bucket has always been allowed to make it.
 export function takeOldestModeRun(consumable = [], { defaultMode = null, defaultSpeaker = null, maxChars = BUCKET_MAX_CHARS } = {}) {
   const list = (Array.isArray(consumable) ? consumable : []).filter((chunk) => chunk && normalizeText(chunk.text));
   if (!list.length) return { chunks: [], mode: defaultMode, speaker: defaultSpeaker, text: '' };
@@ -77,6 +91,16 @@ export function takeOldestModeRun(consumable = [], { defaultMode = null, default
   const chunks = [];
   for (const chunk of list) {
     if ((chunk.mode ?? defaultMode) !== runMode) break;
+    // ?? and not ||, and the difference is the whole guarantee. Every live path produces '' for
+    // "no speaker" (start-app.js's initial state, setSpeakerName's trim, replay's `|| ''`), and ''
+    // is NOT nullish, so an empty speaker DOES break the run. That is deliberate: '' is what the
+    // operator clearing the name field produces, and those cards must go unlabelled rather than
+    // inherit the previous person's name. Folding '' into the fallback would reintroduce #51 for
+    // exactly the operator action most likely to be a correction.
+    //
+    // The nullish branch itself only catches a genuinely absent field -- a chunk buffered before #40
+    // shipped. No current path writes one, so treat it as belt-and-braces, not as live behaviour.
+    if ((chunk.speaker ?? runSpeaker) !== runSpeaker) break;
     chunks.push(chunk);
   }
 
