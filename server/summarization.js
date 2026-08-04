@@ -1,4 +1,4 @@
-import { cleanModelLines, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { cleanModelLinesWithLoss, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { packLinesIntoCards } from '../public/services/card-packing.js';
@@ -182,7 +182,11 @@ function finishReply(rawText, visibleLines, { mode, maxWords, level }) {
 // transcript-display.js's splitByThought turns each into its own card. wasShortened is true if ANY
 // line needed shortening -- the per-call telemetry signal stays a single boolean either way.
 function finishLines(rawText, visibleLines, { cardWords = null, maxLines = undefined } = {}) {
-  const acceptedLines = cleanModelLines(rawText, visibleLines, maxLines ? { maxLines } : undefined);
+  const { accepted: acceptedLines, discardedByCap } = cleanModelLinesWithLoss(
+    rawText,
+    visibleLines,
+    maxLines ? { maxLines } : undefined
+  );
   // cardWords null means "leave the model's line breaks alone" -- the Claude path, whose prompt
   // still asks for three finished lines. The OpenAI path passes a budget, because its prompt now
   // returns one thought per line and something has to decide where the cards actually break.
@@ -195,7 +199,11 @@ function finishLines(rawText, visibleLines, { cardWords = null, maxLines = undef
     return shortened;
   });
 
-  return { line: shortenedLines.join('\n'), wasShortened: anyShortened };
+  // discardedByCap is reported separately from wasShortened on purpose (#58). They are different
+  // failures: shortening trims a line's characters and the line still arrives, while a discard means
+  // real speech never reached the reader. Collapsing them into one boolean is what made three
+  // successive silent-loss defects look like clean calls.
+  return { line: shortenedLines.join('\n'), wasShortened: anyShortened, discardedByCap };
 }
 
 async function summarizeWithClaude({

@@ -1,4 +1,4 @@
-import { cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
+import { cleanModelLinesWithLoss, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -39,14 +39,18 @@ export function createOpenAISummarizer({
       // already-cleaned reply at 3 and silently undid #49: five announcements out of the server,
       // three onto the wall. The server is authoritative about how many lines survive; this call
       // exists only to keep them on separate lines, never to re-decide the count.
-      const line = cleanModelLines(data.line || '', visibleLines, { maxLines: RUNAWAY_LINE_GUARD }).join('\n');
+      const { accepted, discardedByCap } = cleanModelLinesWithLoss(data.line || '', visibleLines, { maxLines: RUNAWAY_LINE_GUARD });
+      const line = accepted.join('\n');
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,
         // Passed straight through from server/summarization.js's own before/after shortenToLimit
         // comparison -- the recording instrument's (ADR-0004) measurement of whether the prompt-side
         // length fix in 909fe1e actually fires, not just whether the line happened to be long.
-        wasShortened: Boolean(data.wasShortened)
+        wasShortened: Boolean(data.wasShortened),
+        // The server's count plus anything this pass discarded. Both are the same failure from the
+        // reader's side: speech that never reached the wall (#58).
+        discardedByCap: Number(data.discardedByCap || 0) + discardedByCap
       };
     }
   };
