@@ -240,7 +240,7 @@
                   <label for="summaryInterval">Update interval</label>
                   <output id="summaryIntervalValue" for="summaryInterval"></output>
                 </div>
-                <input id="summaryInterval" class="sliderInput" type="range" min="2" max="15" step="1" />
+                <input id="summaryInterval" class="sliderInput" type="range" min="2" max="30" step="1" />
                 <div class="field-note">One second at a time, from 2s to 15s.</div>
               </div>
               <div class="range-field" id="summaryMaxWordsField">
@@ -248,8 +248,25 @@
                   <label for="summaryMaxWords">Words per card</label>
                   <output id="summaryMaxWordsValue" for="summaryMaxWords"></output>
                 </div>
-                <input id="summaryMaxWords" class="sliderInput" type="range" min="0" max="3" step="1" />
-                <div class="field-note">Moves in discrete steps: 8, 11, 14, 17 words.</div>
+                <!-- Read-only (issue #44): words per card is now DERIVED from the reader's measured
+                     pace (or the app's default, with no profile applied) times the update interval
+                     above, not a second independent dial that could disagree with the measurement.
+                     Kept visible and disabled, never removed -- Ansel needs a number to point at
+                     when asking why a card only had six words. -->
+                <input id="summaryMaxWords" class="sliderInput" type="range" min="0" max="2" step="1" disabled aria-readonly="true" tabindex="-1" />
+                <div class="field-note">Derived from the reading pace and the update interval above -- not set directly.</div>
+              </div>
+              <div class="range-field" id="readingPaceProfileField">
+                <div class="range-head">
+                  <label for="readingPaceProfileSelect">Reader profile</label>
+                </div>
+                <!-- Issue #44: applies a reader's saved, named measurement so the pace above is
+                     measured, not assumed. Remembered across restarts by name only -- the
+                     measurement itself stays on disk under reader-profiles/. -->
+                <select id="readingPaceProfileSelect">
+                  <option value="">No profile (assumed pace)</option>
+                </select>
+                <div class="field-note">Measured separately, ahead of time. No profile is required.</div>
               </div>
             </div>
           </section>

@@ -91,3 +91,55 @@ export function longerCardsReadSlower(cards) {
 }
 
 export const READING_PACE_COMFORTABLE_SECONDS = COMFORTABLE_READING_SECONDS;
+
+// Issue #44: with no reader profile applied, this is the pace the derived words-per-card budget
+// assumes. Matches the pace actually measured for this app's real reader (summary-level.js,
+// 2026-08-02: "about one word every two seconds -- roughly 30 wpm") rather than the 60-120 wpm range
+// this app used to guess across before anyone was measured -- the whole point of #44 is to stop
+// guessing once a real number exists, and a default that assumes the fast end of that old guess
+// would make the unmeasured case (which is also the untested-user case) the most likely to overrun.
+export const DEFAULT_MEDIAN_WPM = 30;
+
+// The words-per-card budget is now ALWAYS derived (issue #44): one quantity (a measured or assumed
+// pace) times the card interval, never two independent dials that could disagree. This wraps
+// recommendWordsPerCard so callers never re-derive the arithmetic themselves -- reuse this, not a
+// second copy of `wordsPerSecond * seconds`.
+export function derivedCardWords(medianWpm, intervalSeconds) {
+  return recommendWordsPerCard(medianWpm, intervalSeconds).words;
+}
+
+// What the reader can ACTUALLY get through in one interval, before any snapping to the settings
+// range. Measured 2026-08-04, and the reason this exists: at 30 wpm every interval from 2s to 15s
+// derived to "11 words" on screen, because the raw figure (1.0 words at 2s, 5.0 at 10s) was clamped
+// up into summaryMaxWordsOptions and then displayed as though it were the budget. Deriving the number
+// was meant to stop two settings disagreeing; snapping it reintroduced the disagreement and hid it
+// behind a confident label, which is worse than the two dials were.
+//
+// So the prompt still gets a usable clamped number -- it cannot be asked for a 1-word card -- but the
+// operator is told the truth, including when the truth is that the interval is too short for this
+// reader. `belowFloor` is that signal, and it must never be presented as a word count.
+//
+// USABLE_CARD_WORDS_FLOOR comes from Ansel's ruling (2026-08-02): below roughly this, brief's own
+// compression collapses to noise, because a name plus a number can eat eight words on its own. It is
+// his call and not arithmetic, which is why it is named rather than inlined.
+export const USABLE_CARD_WORDS_FLOOR = 10;
+
+export function readingBudget(medianWpm, intervalSeconds) {
+  const { rawWords, words } = recommendWordsPerCard(medianWpm, intervalSeconds);
+  return {
+    rawWords,
+    words,
+    belowFloor: rawWords < USABLE_CARD_WORDS_FLOOR
+  };
+}
+
+// A profile (public/reading-pace.js's saved shape: { recordedAt, fontSizePx, cards }) carries no
+// medianWpm field of its own -- it stores the raw per-card measurements, same as the results page,
+// so this derives the one number the rest of the app needs from them the same way the results page
+// does. Returns null for anything that is not a usable profile (missing, no cards), so callers can
+// tell "no measurement" apart from "measured, but slow" without a magic number.
+export function medianWpmFromProfile(profile) {
+  if (!profile || !Array.isArray(profile.cards) || profile.cards.length === 0) return null;
+  const wpmValues = profile.cards.map((card) => cardWordsPerMinute(card));
+  return median(wpmValues);
+}

@@ -402,3 +402,21 @@ test('live transcript box is natively resizable on desktop and locked down on mo
     /@media \(max-width: 900px\)[\s\S]*\.railTranscriptSection \.railTranscript\s*\{\s*resize:\s*none;\s*height:\s*auto !important;\s*\}/s
   );
 });
+
+// The interval slider shipped with max="15" while SUMMARY_INTERVAL_MAX_SECONDS was 30, so the app
+// could not be set to the 20s interval its own reader actually works at -- and nothing caught it,
+// because no test compared the markup against the constant it is supposed to express. A range input
+// is a claim about the allowed values; if it disagrees with the code's clamp, one of them is a lie.
+test('the timing sliders span exactly the range their own constants allow', async () => {
+  const html = await readFile(new URL('../../public/index.html', import.meta.url), 'utf8');
+  const { SUMMARY_INTERVAL_MIN_SECONDS, SUMMARY_INTERVAL_MAX_SECONDS, summaryMaxWordsOptions } =
+    await import('../../public/services/view-settings.js');
+
+  const interval = html.match(/<input id="summaryInterval"[^>]*>/)[0];
+  assert.match(interval, new RegExp(`min="${SUMMARY_INTERVAL_MIN_SECONDS}"`), 'interval min must match the constant');
+  assert.match(interval, new RegExp(`max="${SUMMARY_INTERVAL_MAX_SECONDS}"`), 'interval max must match the constant');
+
+  // The words slider is an index into the options array, not a word count.
+  const words = html.match(/<input id="summaryMaxWords"[^>]*>/)[0];
+  assert.match(words, new RegExp(`max="${summaryMaxWordsOptions.length - 1}"`), 'words slider indexes the option set');
+});

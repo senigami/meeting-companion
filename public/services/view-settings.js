@@ -23,7 +23,10 @@ export const SUMMARY_INTERVAL_MIN_SECONDS = 2;
 // line the whole talk was built toward. At 30s that line was gone, so the useful range ends well
 // before the ceiling.
 export const SUMMARY_INTERVAL_MAX_SECONDS = 30;
-export const summaryMaxWordsOptions = [8, 11, 14, 17];
+// 8 dropped (issue #44, Ansel): a name plus a number can eat eight words on its own, so 8 was never
+// a usable setting for the reader this app is built for -- it was always going to be silently
+// consumed by the label. 11 is now the floor.
+export const summaryMaxWordsOptions = [11, 14, 17];
 export const summaryMaxWordsSliderMax = summaryMaxWordsOptions.length - 1;
 export const AUDIO_HIGH_PASS_HZ_MIN = 50;
 export const AUDIO_HIGH_PASS_HZ_MAX = 150;

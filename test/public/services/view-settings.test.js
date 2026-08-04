@@ -29,7 +29,7 @@ test('view settings clamp to safe display ranges', () => {
   assert.equal(clampDisplayMargin(99), 40);
   assert.equal(clampSummaryIntervalSeconds(1), 2);
   assert.equal(clampSummaryIntervalSeconds(99), 30);
-  assert.equal(clampSummaryMaxWords(1), 8);
+  assert.equal(clampSummaryMaxWords(1), 11);
   assert.equal(clampSummaryMaxWords(99), 17);
   assert.equal(clampSummaryMaxWords('garbage'), 14);
   assert.equal(clampSummaryMaxWords(undefined), 14);
@@ -64,22 +64,22 @@ test('summary interval clamps to the range and rounds to a whole second', () => 
 });
 
 test('summary max words options stay short for a slow, distance reader', () => {
-  assert.deepEqual(summaryMaxWordsOptions, [8, 11, 14, 17]);
+  // 8 dropped (issue #44): a name plus a number can eat eight words on its own, so it was never a
+  // usable setting for the reader this app is built for.
+  assert.deepEqual(summaryMaxWordsOptions, [11, 14, 17]);
 });
 
 test('summary max words slider maps to the same discrete values', () => {
-  assert.equal(summaryMaxWordsSliderIndexFromWords(8), 0);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(11), 1);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(14), 2);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(17), 3);
-  assert.equal(summaryMaxWordsFromSliderIndex(0), 8);
-  assert.equal(summaryMaxWordsFromSliderIndex(1), 11);
-  assert.equal(summaryMaxWordsFromSliderIndex(2), 14);
-  assert.equal(summaryMaxWordsFromSliderIndex(3), 17);
+  assert.equal(summaryMaxWordsSliderIndexFromWords(11), 0);
+  assert.equal(summaryMaxWordsSliderIndexFromWords(14), 1);
+  assert.equal(summaryMaxWordsSliderIndexFromWords(17), 2);
+  assert.equal(summaryMaxWordsFromSliderIndex(0), 11);
+  assert.equal(summaryMaxWordsFromSliderIndex(1), 14);
+  assert.equal(summaryMaxWordsFromSliderIndex(2), 17);
 
   // Garbage input on either helper falls back rather than throwing or landing off the option list.
-  assert.equal(summaryMaxWordsSliderIndexFromWords('garbage'), 2);
-  assert.equal(summaryMaxWordsFromSliderIndex('garbage'), 8);
+  assert.equal(summaryMaxWordsSliderIndexFromWords('garbage'), 1);
+  assert.equal(summaryMaxWordsFromSliderIndex('garbage'), 11);
 });
 
 test('font size slider position maps exponentially, not linearly, onto pixels', () => {
