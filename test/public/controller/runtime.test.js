@@ -3658,3 +3658,49 @@ test('clearing the wall makes the first-card path live again (#31)', async () =>
     assert.equal(ctx.state.firstCardShown, false, 'an empty wall means the next chunk should not wait on a clock');
   });
 });
+
+test('a provider already in backoff is not called again on chunk arrival (#31)', async () => {
+  // Found by Cato before this shipped. Gating on firstCardShown alone bypassed the summarize backoff
+  // entirely: effectiveIntervalSeconds is consumed only by startLoop, so it lengthens the INTERVAL and
+  // can do nothing about a call fired by a chunk arriving. With a provider down at meeting start that
+  // was one call per speech chunk, several a minute, for the whole outage, while a deliberate 30 second
+  // backoff sat there unused.
+  let calls = 0;
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai', effectiveIntervalSeconds: 30 }
+  }, async ({ runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'A complete sentence here.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls, 0, 'the interval is the backstop while backing off; arrival must not bypass it');
+  });
+});
+
+test('barren chunks cannot each buy a provider call (#31)', async () => {
+  // The healthy version of the same problem: speech that keeps returning no useful line never sets
+  // firstCardShown, so without a floor between attempts every chunk bought its own call.
+  let calls = 0;
+  let now = 100000;
+  await withRuntimeHarness({
+    nowFn: () => now,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai' }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'First barren sentence.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    const afterFirst = calls;
+    assert.equal(afterFirst, 1, 'the first arrival does summarize');
+
+    // Same instant: a second chunk must not buy a second call.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Second barren sentence.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls, afterFirst, 'a chunk arriving inside the floor must not trigger another call');
+
+    // Past the floor: allowed again, because no card has landed and the wall is still empty.
+    now += 5000;
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Third barren sentence.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(calls > afterFirst, 'past the floor the wall is still empty, so trying again is right');
+  });
+});
