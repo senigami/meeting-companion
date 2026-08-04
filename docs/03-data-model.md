@@ -109,12 +109,26 @@ The server accepts and returns these JSON shapes:
 | Route | Request | Response |
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
-| `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines }` | `{ line, reason? }` |
+| `POST /api/summarize` | `{ source, mode, recentTranscript, previousBlock, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |
 | `POST /api/provider/test` | `{ provider, apiKey }` | `{ ok: true }` or `{ error }` |
 | `POST /api/recording/append` | `{ sessionId, records }` | `{ ok: true, written }` or `{ ok: false, error }` |
+| `POST /api/reading-pace` | `{ name, payload }` | `{ ok: true }` |
+| `GET /api/reading-pace/list` | none | `{ profiles }` |
+| `GET /api/reading-pace/:name` | none | the saved profile payload |
+
+`/api/reading-pace` (write) is loopback-only, unlike `/api/recording/append`. That is deliberate and
+the reasoning is worth keeping: an append writes into a session file the operator already started,
+while this creates a NAMED file about an identifiable person, and a machine on the same network
+should not be able to do that.
+
+This table has drifted twice now (#48), both times the same way: a field was added to the summarize
+payload and the doc was one field's worth of "too small to bother" behind. It reached five --
+`previousBlock`, `maxWords`, `history`, `level`, `wasShortened` -- before anybody noticed. If it
+drifts again, the answer is probably to stop restating the shape here and point at the route handler
+instead, since a doc that repeats a shape is a second definition of it.
 
 ## Related specs
 
