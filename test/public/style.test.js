@@ -420,3 +420,35 @@ test('the timing sliders span exactly the range their own constants allow', asyn
   const words = html.match(/<input id="summaryMaxWords"[^>]*>/)[0];
   assert.match(words, new RegExp(`max="${summaryMaxWordsOptions.length - 1}"`), 'words slider indexes the option set');
 });
+
+// Issue #52. The speaker label had no font-size of its own, so it inherited .transcript-meta's
+// clamp() -- the OPERATOR CHROME scale -- and measured 12.48px against 84px card text. The part of
+// the card that says WHO was the part a low-vision reader was least able to read, and it did not move
+// when he changed the font-size control.
+//
+// Ansel's numbers, 2026-08-04: 0.4 of the card text, with an absolute floor because the fraction
+// alone fails at small calibrations (0.4 of a 32px card is 12.8px, straight back to unreadable).
+test('the speaker label scales with the card text and cannot shrink below a readable floor', async () => {
+  const css = await readSplitCss();
+  const rule = css.slice(css.indexOf('.transcript-speaker'), css.indexOf('}', css.indexOf('.transcript-speaker')) + 1);
+
+  assert.match(rule, /font-size:/, 'it must set its own size, not inherit the chrome scale');
+  assert.match(rule, /var\(--font-size\)/,
+    'it must be derived from the reader calibrated size, or it stops moving when he changes it');
+  assert.match(rule, /max\(\s*1\.35rem/,
+    'and it needs the absolute floor, because the fraction alone fails at small calibrations');
+});
+
+test('the mode chip deliberately stays at chrome scale, so it does not track the reader size', async () => {
+  // Ansel was asked directly whether the size mismatch on that row bothered him. It does not: the
+  // mode is operator status, not content the reader is identifying a person by.
+  const css = await readSplitCss();
+  // Every .transcript-meta block, not the first one found -- there are two, and the first is an
+  // opacity-only rule. A test that slices to the first match silently checks the wrong thing.
+  const blocks = [...css.matchAll(/\.transcript-meta\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  assert.ok(blocks.length >= 1, 'sanity: the rule must exist to be checked');
+  for (const block of blocks) {
+    assert.doesNotMatch(block, /var\(--font-size\)/, 'the chip must not scale with the reader size');
+  }
+  assert.ok(blocks.some((block) => /clamp\(/.test(block)), 'it stays on the chrome clamp');
+});
