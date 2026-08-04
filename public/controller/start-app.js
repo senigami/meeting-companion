@@ -8,7 +8,7 @@ import {
   clampAudioBoolean,
   AUDIO_SETTINGS_DEFAULTS
 } from '../services/view-settings.js';
-import { DEFAULT_MEDIAN_WPM, derivedCardWords } from '../services/reading-pace.js';
+import { DEFAULT_MEDIAN_WPM, readingBudget } from '../services/reading-pace.js';
 import {
   bindRailResize,
   loadRailWidth
@@ -84,11 +84,25 @@ export function startApp() {
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
-      // DERIVED (issue #44), not read from localStorage -- the pace * interval arithmetic below is
-      // the same one recomputeSummaryMaxWords (runtime.js) uses on every later change, so the first
-      // frame already shows the number that arithmetic actually produces rather than a leftover
-      // slider value from before words-per-card stopped being independently settable.
-      summaryMaxWords: derivedCardWords(DEFAULT_MEDIAN_WPM, clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5)),
+      // DERIVED (issue #44), not read from localStorage, and seeded from readingBudget rather than
+      // derivedCardWords -- which is the SNAPPED helper, and using it here quietly undid the whole
+      // fix on the one path most readers are on.
+      //
+      // Found by Cato before this shipped. At the default (no profile, 5s interval, assumed 30 wpm)
+      // the true budget is 2.5 words and this line seeded 11. readingBudget was never initialised at
+      // all, so updateSummaryMaxWordsControl's optional chains fell through to the healthy branch:
+      // the screen read "11 words" with no warning and every summarize call was told 11. Not a first
+      // frame flicker either -- recomputeSummaryMaxWords only runs on an interval change or a profile
+      // apply, and applyLastReadingPaceProfile returns early with no remembered name, so with an
+      // operator who never drags the slider the false 11 lasted the whole session.
+      //
+      // Both fields are seeded from ONE call for the same reason the view stopped computing its own:
+      // two places deriving this quantity is the fault #44 exists to remove.
+      ...(() => {
+        const seconds = clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5);
+        const budget = readingBudget(DEFAULT_MEDIAN_WPM, seconds);
+        return { summaryMaxWords: budget.words, readingBudget: budget };
+      })(),
       // No profile until applyLastReadingPaceProfile (runtime.js) resolves, same "must work with none
       // set" requirement issue #44 states explicitly -- every reader before this shipped had none.
       readingPaceProfile: null,
