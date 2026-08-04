@@ -163,7 +163,9 @@ test('a barely-there budget still produces a card, because the alternative is dr
   // summarizer deciding somebody's words were not worth showing -- so the floor here is a sanity
   // bound on the prompt, never permission to drop anything.
   const tiny = readingBudget(30, 2);
-  assert.ok(tiny.words >= 3, `a card must still be askable, got ${tiny.words}`);
+  // 4 is Ansel's number (2026-08-04), not a round one: it is the smallest shape that can hold a
+  // topic, a verb and one verbatim referent, and a name or a hymn number eats that immediately.
+  assert.ok(tiny.words >= 4, `a card must still be askable, got ${tiny.words}`);
 });
 
 test('a budget sitting exactly on the floor reads as marginal, not as healthy', () => {

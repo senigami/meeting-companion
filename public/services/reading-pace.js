@@ -130,11 +130,17 @@ export const USABLE_CARD_WORDS_FLOOR = 10;
 // So "marginal" is a third state, shown as a working budget but never as a healthy one.
 export const MARGINAL_CARD_WORDS_CEILING = 12;
 
-// A card this short is barely a phrase, but it is still somebody's words and it still goes up. The
-// alternative Ansel offered -- suppress the card for that tick -- is the one thing this app must not
+// Ansel's ruling, 2026-08-04, and his number rather than mine: 4, not the 3 I first wrote. Asking a
+// model for a literal one-word card forces either a bare token or padding with content nobody said,
+// so a floor has to exist -- but 4 is the smallest shape that can hold a topic, a verb and one
+// verbatim referent, and "Elder announced hymn 214" is already four the instant a name or number
+// appears. His contract does not get a discount for a badly set interval.
+//
+// It is a sanity bound on what we ASK for, never permission to drop anything. The other remedy he
+// offered for this case was suppressing the card entirely, which is the one thing this app must not
 // do: #32 is the whole record of what happens when the summarizer decides some speech was not worth
-// showing. So the floor here is a sanity bound on the prompt, not permission to drop anything.
-const MIN_PROMPT_WORDS = 3;
+// showing. He confirmed declining that remedy was the right call.
+const MIN_PROMPT_WORDS = 4;
 
 // words is the TRUE budget, not the clamped one. Ansel BLOCKED handing the prompt the floor value
 // when the real figure is below it: at a 2s interval the true budget is one word and the prompt was
