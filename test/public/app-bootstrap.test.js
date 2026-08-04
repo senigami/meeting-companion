@@ -447,4 +447,3 @@ test('ready check test button calls testProviderKey and the sample button closes
     }
   }
 });
-

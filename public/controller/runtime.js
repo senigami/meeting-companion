@@ -19,7 +19,6 @@ import {
 } from '../services/view-settings.js';
 import {
   DEFAULT_MEDIAN_WPM,
-  derivedCardWords,
   medianWpmFromProfile,
   readingBudget
 } from '../services/reading-pace.js';
