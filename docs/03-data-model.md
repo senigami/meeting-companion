@@ -20,7 +20,7 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | --- | --- | --- |
 | `transcriptItems` | `TranscriptItem[]` | The ordered output cards shown on the TV, capped in memory and rendered as a scrollable stack. |
 | `mode` | `speaker` \| `information` \| `song` \| `prayer` | The summarization mode chosen by the helper. |
-| `speakerName` | `string` | Who is talking, typed by the helper next to the mode buttons. Empty is valid and means no label. Deliberately not persisted: it belongs to the person at the pulpit right now, not to the machine. Never sent to a provider (see #40 and the display-only rule below). |
+| `speakerName` | `string` | Who is talking, typed by the helper next to the mode buttons. Empty is valid and means no label. Not persisted as a setting, deliberately, since it belongs to whoever is at the pulpit right now rather than to the machine. It IS written to the ADR-0004 session recording when recording is armed, which it is by default, so a name typed here does reach a file on disk (see the chunk record below). Never sent to a provider (see #40 and the display-only rule). |
 | `paused` | `boolean` | Whether AI summarization and transcription should stop producing new lines. |
 | `fontSize` | `number` | The large-print size used by the TV display, clamped from 24px to 144px. |
 | `displayMargin` | `number` | Percentage-based inset, clamped from 0 to 40, used to set the transcript text-flow width and place matching red display guides. |
