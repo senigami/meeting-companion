@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLines } from '../summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -32,7 +32,11 @@ export function createClaudeSummarizer({
       if (!response.ok) throw new Error(responseErrorMessage(data, 'Summarization failed.'));
       // See openai.js: cleanModelLines preserves the server's newline-separated ideas instead of
       // collapsing them back into one blob.
-      const line = cleanModelLines(data.line || '', visibleLines).join('\n');
+      // RUNAWAY_LINE_GUARD explicitly, not the default. Without it this re-capped the server's
+      // already-cleaned reply at 3 and silently undid #49: five announcements out of the server,
+      // three onto the wall. The server is authoritative about how many lines survive; this call
+      // exists only to keep them on separate lines, never to re-decide the count.
+      const line = cleanModelLines(data.line || '', visibleLines, { maxLines: RUNAWAY_LINE_GUARD }).join('\n');
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,

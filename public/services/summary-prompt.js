@@ -43,6 +43,19 @@ export function cleanModelLine(line = '') {
 // acceptable spike, but uncapped would let a dense chunk flood the wall all at once.
 export const MAX_LINES_PER_CALL = 3;
 
+// The runaway guard, in ONE place, because it was in three and they disagreed.
+//
+// #49 raised the server's information-mode cap to 12 and the fix never reached the display: both
+// client drivers re-run cleanModelLines on the server's reply with no maxLines, so they re-capped at
+// the MAX_LINES_PER_CALL default of 3. Measured after #59 merged -- the server returned five
+// announcements and the display got three, with "Ward council meets at 6:30" dropped exactly as #49
+// described. A cap fixed at one layer and re-applied at the next is not fixed.
+//
+// So the number lives here and every caller that needs a runaway bound imports it. MAX_LINES_PER_CALL
+// stays 3 because it is the CONTRACT of the older buildSummarizePrompt (which genuinely asks for
+// three lines), not a display limit -- do not merge the two constants, they mean different things.
+export const RUNAWAY_LINE_GUARD = 12;
+
 function lineKey(line = '') {
   return cleanModelLine(line).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }

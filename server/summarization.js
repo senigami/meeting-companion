@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLines, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { packLinesIntoCards } from '../public/services/card-packing.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
@@ -109,11 +109,12 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
   // 12 for information mode too, not the MAX_LINES_PER_CALL default of 3 (#49). Announcements are
   // one line each, so three was a hard ceiling on how many facts could survive one tick: a fourth
   // was dropped silently. Ansel ruled 12 here as well -- a runaway guard, matching the speaker path,
-  // with the release queue doing the actual pacing.
+  // with the release queue doing the actual pacing. The constant is shared with the client drivers,
+  // which used to re-cap this at 3 and undo it.
   const packs = mode === 'speaker' || mode === 'prayer';
   return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines, {
     cardWords: packs ? maxWords : null,
-    maxLines: 12
+    maxLines: RUNAWAY_LINE_GUARD
   });
 }
 
