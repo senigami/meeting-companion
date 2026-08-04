@@ -89,7 +89,8 @@ Do not spend words on who is talking. "The speaker", "someone", "a member" and t
 reader nothing they cannot already see, and at this length they cost a fifth of the card. Lead with
 the thing itself. Name a person only when a name was actually said and the point depends on it.
 
-If nothing in the text below is worth a card, return nothing at all rather than filling the line.
+Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
+instead. Return nothing only when the text holds no words at all, or repeats a line already shown.
 
 ${VERBATIM}
 

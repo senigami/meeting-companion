@@ -63,11 +63,17 @@ export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCK
 // before this ever runs, so a run should never exceed it. If it somehow does, this throws instead
 // of silently sending a slice while a caller consumes the whole (larger) run -- that mismatch is
 // exactly how the head of a backlog was destroyed before (see the note on bucketText below).
-export function takeOldestModeRun(consumable = [], { defaultMode = null, maxChars = BUCKET_MAX_CHARS } = {}) {
+// speaker (issue #40) is carried alongside mode, taken from the run's own first chunk rather than
+// split into its own boundary: this run already only breaks on a mode change, and a second
+// dimension of run-splitting (one card per speaker too) is the "resolve pronouns" follow-up the
+// issue explicitly defers, not this change. A run that happens to cross a speaker change still
+// reports the run's leading speaker, which addLine attaches to the resulting card(s).
+export function takeOldestModeRun(consumable = [], { defaultMode = null, defaultSpeaker = null, maxChars = BUCKET_MAX_CHARS } = {}) {
   const list = (Array.isArray(consumable) ? consumable : []).filter((chunk) => chunk && normalizeText(chunk.text));
-  if (!list.length) return { chunks: [], mode: defaultMode, text: '' };
+  if (!list.length) return { chunks: [], mode: defaultMode, speaker: defaultSpeaker, text: '' };
 
   const runMode = list[0].mode ?? defaultMode;
+  const runSpeaker = list[0].speaker ?? defaultSpeaker;
   const chunks = [];
   for (const chunk of list) {
     if ((chunk.mode ?? defaultMode) !== runMode) break;
@@ -79,7 +85,7 @@ export function takeOldestModeRun(consumable = [], { defaultMode = null, maxChar
     throw new Error('transcript send text exceeds the safe cap -- refusing to send a slice while consuming the whole run');
   }
 
-  return { chunks, mode: runMode, text };
+  return { chunks, mode: runMode, speaker: runSpeaker, text };
 }
 
 export function removeConsumed(chunks = [], consumed = []) {

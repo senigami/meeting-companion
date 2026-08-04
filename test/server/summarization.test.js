@@ -429,3 +429,28 @@ test('an unrecognised level falls back to condense rather than silently changing
   });
   assert.match(seenSystem, /must still read as them talking/, 'unknown levels must not reach the prompt builder');
 });
+
+test('an information-mode request is forced to condense at the server, even when brief is asked for', async () => {
+  // Defence at the point of use: this is where an untrusted request body arrives, and a brief
+  // announcement round loses facts silently instead of failing.
+  const client = {
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'Closing hymn is 301.\nSister Ellsworth offers the benediction.' } }] }) } }
+  };
+  const result = await summarizeWithSource({
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, level: 'brief', openaiClient: client
+  });
+  const cards = result.line.split('\n').filter(Boolean);
+  assert.equal(cards.length, 2, 'both announcements must survive');
+  assert.match(cards[0], /301/, 'the hymn number is exactly the thing that must not be dropped');
+  assert.match(cards[1], /benediction/);
+});
+
+test('a speaker-mode brief request is still honoured, so the server guard is narrow', async () => {
+  const client = {
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'One.\nTwo.' } }] }) } }
+  };
+  const result = await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 10, level: 'brief', openaiClient: client
+  });
+  assert.equal(result.line, 'One.');
+});

@@ -33,6 +33,31 @@ test('a final transcript event queues a chunk record tagged with its own capture
   });
 });
 
+// Issue #40: a replay must reproduce the same speaker labels the operator actually saw, so the
+// speaker active when a chunk was captured has to reach the recording, exactly like mode above.
+test('a final transcript event queues a chunk record tagged with its own capture speaker', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState({ speakerName: 'Bro. Ashcroft' })
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Please remember the Alvarez family.' });
+
+    assert.equal(ctx.state.recordingQueue.length, 1);
+    const record = ctx.state.recordingQueue[0];
+    assert.equal(record.speaker, 'Bro. Ashcroft');
+  });
+});
+
+test('an empty speaker records as null, never as a placeholder name', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState({ speakerName: '' })
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'No name typed yet.' });
+
+    const record = ctx.state.recordingQueue[0];
+    assert.equal(record.speaker, null);
+  });
+});
+
 test('recording disabled means a final transcript event queues nothing', async () => {
   await withRuntimeHarness({
     stateOverrides: baseState({ recordingEnabled: false })

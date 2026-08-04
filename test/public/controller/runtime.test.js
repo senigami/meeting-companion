@@ -1701,6 +1701,33 @@ test('a chunk captured before a mode change is summarized under, and labelled wi
   });
 });
 
+// Issue #40: a paced AI card must carry the speaker who was actually talking when the chunk was
+// captured, exactly the same precedent as mode above -- reading current state at release time
+// would mislabel every card after the operator retypes the name field while a card is still queued.
+test('a chunk captured under one speaker is summarized under, and labelled with, its own speaker', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'A line from the earlier speaker.' })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      // The chunk was captured while the operator had typed "Alpha"; they have since retyped the
+      // field to "Beta", which is what ctx.state.speakerName reads now. The resulting card must
+      // still carry "Alpha" -- the speaker active when the words were said, not read at drain time.
+      speakerName: 'Beta',
+      transcriptChunks: [{ text: 'A line from the earlier speaker.', at: now - 1000, mode: 'speaker', speaker: 'Alpha' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.at(-1).speaker, 'Alpha');
+    assert.equal(ctx.state.speakerName, 'Beta');
+  });
+});
+
 test('one summarize call never receives text spanning two modes', async () => {
   let sentText = null;
   const succeedingDriver = {
@@ -3517,6 +3544,32 @@ test('several cards from one summary are released one at a time, not dropped on 
     tick().fn();
     assert.equal(ctx.state.transcriptItems.length, 3);
     assert.match(ctx.state.transcriptItems[2].text, /Third thought/);
+  });
+});
+
+// Issue #40: a paced card's speaker is captured when the card is CREATED (inside addLine, before
+// it ever reaches the release queue), not read from ctx.state.speakerName again when the queue
+// finally releases it -- otherwise a speaker change mid-queue mislabels every card still waiting.
+test('a speaker change mid-queue labels the still-queued cards with the speaker active when each was created, not at release', async () => {
+  const timers = [];
+  await withRuntimeHarness({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutFn: () => {},
+    stateOverrides: { speakerName: 'Alpha' }
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('First thought.\nSecond thought.\nThird thought.', { source: 'ai', paced: true });
+    assert.equal(ctx.state.transcriptItems[0].speaker, 'Alpha', 'the first card is created (and shown) under Alpha');
+
+    // The operator changes speaker while the second and third cards are still queued.
+    runtime.setSpeakerName('Beta');
+
+    const tick = () => timers.filter((t) => t.ms === 5000).pop();
+    tick().fn();
+    tick().fn();
+
+    assert.equal(ctx.state.transcriptItems.length, 3);
+    assert.equal(ctx.state.transcriptItems[1].speaker, 'Alpha', 'created under Alpha, must not inherit the later change');
+    assert.equal(ctx.state.transcriptItems[2].speaker, 'Alpha', 'same for the third queued card');
   });
 });
 

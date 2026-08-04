@@ -25,7 +25,21 @@ export const SUMMARY_LEVELS = ['brief', 'condense'];
 // reading, which is a whole update interval spent on one card.
 export const BRIEF_MAX_CARD_WORDS = 11;
 
-export function chooseSummaryLevel({ cardWords } = {}) {
+// mode is NOT optional in spirit, only in signature. information mode must never take brief, and it
+// took it for an hour today because this function keyed on the budget alone.
+//
+// Found by Cato before the branch shipped. Brief is one card by contract, so at the live setting a
+// round of announcements had every line after the first hard-dropped: "Closing hymn 301" and "Sister
+// Ellsworth will offer the benediction" arrive as two lines and one of them simply never reached the
+// wall, with no error and no telemetry. The commit had already reasoned that MERGING two
+// announcements is wrong; discarding one is strictly worse, and it defeats the verbatim rule that
+// protects hymn numbers and assignments -- keeping a number exactly is worthless if its line is gone.
+//
+// The reading-load argument for brief does not transfer here either: announcements are already short
+// per item, so there is nothing to compress. Spreading them out is the release queue's job, not the
+// prompt's.
+export function chooseSummaryLevel({ cardWords, mode } = {}) {
+  if (mode === 'information') return 'condense';
   const words = Number(cardWords);
   if (!Number.isFinite(words) || words <= 0) return 'brief';
   return words <= BRIEF_MAX_CARD_WORDS ? 'brief' : 'condense';

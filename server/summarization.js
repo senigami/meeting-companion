@@ -45,7 +45,12 @@ export async function summarizeWithSource({
         previousBlock,
         visibleLines,
         maxWords,
-        level: isSummaryLevel(level) ? level : 'condense',
+        // The requested level is honoured -- the client derives it from the reading budget and this
+        // layer must not second-guess that. The ONE thing enforced here is the information-mode
+        // guard, because brief keeps a single line and an announcement round then loses facts
+        // silently rather than failing. That belongs at the point of use as well as at the caller:
+        // this is where an untrusted request body arrives.
+        level: mode === 'information' ? 'condense' : (isSummaryLevel(level) ? level : 'condense'),
         history
       });
     case 'claude':

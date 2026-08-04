@@ -71,6 +71,10 @@ export function startApp() {
       clearArmed: false,
       lastClearedItems: null,
       mode: 'speaker',
+      // Display-only, operator-typed (issue #40). Empty is the valid default -- no name means no
+      // label, never "Unknown" -- and deliberately never persisted: it names whoever is speaking
+      // right now, not a setting to carry into the next meeting.
+      speakerName: '',
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
@@ -236,6 +240,7 @@ export function startApp() {
       replayRecordingSelect: $('replayRecordingSelect'),
       replaySpeedSelect: $('replaySpeedSelect'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
+      speakerNameInput: $('speakerNameInput'),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
       summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
       settingsNavButtons: Array.from(document.querySelectorAll('[data-settings-nav]')),
@@ -441,6 +446,11 @@ function bindViewerControls(ctx, runtime) {
 
 function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.modeButtons.forEach((btn) => btn.addEventListener('click', () => runtime.setMode(btn.dataset.mode)));
+  // As fast as changing mode (issue #40's own requirement): plain 'input', no Enter/blur to commit
+  // -- the very next card created after a keystroke already carries the new name.
+  ctx.dom.speakerNameInput?.addEventListener('input', (event) => {
+    runtime.setSpeakerName(event.target.value);
+  });
   ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
   ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
 }

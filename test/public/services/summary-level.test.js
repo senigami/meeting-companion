@@ -61,3 +61,32 @@ test('brief prayer mode is still reported, not voiced', () => {
   // condense keeps the address and the amen; brief has no room for either and must not claim to.
   assert.doesNotMatch(prompt, /Keep the address/);
 });
+
+test('brief never invites the model to drop speech it judges unimportant (#32)', () => {
+  // #32: the old prompt said "if the moment is vague or repetitive, return an empty string", and the
+  // filter systematically preferred garbage to speech -- real conversational speech reads as vague,
+  // while a hallucinated foreign fragment reads as new. Recording 2026-07-31T18-30-52-855Z has
+  // "I am now going to stop talking for a bit" dropped and "Uchaf." shown.
+  //
+  // brief reintroduced the same filter for a day, because a ten-word budget makes "only if it's
+  // worth it" sound like thrift. It is not thrift; it is the summarizer deciding whether somebody's
+  // words counted.
+  const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 10, level: 'brief' });
+  assert.match(prompt, /Never return nothing because what was said seems unimportant/);
+  assert.doesNotMatch(prompt, /worth a card/, 'no worthiness test may reach the prompt');
+});
+
+test('information mode never takes brief, whatever the reading budget', () => {
+  // Found by Cato before this branch shipped. brief keeps ONE line, so a round of announcements had
+  // every line after the first hard-dropped: "Closing hymn 301" and "Sister Ellsworth will offer the
+  // benediction" arrive as two lines and one simply never reached the wall, with no error and no
+  // telemetry. Merging two announcements was already guarded against; discarding one is worse.
+  for (const cardWords of [8, 10, 11, 14, 17]) {
+    assert.equal(chooseSummaryLevel({ cardWords, mode: 'information' }), 'condense', `budget ${cardWords}`);
+  }
+  // And an absent/nonsense budget must not sneak information mode back onto brief either.
+  assert.equal(chooseSummaryLevel({ mode: 'information' }), 'condense');
+  assert.equal(chooseSummaryLevel({ cardWords: 'lots', mode: 'information' }), 'condense');
+  // Speaker at the same budgets is unaffected.
+  assert.equal(chooseSummaryLevel({ cardWords: 10, mode: 'speaker' }), 'brief');
+});

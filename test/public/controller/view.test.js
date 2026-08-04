@@ -173,6 +173,85 @@ test('renderDisplay shows manual transcript cards with a human icon instead of t
   assert.equal(meta.children[1].textContent, 'Manual');
 });
 
+// Issue #40: a speaker label reads as extra load for someone who reads roughly one word every two
+// seconds, so it must appear ONLY on the card where the speaker actually changed -- never repeated
+// on every card that follows, and never invented as "Unknown" when the operator left it blank.
+function findSpeakerNode(card) {
+  const meta = card.children[0];
+  return meta.children.find((node) => node.className === 'transcript-speaker');
+}
+
+test('a speaker label shows on the first card of a new speaker and not on the cards that repeat that speaker', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'a1', mode: 'speaker', text: 'First line.', createdAt: 1, source: 'ai', speaker: 'Bro. Ashcroft' },
+        { id: 'a2', mode: 'speaker', text: 'Second line, same speaker.', createdAt: 2, source: 'ai', speaker: 'Bro. Ashcroft' },
+        { id: 'a3', mode: 'speaker', text: 'Third line, same speaker.', createdAt: 3, source: 'ai', speaker: 'Bro. Ashcroft' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const [first, second, third] = transcriptStack.children;
+  assert.equal(findSpeakerNode(first)?.textContent, 'Bro. Ashcroft', 'the change of speaker must be labelled');
+  assert.equal(findSpeakerNode(second), undefined, 'a repeated speaker must not be re-labelled');
+  assert.equal(findSpeakerNode(third), undefined, 'still not re-labelled on the third repeat');
+});
+
+test('an empty speaker never renders a label, and never becomes "Unknown"', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'b1', mode: 'speaker', text: 'Nobody named.', createdAt: 1, source: 'ai', speaker: '' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const card = transcriptStack.children[0];
+  assert.equal(findSpeakerNode(card), undefined, 'an empty name means no label at all, never a placeholder');
+});
+
+test('a speaker changing back after a gap re-labels the card, and label detection walks display order card-to-card', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'c1', mode: 'speaker', text: 'Alpha speaks.', createdAt: 1, source: 'ai', speaker: 'Alpha' },
+        { id: 'c2', mode: 'speaker', text: 'Beta speaks.', createdAt: 2, source: 'ai', speaker: 'Beta' },
+        { id: 'c3', mode: 'speaker', text: 'Alpha again.', createdAt: 3, source: 'ai', speaker: 'Alpha' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const [first, second, third] = transcriptStack.children;
+  assert.equal(findSpeakerNode(first)?.textContent, 'Alpha');
+  assert.equal(findSpeakerNode(second)?.textContent, 'Beta');
+  assert.equal(findSpeakerNode(third)?.textContent, 'Alpha', 'Alpha returning after Beta is a real change again');
+});
+
 test('display controls show temporary sample text only while an empty display is being adjusted', () => {
   const transcriptViewport = createNode('div');
   const transcriptStack = createNode('div');

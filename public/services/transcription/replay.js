@@ -42,7 +42,7 @@ function parseChunks(raw) {
     const at = Date.parse(record.at);
     if (!Number.isFinite(at)) continue;
 
-    chunks.push({ at, mode: record.mode || 'speaker', text: record.text || '' });
+    chunks.push({ at, mode: record.mode || 'speaker', speaker: record.speaker || '', text: record.text || '' });
   }
 
   return chunks;
@@ -52,6 +52,9 @@ export function createReplayTranscriptionDriver({
   onEvent = () => {},
   onStatus = () => {},
   onModeChange = () => {},
+  // Issue #40: a replay must reproduce the same speaker labels the operator actually saw, so the
+  // recorded chunk's speaker is re-applied the same way its recorded mode already is.
+  onSpeakerChange = () => {},
   fetchImpl = fetch,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -59,6 +62,7 @@ export function createReplayTranscriptionDriver({
   speed = '1'
 } = {}) {
   let mode = 'speaker';
+  let speaker = '';
   let running = false;
   let timers = [];
   // `running` alone cannot cancel a start() that is parked on the fetch below: Start is only
@@ -108,14 +112,19 @@ export function createReplayTranscriptionDriver({
     for (const chunk of chunks) {
       const delay = divisor === null ? 0 : Math.max(0, (chunk.at - firstAt) / divisor);
       const entryMode = chunk.mode || 'speaker';
+      const entrySpeaker = chunk.speaker || '';
 
       schedule(delay, () => {
-        // Mode is applied before this chunk's text is emitted, and only when it actually changes,
-        // so the summarizer sees the mode the recording says it was in without re-announcing the
-        // same mode on every single line.
+        // Mode and speaker are both applied before this chunk's text is emitted, and only when
+        // each actually changes, so the summarizer/display see the mode and speaker the recording
+        // says were active without re-announcing either on every single line.
         if (entryMode !== mode) {
           mode = entryMode;
           onModeChange(entryMode);
+        }
+        if (entrySpeaker !== speaker) {
+          speaker = entrySpeaker;
+          onSpeakerChange(entrySpeaker);
         }
         emit(chunk.text);
       });

@@ -265,7 +265,12 @@ export function createRuntime(ctx, deps = {}) {
     clearTimeoutFn
   });
 
-  function addLine(line, { source = 'manual', mode = ctx.state.mode, paced = false } = {}) {
+  // `speaker` defaults to whatever the operator has typed right now -- captured at THIS call, not
+  // read again later. That default is correct for a manual line (typed and shown in the same
+  // instant) and for a live AI line whose caller passes the mode/speaker actually captured on the
+  // chunk explicitly (see runSummarizeCurrentText's sendSpeaker), the same precedent `mode` already
+  // follows for a backlogged card.
+  function addLine(line, { source = 'manual', mode = ctx.state.mode, speaker = ctx.state.speakerName, paced = false } = {}) {
     // Normalized PER LINE, not across the whole string. normalizeText collapses /\s+/ to a single
     // space, which includes the newlines the server uses to separate cards -- so running it over
     // the whole reply flattened a multi-card result into one card before createTranscriptItems
@@ -281,7 +286,8 @@ export function createRuntime(ctx, deps = {}) {
     const nextItems = createTranscriptItems({
       text: clean,
       mode,
-      source
+      source,
+      speaker
     });
     if (!nextItems.length) return false;
     // Queued even for a single card when cards are already waiting, or a later result would
@@ -526,7 +532,7 @@ export function createRuntime(ctx, deps = {}) {
     // byte-verbatim to what was actually spoken. This follow-up record shares that id (so a reader
     // can tie the two together) and is marked `inferred: true` so nobody mistakes the appended
     // period for something the speaker said.
-    queueRecord(() => buildChunkRecord({ at: newest.at, mode: newest.mode, text: endedText, inferred: true }));
+    queueRecord(() => buildChunkRecord({ at: newest.at, mode: newest.mode, speaker: newest.speaker, text: endedText, inferred: true }));
     showRecentTranscript();
   }
 
@@ -576,18 +582,21 @@ export function createRuntime(ctx, deps = {}) {
       // announcements drain and get labelled as Speaker once the operator had since switched modes.
       const capturedAt = nowFn();
       // Read once and reused for both the bucket chunk and its recorded twin below, so the two can
-      // never disagree about which mode the words were captured under.
+      // never disagree about which mode/speaker the words were captured under. Same reasoning as
+      // capturedMode, for the same reason (issue #40): a backlogged chunk must keep the speaker who
+      // was actually talking when it was captured, not whoever the operator has since retyped.
       const capturedMode = ctx.state.mode;
+      const capturedSpeaker = ctx.state.speakerName;
       const beforeLength = ctx.state.transcriptChunks.length;
-      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text, capturedAt, capturedMode);
+      ctx.state.transcriptChunks = appendUniqueChunk(ctx.state.transcriptChunks, event.text, capturedAt, capturedMode, capturedSpeaker);
       ctx.state.transcriptPreview = '';
       // Debugging/tuning recorder (ADR-0004): only queue a record when appendUniqueChunk actually
       // appended one -- it silently no-ops on an exact-duplicate final, and recording a chunk that
       // was never added to the bucket would desync the correlation key from what summarizeCurrentText
-      // actually consumes. Uses the SAME capturedAt/capturedMode the bucket chunk itself was tagged
-      // with, so the recorded id always matches the bucket's own.
+      // actually consumes. Uses the SAME capturedAt/capturedMode/capturedSpeaker the bucket chunk
+      // itself was tagged with, so the recorded id always matches the bucket's own.
       if (ctx.state.transcriptChunks.length > beforeLength) {
-        queueRecord(() => buildChunkRecord({ at: capturedAt, mode: capturedMode, text: event.text }));
+        queueRecord(() => buildChunkRecord({ at: capturedAt, mode: capturedMode, speaker: capturedSpeaker, text: event.text }));
       }
     } else if (event.type === 'partial') {
       ctx.state.transcriptPreview = normalizeText(event.text);
@@ -915,6 +924,14 @@ export function createRuntime(ctx, deps = {}) {
         if (!mode || mode === ctx.state.mode) return;
         ctx.state.mode = mode;
         updateModeButtons(ctx);
+      },
+      // Only replay.js's recorded chunks drive this (issue #40): a replay must reproduce the same
+      // speaker labels the operator actually saw, so the recorded speaker is re-applied the same
+      // way the recorded mode already is above. Empty is a real value here too, not a no-op guard --
+      // a replayed speaker change back to "no name" must clear the field, not leave the previous
+      // speaker's name stuck on screen.
+      onSpeakerChange: (speaker) => {
+        setSpeakerName(speaker || '');
       },
       fetchImpl,
       setTimeoutFn,
@@ -1252,6 +1269,7 @@ export function createRuntime(ctx, deps = {}) {
 
     let consumedChunks = null;
     let sendMode = ctx.state.mode;
+    let sendSpeaker = ctx.state.speakerName;
     let recent;
     if (text) {
       recent = normalizeText(text);
@@ -1269,9 +1287,10 @@ export function createRuntime(ctx, deps = {}) {
         // from these exact chunks) is what gets sent below, so "sent" and "consumed" are provably the
         // same set. A later mode in the bucket ends the run early: one summarize call must never span
         // two modes, since its prompt carries a single `Mode:` line.
-        const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode });
+        const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode, defaultSpeaker: ctx.state.speakerName });
         consumedChunks = run.chunks;
         sendMode = run.mode;
+        sendSpeaker = run.speaker;
         recent = run.text;
       } catch (error) {
         // The bucket is deliberately NOT drained or trimmed here. Whatever is in it is the only copy
@@ -1329,7 +1348,9 @@ export function createRuntime(ctx, deps = {}) {
         // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
         // words-per-card setting and the amount of compression can never disagree. Measured pace is
         // about one word every two seconds, which puts the live path on brief.
-        level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords }),
+        // mode matters as much as the budget: information mode must never take brief, because brief
+        // keeps one line and a round of announcements then loses every fact after the first.
+        level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
         history: ctx.state.summaryHistory
       });
 
@@ -1364,9 +1385,10 @@ export function createRuntime(ctx, deps = {}) {
       }
       const recoveredLevel = activeTranscriptionStatusLevel();
       if (result.line) {
-        // Labelled from the CHUNK's own mode (sendMode), not ctx.state.mode -- backlogged speech
-        // must read under the mode it was actually said in, even if the operator has since switched.
-        addLine(result.line, { source: 'ai', mode: sendMode, paced: true });
+        // Labelled from the CHUNK's own mode/speaker (sendMode/sendSpeaker), not current state --
+        // backlogged speech must read under the mode and speaker it was actually said in, even if
+        // the operator has since switched modes or retyped the speaker field (issue #40).
+        addLine(result.line, { source: 'ai', mode: sendMode, speaker: sendSpeaker, paced: true });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
@@ -1438,6 +1460,18 @@ export function createRuntime(ctx, deps = {}) {
     // buttons re-render identically), so without this the clear is completely silent. Same benign
     // polite flash Clear/Undo use.
     flashRailNote(ctx, message, { setTimeoutFn, clearTimeoutFn });
+  }
+
+  // Display-only (issue #40): stored so it can be captured onto the next chunk/card, never fed to
+  // any summarization prompt. Empty is a valid, ordinary value -- it means no label, never
+  // "Unknown" -- so this deliberately does nothing beyond a trim; it must not invent a name.
+  function setSpeakerName(name) {
+    ctx.state.speakerName = String(name || '').trim();
+    // Keep the rail input in sync when the name changes from somewhere other than the operator
+    // typing into it directly -- currently only a replay driving its recorded speaker changes.
+    if (ctx.dom.speakerNameInput && ctx.dom.speakerNameInput.value !== ctx.state.speakerName) {
+      ctx.dom.speakerNameInput.value = ctx.state.speakerName;
+    }
   }
 
   function setFontSize(nextSize) {
@@ -1900,6 +1934,7 @@ export function createRuntime(ctx, deps = {}) {
     setDisplayMargin,
     setFontSize,
     setMode,
+    setSpeakerName,
     setPanelOpen: (open, options) => {
       if (!open) stopAudioLevelTest();
       else refreshMicReadiness();
