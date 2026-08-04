@@ -106,10 +106,14 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
   // For the condense modes, maxLines goes well above MAX_LINES_PER_CALL on purpose: the prompt now
   // returns one thought per line, so three would truncate a long testimony mid-way. 12 is a runaway
   // guard, not a display limit -- packLinesIntoCards decides how many cards those become.
+  // 12 for information mode too, not the MAX_LINES_PER_CALL default of 3 (#49). Announcements are
+  // one line each, so three was a hard ceiling on how many facts could survive one tick: a fourth
+  // was dropped silently. Ansel ruled 12 here as well -- a runaway guard, matching the speaker path,
+  // with the release queue doing the actual pacing.
   const packs = mode === 'speaker' || mode === 'prayer';
   return finishLines(completion.choices?.[0]?.message?.content || '', visibleLines, {
     cardWords: packs ? maxWords : null,
-    maxLines: packs ? 12 : undefined
+    maxLines: 12
   });
 }
 
