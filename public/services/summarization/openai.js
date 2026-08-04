@@ -1,4 +1,4 @@
-import { buildSummarizePrompt, cleanModelLines } from '../summary-prompt.js';
+import { buildSummarizePrompt, cleanModelLines, RUNAWAY_LINE_GUARD } from '../summary-prompt.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
 
@@ -35,7 +35,11 @@ export function createOpenAISummarizer({
       // joined survivors with newlines -- re-running it here (rather than the old single-line
       // cleanModelLine, which collapsed those newlines back into one blob) keeps each idea on its
       // own line so transcript-display.js's splitByThought renders one card per idea.
-      const line = cleanModelLines(data.line || '', visibleLines).join('\n');
+      // RUNAWAY_LINE_GUARD explicitly, not the default. Without it this re-capped the server's
+      // already-cleaned reply at 3 and silently undid #49: five announcements out of the server,
+      // three onto the wall. The server is authoritative about how many lines survive; this call
+      // exists only to keep them on separate lines, never to re-decide the count.
+      const line = cleanModelLines(data.line || '', visibleLines, { maxLines: RUNAWAY_LINE_GUARD }).join('\n');
       if (!line && data.reason) onStatus(data.reason);
       return {
         line,
