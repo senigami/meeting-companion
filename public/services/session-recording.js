@@ -54,7 +54,9 @@ export function buildSummaryRecord({
   ok = false,
   error = null,
   latencyMs = null,
-  wasShortened = false
+  wasShortened = false,
+  discardedByCap = 0,
+  discardedByCapClient = 0
 }) {
   return {
     t: 'summary',
@@ -68,6 +70,14 @@ export function buildSummaryRecord({
     ok: Boolean(ok),
     error: error || null,
     latencyMs: typeof latencyMs === 'number' ? latencyMs : null,
-    wasShortened: Boolean(wasShortened)
+    wasShortened: Boolean(wasShortened),
+    // Separate from wasShortened deliberately (#58). Shortening trims a line's characters and the line
+    // still arrives; a discard means real speech never reached the reader. Three successive silent-loss
+    // defects (#49, #63, #65) each looked like a clean call in this record because only the first of
+    // those two failures was ever written down.
+    discardedByCap: Number(discardedByCap) || 0,
+    // Should always be 0. If it is not, the server and the client disagree about how many lines may
+    // survive, which is the #63 shape and worth its own field rather than being summed away.
+    discardedByCapClient: Number(discardedByCapClient) || 0
   };
 }

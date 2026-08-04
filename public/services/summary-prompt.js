@@ -98,9 +98,30 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 // packLinesIntoCards decide card sizing, so capping at three there silently discarded the tail of a
 // long testimony (measured: 8 lines returned, 5 dropped, no error and no telemetry).
 export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
+  return cleanModelLinesWithLoss(text, visibleLines, { maxLines }).accepted;
+}
+
+// The same work, reporting what the CAP threw away (#58).
+//
+// Three things can drop a line here and only one of them is a loss. A line matching something already
+// on screen, or repeating a sibling in the same reply, is supposed to go -- that is the duplicate
+// filter doing its job. A line dropped because the cap was reached is real speech that never reaches
+// the reader, and until now it was indistinguishable from a clean call: the only telemetry was
+// wasShortened, which describes shortenToLimit trimming a line's characters, a different mechanism
+// entirely.
+//
+// That gap is why #49, #63 and #65 each survived being "fixed". Every one was a bound discarding
+// content while the call reported success, and each was found by a person tracing the path by hand
+// rather than by anything the system said. discardedByCap is what the system says now.
+//
+// Counted, not inferred: the loop keeps going after the cap so the remainder is actually examined,
+// because "raw lines minus accepted" would also count blanks and legitimate duplicate drops. Which
+// means the dedupe bookkeeping has to keep running past the cap too -- see seenKeys below.
+export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
   const rawLines = String(text || '').split(/\r?\n/);
   const accepted = [];
   const seenKeys = [];
+  let discardedByCap = 0;
 
   for (const rawLine of rawLines) {
     const clean = cleanModelLine(rawLine);
@@ -110,12 +131,22 @@ export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_L
     const key = lineKey(clean);
     if (seenKeys.includes(key)) continue;
 
+    if (accepted.length >= maxLines) {
+      // Register the key even though nothing is accepted, or the count over-reports. seenKeys used to
+      // be written only on accept, so a line repeating a sibling PAST the cap was never registered,
+      // failed the dedupe check nobody had added it to, and was counted as a cap loss. Measured by
+      // Cato: "One. Two. Three. Three." at a cap of 2 reported 2 losses when one line of speech was
+      // lost, and it inflates worst on exactly the input models actually produce, a repeating tail.
+      seenKeys.push(key);
+      discardedByCap += 1;
+      continue;
+    }
+
     accepted.push(clean);
     seenKeys.push(key);
-    if (accepted.length >= maxLines) break;
   }
 
-  return accepted;
+  return { accepted, discardedByCap };
 }
 
 export function buildSummarizePrompt({
