@@ -94,9 +94,16 @@ governs audio). Two record shapes share the file, correlated by chunk `id`:
   "ok": true,
   "error": null,
   "latencyMs": 812,
-  "wasShortened": false
+  "wasShortened": false,
+  "discardedByCap": 0
 }
 ```
+
+`wasShortened` and `discardedByCap` are deliberately two fields rather than one. Shortening trims a
+line's characters and the line still arrives; a discard means real speech never reached the reader.
+Folding them together is what let three successive silent-loss defects (#49, #63, #65) each look like a
+clean call. `discardedByCapClient` should always be 0: a non-zero value means the server and the client
+disagree about how many lines may survive.
 
 `consumedIds` is how a summary record ties back to the exact chunk record(s) it drained. A write
 failure (full disk, bad path, missing directory) degrades to `{ ok: false, error }` and never
@@ -109,7 +116,7 @@ The server accepts and returns these JSON shapes:
 | Route | Request | Response |
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
-| `POST /api/summarize` | `{ source, mode, recentTranscript, previousBlock, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened? }` |
+| `POST /api/summarize` | `{ source, mode, recentTranscript, previousBlock, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened?, discardedByCap? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |

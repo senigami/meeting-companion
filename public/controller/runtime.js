@@ -1380,7 +1380,8 @@ export function createRuntime(ctx, deps = {}) {
         ok: true,
         latencyMs: nowFn() - summarizeStartedAt,
         wasShortened: result.wasShortened,
-        discardedByCap: result.discardedByCap
+        discardedByCap: result.discardedByCap,
+        discardedByCapClient: result.discardedByCapClient
       }));
 
       resetSummarizeBackoff();

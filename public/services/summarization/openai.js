@@ -48,9 +48,14 @@ export function createOpenAISummarizer({
         // comparison -- the recording instrument's (ADR-0004) measurement of whether the prompt-side
         // length fix in 909fe1e actually fires, not just whether the line happened to be long.
         wasShortened: Boolean(data.wasShortened),
-        // The server's count plus anything this pass discarded. Both are the same failure from the
-        // reader's side: speech that never reached the wall (#58).
-        discardedByCap: Number(data.discardedByCap || 0) + discardedByCap
+        discardedByCap: Number(data.discardedByCap || 0),
+        // Kept SEPARATE from the server's count rather than added to it. Cato's point, and it is the
+        // better design: this pass should never discard anything, because the server already capped at
+        // the same guard. A non-zero value here can only mean the server returned more accepted lines
+        // than this client's cap allows, which is precisely the #63 shape. Summing turned that alarm
+        // into an indistinguishable larger number; separate, it is the one signal that would catch the
+        // next #63 without anybody tracing the path by hand.
+        discardedByCapClient: discardedByCap
       };
     }
   };

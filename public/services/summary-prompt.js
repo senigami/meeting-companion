@@ -115,7 +115,8 @@ export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_L
 // rather than by anything the system said. discardedByCap is what the system says now.
 //
 // Counted, not inferred: the loop keeps going after the cap so the remainder is actually examined,
-// because "raw lines minus accepted" would also count blanks and legitimate duplicate drops.
+// because "raw lines minus accepted" would also count blanks and legitimate duplicate drops. Which
+// means the dedupe bookkeeping has to keep running past the cap too -- see seenKeys below.
 export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
   const rawLines = String(text || '').split(/\r?\n/);
   const accepted = [];
@@ -131,7 +132,12 @@ export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines
     if (seenKeys.includes(key)) continue;
 
     if (accepted.length >= maxLines) {
-      // Would have been accepted on every other ground. This is the count that matters.
+      // Register the key even though nothing is accepted, or the count over-reports. seenKeys used to
+      // be written only on accept, so a line repeating a sibling PAST the cap was never registered,
+      // failed the dedupe check nobody had added it to, and was counted as a cap loss. Measured by
+      // Cato: "One. Two. Three. Three." at a cap of 2 reported 2 losses when one line of speech was
+      // lost, and it inflates worst on exactly the input models actually produce, a repeating tail.
+      seenKeys.push(key);
       discardedByCap += 1;
       continue;
     }

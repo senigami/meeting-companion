@@ -40,6 +40,8 @@ async function main() {
       mode: summary.mode,
       ok: summary.ok,
       wasShortened: summary.wasShortened,
+      discardedByCap: summary.discardedByCap,
+      discardedByCapClient: summary.discardedByCapClient,
       latencyMs: summary.latencyMs,
       sent: summary.sent,
       returned: summary.returned,
@@ -59,14 +61,28 @@ async function main() {
   const summaryCount = pairs.length;
   const failedCount = pairs.filter((p) => !p.ok).length;
   const shortenedCount = pairs.filter((p) => p.wasShortened).length;
+  // A count written and never read is the same failure the count exists to fix. This tool is the human
+  // facing reader of a recording, and it surfaced wasShortened while saying nothing about discarded
+  // lines -- so a session that silently dropped four announcements printed "0 shortened" and looked
+  // clean, which is exactly how #49, #63 and #65 each survived being fixed. Found by Cato (#58).
+  const linesLost = pairs.reduce((total, p) => total + (Number(p.discardedByCap) || 0), 0);
+  const clientLost = pairs.reduce((total, p) => total + (Number(p.discardedByCapClient) || 0), 0);
 
-  console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened.\n`);
+  console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened, ${linesLost} line(s) DISCARDED.\n`);
+  if (linesLost > 0) {
+    console.log(`WARNING: ${linesLost} line(s) of real speech never reached the display, dropped by a line cap.\n`);
+  }
+  if (clientLost > 0) {
+    console.log(`WARNING: ${clientLost} line(s) were discarded by the CLIENT, which should never happen -- the server and client disagree about how many lines may survive (the #63 shape).\n`);
+  }
 
   for (const pair of pairs) {
     console.log(`--- ${pair.at} [${pair.mode || 'unknown mode'}] ${pair.ok ? 'ok' : `FAILED: ${pair.error}`} ---`);
     console.log(`sent:     ${pair.sent}`);
     console.log(`returned: ${pair.returned || '(nothing)'}`);
     if (pair.wasShortened) console.log('(line was shortened to fit the display limit)');
+    if (pair.discardedByCap > 0) console.log(`(${pair.discardedByCap} line(s) DISCARDED by the line cap and never shown)`);
+    if (pair.discardedByCapClient > 0) console.log(`(${pair.discardedByCapClient} discarded client-side, which should be impossible)`);
     if (typeof pair.latencyMs === 'number') console.log(`latency:  ${pair.latencyMs}ms`);
     console.log('');
   }

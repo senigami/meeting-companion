@@ -68,3 +68,36 @@ test('a clean call records a zero rather than nothing at all', () => {
   assert.equal(record.discardedByCap, 0);
   assert.ok('discardedByCap' in record);
 });
+
+test('a duplicate PAST the cap is not counted as a cap loss', () => {
+  // My own "a duplicate is not a loss" assertion only covered duplicates BEFORE the cap, and the code
+  // was wrong past it: seenKeys was written only on accept, so a line repeating a sibling past the cap
+  // was never registered, failed the dedupe check nobody had added it to, and was counted as a cap
+  // loss. Measured by Cato, and it inflates worst on the input models actually produce, a repeating
+  // tail. The count a person reads has to be the number of lines of SPEECH lost, not the number of
+  // lines skipped.
+  const repeatingTail = cleanModelLinesWithLoss('One.\nTwo.\nThree.\nThree.', [], { maxLines: 2 });
+  assert.deepEqual(repeatingTail.accepted, ['One.', 'Two.']);
+  assert.equal(repeatingTail.discardedByCap, 1, 'one line of speech was lost, not two');
+
+  const manyRepeats = cleanModelLinesWithLoss('One.\nTwo.\nX.\nX.\nX.', [], { maxLines: 2 });
+  assert.equal(manyRepeats.discardedByCap, 1, 'three copies of one lost line is still one lost line');
+
+  // And distinct lines past the cap are still each a real loss.
+  const allDistinct = cleanModelLinesWithLoss('One.\nTwo.\nThree.\nFour.', [], { maxLines: 2 });
+  assert.equal(allDistinct.discardedByCap, 2);
+});
+
+test('the client count is kept separate from the server count, not added to it', async () => {
+  // Cato's point, and the better design. The client pass should never discard anything, because the
+  // server already capped at the same guard. A non-zero client count can only mean the two disagree
+  // about how many lines may survive, which is the #63 shape exactly. Summing turned that alarm into an
+  // indistinguishable larger number.
+  const driver = createOpenAISummarizer({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: 'One.\nTwo.', discardedByCap: 3 }) })
+  });
+  const result = await driver.summarize({ mode: 'information', recentTranscript: 'x', maxWords: 10 });
+
+  assert.equal(result.discardedByCap, 3, "the server's count passes through unchanged");
+  assert.equal(result.discardedByCapClient, 0, 'and the client reports its own, which should be zero');
+});
