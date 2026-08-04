@@ -1520,7 +1520,10 @@ export function createRuntime(ctx, deps = {}) {
   // by anything outside this file -- everything else goes through recomputeSummaryMaxWords below, so
   // there is exactly one place that turns a pace into a word count.
   function medianWpmForBudget() {
-    return ctx.state.readingPaceProfile?.medianWpm ?? DEFAULT_MEDIAN_WPM;
+    // Explicitly > 0 rather than ?? -- a 0 is not nullish, so `??` let a profile whose median
+    // computed to zero through as a real pace, and every card after that was sized from it.
+    const measured = Number(ctx.state.readingPaceProfile?.medianWpm);
+    return Number.isFinite(measured) && measured > 0 ? measured : DEFAULT_MEDIAN_WPM;
   }
 
   // Words per card is DERIVED, not an independent setting (issue #44, Steve's call confirmed by
@@ -1577,8 +1580,14 @@ export function createRuntime(ctx, deps = {}) {
       recordedAt: profile.recordedAt || null,
       fontSizePx: profile.fontSizePx
     };
-    if (Number.isFinite(profile.fontSizePx)) {
+    if (Number.isFinite(profile.fontSizePx) && profile.fontSizePx !== ctx.state.fontSize) {
+      // Say it. setFontSize persists through saveViewerSettings, so loading a profile silently
+      // overwrote a size the operator had deliberately set for the room, with the old value gone and
+      // nothing on screen explaining the change. Restoring the measured size is right (the pace is
+      // only valid at the size it was measured at) but it is not something to do behind their back.
+      const previous = ctx.state.fontSize;
       setFontSize(profile.fontSizePx);
+      updateStatus(ctx, `Text size set to ${ctx.state.fontSize}px, the size this reading pace was measured at (was ${previous}px).`);
     }
     recomputeSummaryMaxWords();
   }

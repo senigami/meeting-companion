@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { chooseSummaryLevel } from '../../../public/services/summary-level.js';
-import { DEFAULT_MEDIAN_WPM, recommendWordsPerCard } from '../../../public/services/reading-pace.js';
+import { DEFAULT_MEDIAN_WPM, readingBudget } from '../../../public/services/reading-pace.js';
 
 // Issue #44: words-per-card stops being an independent slider and becomes DERIVED from a measured
 // (or assumed) pace times the update interval. These tests exercise that wiring through the runtime,
@@ -17,11 +17,11 @@ test('with no profile applied, the derived budget uses the app default pace and 
     },
     stateOverrides: { summaryIntervalSeconds: 5 }
   }, async ({ ctx, runtime }) => {
-    const expectedAt5s = recommendWordsPerCard(DEFAULT_MEDIAN_WPM, 5).words;
+    const expectedAt5s = readingBudget(DEFAULT_MEDIAN_WPM, 5).words;
     assert.equal(ctx.state.summaryMaxWords, undefined, 'sanity: the harness itself does not seed this');
 
     runtime.setSummaryInterval(30);
-    const expectedAt30s = recommendWordsPerCard(DEFAULT_MEDIAN_WPM, 30).words;
+    const expectedAt30s = readingBudget(DEFAULT_MEDIAN_WPM, 30).words;
     assert.equal(ctx.state.summaryMaxWords, expectedAt30s,
       'changing the interval must re-derive the word budget from the same pace, not leave it stuck');
     assert.notEqual(expectedAt30s, expectedAt5s,
@@ -60,7 +60,9 @@ test('applying a reading-pace profile switches the derived budget to the measure
     // size does not transfer to a display at another.
     assert.equal(ctx.state.fontSize, 96);
     // Derived: 30 wpm at a 20s interval, exactly the app's own arithmetic, not a second copy of it.
-    assert.equal(ctx.state.summaryMaxWords, recommendWordsPerCard(30, 20).words);
+    // readingBudget's true figure, NOT recommendWordsPerCard's snapped option. Ansel blocked the
+    // snap reaching the prompt: it inflated a below-floor budget into a healthy-looking one.
+    assert.equal(ctx.state.summaryMaxWords, readingBudget(30, 20).words);
     // The interval itself is untouched -- it stays the operator's own control.
     assert.equal(ctx.state.summaryIntervalSeconds, 20);
   });
@@ -76,7 +78,7 @@ test('a profile with no usable cards clears cleanly back to the default pace, ra
   }, async ({ ctx, runtime }) => {
     runtime.applyReadingPaceProfile('empty', { cards: [] });
     assert.equal(ctx.state.readingPaceProfile, null);
-    assert.equal(ctx.state.summaryMaxWords, recommendWordsPerCard(DEFAULT_MEDIAN_WPM, 20).words);
+    assert.equal(ctx.state.summaryMaxWords, readingBudget(DEFAULT_MEDIAN_WPM, 20).words);
   });
 });
 
@@ -117,9 +119,9 @@ test('applyLastReadingPaceProfile degrades silently when the server refuses or i
 test('a measured 30wpm profile at a 20s interval lands on brief, and a faster reader lands on condense', () => {
   // The end-to-end point of #44: the derived budget feeds straight into the level Cato's guard
   // protects, with no separate call needed to keep them in sync.
-  const slow = recommendWordsPerCard(30, 20).words;
+  const slow = readingBudget(30, 20).words;
   assert.equal(chooseSummaryLevel({ cardWords: slow, mode: 'speaker' }), 'brief');
 
-  const fast = recommendWordsPerCard(90, 20).words;
+  const fast = readingBudget(90, 20).words;
   assert.equal(chooseSummaryLevel({ cardWords: fast, mode: 'speaker' }), 'condense');
 });

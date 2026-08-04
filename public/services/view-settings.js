@@ -86,10 +86,12 @@ export function summaryMaxWordsSliderIndexFromWords(value, fallback = 14) {
   return index === -1 ? 0 : index;
 }
 
-export function summaryMaxWordsFromSliderIndex(value, fallback = 14) {
-  const index = Math.round(clampNumber(value, 0, summaryMaxWordsSliderMax, 0));
-  return summaryMaxWordsOptions[index] ?? clampSummaryMaxWords(fallback, fallback);
-}
+// summaryMaxWordsFromSliderIndex (slider index -> word count) was deleted with #44. Words per card
+// is derived from the reading pace now, so nothing turns a slider position into a word count, and a
+// tested-but-unused function of exactly that name is an invitation to wire the slider back up --
+// which would restore the two-dials-that-disagree fault the issue exists to remove. The inverse
+// (summaryMaxWordsSliderIndexFromWords, above) is still live: it positions the read-only slider to
+// show the derived value.
 
 export function clampAudioProcessingPreset(value, fallback = 'gentle') {
   return audioProcessingPresetOptions.includes(value) ? value : fallback;

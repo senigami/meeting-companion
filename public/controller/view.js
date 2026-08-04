@@ -632,12 +632,18 @@ export function updateSummaryMaxWordsControl(ctx) {
   // independent dials it replaced, because it looks authoritative.
   // Read, never recomputed. runtime.js's recomputeSummaryMaxWords owns this number.
   const budget = ctx.state.readingBudget;
+  // Three states, not two. Ansel's ruling: a budget sitting exactly on the floor must not read as
+  // comfortable, because the live configuration lands there and rounding in the measured pace flips
+  // the verdict with nothing changing about how readable the card actually is.
   const text = budget?.belowFloor
     ? `${pluraliseWords(Math.max(1, Math.round(budget.rawWords)))}, too short for this reader`
-    : `${ctx.state.summaryMaxWords} words`;
+    : budget?.marginal
+      ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
+      : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
   ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', text);
   ctx.dom.summaryMaxWordsValue.textContent = text;
   ctx.dom.summaryMaxWordsValue.classList.toggle('is-belowFloor', Boolean(budget?.belowFloor));
+  ctx.dom.summaryMaxWordsValue.classList.toggle('is-marginal', Boolean(budget?.marginal));
   updateSliderFill(ctx.dom.summaryMaxWordsInput);
 }
 

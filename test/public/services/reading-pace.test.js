@@ -144,10 +144,39 @@ test('readingBudget stops flagging once the interval genuinely fits the reader',
   assert.equal(readingBudget(30, 40).belowFloor, false);
 });
 
-test('readingBudget still hands the prompt a usable clamped number, never a one-word card', () => {
-  // The truth goes to the operator; the prompt cannot be asked for a 1-word card.
+test('the prompt gets the TRUE budget, never the floor value dressed up as one', () => {
+  // This test used to assert the opposite -- that a below-floor budget was clamped UP to the floor
+  // before reaching the prompt. Ansel BLOCKED that on 2026-08-04: at a 2s interval the real budget is
+  // one word and the prompt was being told eleven, which manufactures headroom nobody verified and
+  // makes a degraded card indistinguishable from a healthy one to the only component that could have
+  // compensated for it. The operator learns from belowFloor; the model learns from the number.
   const short = readingBudget(30, 2);
-  assert.ok(short.words >= USABLE_CARD_WORDS_FLOOR, `clamped words must stay usable, got ${short.words}`);
+  assert.equal(short.belowFloor, true);
+  assert.ok(short.words < USABLE_CARD_WORDS_FLOOR, `the prompt must not be told ${short.words} when the real budget is ${short.rawWords}`);
+
+  const tenSeconds = readingBudget(30, 10);
+  assert.equal(tenSeconds.words, 5, 'five seconds of reading is five words, and the prompt is told five');
+});
+
+test('a barely-there budget still produces a card, because the alternative is dropping speech', () => {
+  // Ansel offered "suppress the card for that tick" as an alternative. That is #32's harm -- the
+  // summarizer deciding somebody's words were not worth showing -- so the floor here is a sanity
+  // bound on the prompt, never permission to drop anything.
+  const tiny = readingBudget(30, 2);
+  assert.ok(tiny.words >= 3, `a card must still be askable, got ${tiny.words}`);
+});
+
+test('a budget sitting exactly on the floor reads as marginal, not as healthy', () => {
+  // Ansel BLOCKED treating zero margin as a clean pass: the live configuration (30 wpm at 20s) lands
+  // exactly on 10, where rounding in the measured pace flips the verdict with nothing changing about
+  // actual readability.
+  const onTheFloor = readingBudget(30, 20);
+  assert.equal(Math.round(onTheFloor.rawWords), 10);
+  assert.equal(onTheFloor.belowFloor, false);
+  assert.equal(onTheFloor.marginal, true, 'exactly on the floor must not report as comfortable');
+
+  assert.equal(readingBudget(30, 30).marginal, false, 'and a real margin reports as healthy');
+  assert.equal(readingBudget(30, 2).marginal, false, 'below the floor is its own state, not marginal');
 });
 
 test('a faster reader clears the floor at a short interval, so the flag tracks the reader not the clock', () => {

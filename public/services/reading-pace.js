@@ -124,12 +124,31 @@ export function derivedCardWords(medianWpm, intervalSeconds) {
 // his call and not arithmetic, which is why it is named rather than inlined.
 export const USABLE_CARD_WORDS_FLOOR = 10;
 
+// Above the floor but without room to spare. Ansel's ruling, 2026-08-04: a boundary met with zero
+// margin is brittle -- rounding in the measured pace flips the verdict with nothing changing about
+// actual readability, and the live configuration (30 wpm at 20s = exactly 10) sits precisely on it.
+// So "marginal" is a third state, shown as a working budget but never as a healthy one.
+export const MARGINAL_CARD_WORDS_CEILING = 12;
+
+// A card this short is barely a phrase, but it is still somebody's words and it still goes up. The
+// alternative Ansel offered -- suppress the card for that tick -- is the one thing this app must not
+// do: #32 is the whole record of what happens when the summarizer decides some speech was not worth
+// showing. So the floor here is a sanity bound on the prompt, not permission to drop anything.
+const MIN_PROMPT_WORDS = 3;
+
+// words is the TRUE budget, not the clamped one. Ansel BLOCKED handing the prompt the floor value
+// when the real figure is below it: at a 2s interval the true budget is one word and the prompt was
+// being told eleven, which manufactures headroom nobody verified and makes a degraded card
+// indistinguishable from a healthy one to the only component that could have compensated. The
+// operator is told separately (belowFloor), and now so is the model.
 export function readingBudget(medianWpm, intervalSeconds) {
-  const { rawWords, words } = recommendWordsPerCard(medianWpm, intervalSeconds);
+  const { rawWords } = recommendWordsPerCard(medianWpm, intervalSeconds);
+  const trueWords = Math.max(MIN_PROMPT_WORDS, Math.round(rawWords));
   return {
     rawWords,
-    words,
-    belowFloor: rawWords < USABLE_CARD_WORDS_FLOOR
+    words: trueWords,
+    belowFloor: rawWords < USABLE_CARD_WORDS_FLOOR,
+    marginal: rawWords >= USABLE_CARD_WORDS_FLOOR && rawWords < MARGINAL_CARD_WORDS_CEILING
   };
 }
 
@@ -138,8 +157,21 @@ export function readingBudget(medianWpm, intervalSeconds) {
 // so this derives the one number the rest of the app needs from them the same way the results page
 // does. Returns null for anything that is not a usable profile (missing, no cards), so callers can
 // tell "no measurement" apart from "measured, but slow" without a magic number.
+// Cards with no usable timing are FILTERED, not counted as zero. wordsPerMinute returns 0 for a
+// missing or zero ms, and keeping those as data points drags the median toward nothing: measured
+// 2026-08-04, a four-card profile with two untimed cards reported 15 wpm for a 30 wpm reader, and an
+// entirely untimed profile reported 0 -- which then produced three-word cards for the rest of the
+// meeting with nothing anywhere saying why. longerCardsReadSlower already filters on exactly this
+// condition; the median path did not, and the median is the number the whole display is sized from.
+//
+// Returns null when nothing usable is left, so a caller can tell "no measurement" from "measured,
+// and slow". Do not let this return 0: a 0 is indistinguishable from a real reading of a very slow
+// reader at every call site downstream.
 export function medianWpmFromProfile(profile) {
   if (!profile || !Array.isArray(profile.cards) || profile.cards.length === 0) return null;
-  const wpmValues = profile.cards.map((card) => cardWordsPerMinute(card));
+  const wpmValues = profile.cards
+    .map((card) => cardWordsPerMinute(card))
+    .filter((wpm) => Number.isFinite(wpm) && wpm > 0);
+  if (!wpmValues.length) return null;
   return median(wpmValues);
 }

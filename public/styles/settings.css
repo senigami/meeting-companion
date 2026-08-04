@@ -522,6 +522,15 @@ button.providerOption.active .providerStatus {
 }
 
 /*
+ * Above the floor but with no room to spare. Distinct from both the healthy accent and the warning,
+ * because "only just enough" is neither "your setting" nor "this cannot be met" -- and the text says
+ * so as well, so colour is never the only channel.
+ */
+.range-head output.is-marginal {
+  color: var(--text-dim, #b9c0cc);
+}
+
+/*
  * Native <input type="range">, heavily styled -- not a JS-recreated
  * slider. Touch drag, tap-to-jump, keyboard arrows, and screen-reader
  * support all come from the browser for free and are already correct;
