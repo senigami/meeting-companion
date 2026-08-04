@@ -79,7 +79,12 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 // real defect) and a duplicate-of-visible or vague SIBLING line is dropped without suppressing the
 // others in the same reply. cleanModelLine itself stays untouched (other callers depend on its
 // single-line collapse of internal whitespace); this only does the newline split that sits above it.
-export function cleanModelLines(text = '', visibleLines = []) {
+// maxLines defaults to MAX_LINES_PER_CALL, which is what the Claude path (buildSummarizePrompt)
+// still needs: that prompt asks for three lines and three is the contract. The OpenAI path passes a
+// higher ceiling deliberately -- its prompt now asks for one thought per line and lets
+// packLinesIntoCards decide card sizing, so capping at three there silently discarded the tail of a
+// long testimony (measured: 8 lines returned, 5 dropped, no error and no telemetry).
+export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
   const rawLines = String(text || '').split(/\r?\n/);
   const accepted = [];
   const seenKeys = [];
@@ -94,7 +99,7 @@ export function cleanModelLines(text = '', visibleLines = []) {
 
     accepted.push(clean);
     seenKeys.push(key);
-    if (accepted.length >= MAX_LINES_PER_CALL) break;
+    if (accepted.length >= maxLines) break;
   }
 
   return accepted;

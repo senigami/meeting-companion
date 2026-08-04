@@ -105,8 +105,14 @@ test('server summarization routes claude requests through anthropic', async () =
 test('server preserves line order across providers and rejoins multiple ideas with newlines', async () => {
   const multiLine = 'Closing hymn will be number 301.\nSister Margaret Ellsworth will offer the benediction.';
 
+  // information mode explicitly, which is what this fixture actually is: two separate
+  // announcements. It used to rely on the default (speaker), which was harmless until
+  // packLinesIntoCards arrived -- packing merged both announcements into one card because they fit
+  // the word budget. That merge is correct for a testimony and wrong for a notice board, so the
+  // mode is now stated rather than inherited.
   const claudeResult = await summarizeWithSource({
     source: 'claude',
+    mode: 'information',
     recentTranscript: 'irrelevant transcript text.',
     visibleLines: [],
     anthropicApiKey: 'test-key',
@@ -119,6 +125,7 @@ test('server preserves line order across providers and rejoins multiple ideas wi
   };
   const openaiResult = await summarizeWithSource({
     source: 'openai',
+    mode: 'information',
     recentTranscript: 'irrelevant transcript text.',
     visibleLines: [],
     openaiClient
@@ -351,24 +358,74 @@ test('regression: reconstructed real captured overflow (info-mode schedule line)
   }
 });
 
-test('the words-per-card setting reaches the prompt, so the slider is not a dead control', async () => {
-  // It WAS dead: the minimal prompt hardcoded 15 while maxWords was still threaded to a function
-  // that no longer read it. The setting persisted, rendered, and did nothing, which reads to an
-  // operator as the app ignoring them.
-  let sent = null;
+test('the words-per-card setting bounds the cards actually produced, so the slider is not a dead control', async () => {
+  // It WAS dead: the minimal prompt hardcoded 15 while maxWords was threaded to a function that no
+  // longer read it. The setting persisted, rendered, and did nothing.
+  //
+  // This asserts the CONSEQUENCE (card widths), not the presence of "8" in the prompt text. The
+  // earlier version asserted the prompt string, and when the speaker prompt stopped naming a word
+  // count at all -- because the model demonstrably ignored it and packLinesIntoCards took the job
+  // over -- that assertion failed while the slider was working perfectly. A check pinned to how a
+  // rule is phrased goes green or red on the phrasing, not on whether the rule holds.
+  const modelReply = [
+    "I'd like to bear my testimony.",
+    'I know the Church is true.',
+    'Joseph Smith is a prophet.',
+    'I enjoy going to the temple.',
+    "I'm grateful to be at church today."
+  ].join('\n');
   const client = {
-    chat: { completions: { create: async (params) => { sent = params; return { choices: [{ message: { content: 'a line' } }] }; } } }
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: modelReply } }] }) } }
   };
 
-  await summarizeWithSource({
-    source: 'openai',
-    mode: 'speaker',
-    recentTranscript: 'Some speech that needs shortening for the display.',
-    maxWords: 8,
-    openaiClient: client
+  const narrow = await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 8, openaiClient: client
+  });
+  const wide = await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 20, openaiClient: client
   });
 
-  const system = sent.messages.find((m) => m.role === 'system').content;
-  assert.match(system, /no more than 8 words/, 'the configured word count must appear in the prompt');
-  assert.doesNotMatch(system, /no more than 15 words/, 'and the hardcoded default must not');
+  const cards = (result) => result.line.split('\n').filter(Boolean);
+  const widest = (result) => Math.max(...cards(result).map((c) => c.split(/\s+/).length));
+
+  assert.ok(widest(narrow) <= 8, `every card must fit the 8-word budget, widest was ${widest(narrow)}`);
+  assert.ok(widest(wide) <= 20, `every card must fit the 20-word budget, widest was ${widest(wide)}`);
+  assert.ok(cards(wide).length < cards(narrow).length,
+    'a bigger budget must produce fewer, fuller cards -- otherwise the setting changes nothing');
+  // Nothing the speaker said may be dropped on the way through packing, at either setting.
+  assert.equal(cards(narrow).join(' ').replace(/\s+/g, ' '), modelReply.split('\n').join(' '));
+});
+
+test('brief returns exactly one card, never packed and never a second line', async () => {
+  // The level IS the reading budget. A second card doubles what the reader was promised, and at one
+  // word every two seconds that is the difference between finishing and not.
+  const client = {
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }) } }
+  };
+  const result = await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 10, level: 'brief', openaiClient: client
+  });
+  assert.equal(result.line, 'First thing.', 'only the first line survives brief');
+  assert.ok(!result.line.includes('\n'));
+});
+
+test('condense still produces several packed cards, so brief did not replace it', async () => {
+  const client = {
+    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }) } }
+  };
+  const result = await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 5, level: 'condense', openaiClient: client
+  });
+  assert.ok(result.line.split('\n').length > 1, 'condense keeps multiple cards');
+});
+
+test('an unrecognised level falls back to condense rather than silently changing the contract', async () => {
+  let seenSystem = null;
+  const client = {
+    chat: { completions: { create: async ({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; } } }
+  };
+  await summarizeWithSource({
+    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 17, level: 'nonsense', openaiClient: client
+  });
+  assert.match(seenSystem, /must still read as them talking/, 'unknown levels must not reach the prompt builder');
 });

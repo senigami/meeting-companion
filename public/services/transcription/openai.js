@@ -136,8 +136,41 @@ export function createOpenAITranscriptionDriver({
   let activeFrames = [];
   let activeSampleCount = 0;
   let inSpeech = false;
-  const MAX_SEGMENT_SECONDS = 60;
+  // True once this segment has already had a piece sent. onSpeechEnd must then NOT send the
+  // library's `audio`, because that buffer holds the whole segment from its start -- including
+  // everything already transmitted. See onSpeechEnd for the swap.
+  let segmentPartlyFlushed = false;
+  // Index into activeFrames of the quietest recent frame: the best place to cut if we have to.
+  let quietCutFrameIndex = null;
+
+  // Steve, live, 2026-08-02: "VAD system is blocking all output until it detects a pause." Silero
+  // only ends a segment after redemptionMs of silence, so somebody who speaks steadily for forty
+  // seconds sends NOTHING for forty seconds and then everything at once. Measured on his own
+  // testimony (recordings/2026-08-02T14-49-33-546Z.ndjson): one 62-word chunk, 44s after the
+  // previous one, while transcribe+summarize together took about two seconds.
+  //
+  // 60s was a 413-guard, not a latency budget, and as a latency budget it is far too slack. Past
+  // SOFT_SEGMENT_SECONDS we start looking for somewhere to cut; MAX_SEGMENT_SECONDS stays as the
+  // backstop for someone who genuinely never draws breath.
+  //
+  // 5s, not 12: the summarize loop drains the bucket on its own interval, so any delay HERE is added
+  // to that one. Steve's case, 2026-08-02 -- a chunk released just after a tick waits the whole
+  // interval for the next one, so a slow release and a slow interval compound into a wait far longer
+  // than either. Feeding the bucket continuously means whatever is in it at each tick is at most one
+  // interval stale, never one interval plus however long the speaker went without breathing.
+  // Sentence-length chunks also transcribe fine; it is sub-second fragments that do not.
+  const SOFT_SEGMENT_SECONDS = 5;
+  const SOFT_SEGMENT_SAMPLES = SOFT_SEGMENT_SECONDS * TARGET_SAMPLE_RATE;
+  const MAX_SEGMENT_SECONDS = 30;
   const MAX_SEGMENT_SAMPLES = MAX_SEGMENT_SECONDS * TARGET_SAMPLE_RATE;
+  // A frame this unvoiced is a breath or a comma -- not the 2.5s gap Silero wants before it calls
+  // the segment over, but a far better place to cut than an arbitrary wall-clock instant. Cutting
+  // mid-word is what issue #24 was about, and it damages the transcription on BOTH sides of the
+  // seam because the model loses the context either half needed.
+  const QUIET_FRAME_PROBABILITY = 0.35;
+  // Don't bother remembering a cut point in the first few seconds; a chunk that short transcribes
+  // badly on its own.
+  const MIN_CUT_SAMPLES = Math.round(1.5 * TARGET_SAMPLE_RATE);
   // Below this, a flush-on-stop would send a WAV of near-silence/noise that is unlikely to
   // transcribe to anything useful -- not worth a network round trip.
   const MIN_FLUSH_SAMPLES = Math.round(0.3 * TARGET_SAMPLE_RATE);
@@ -179,11 +212,19 @@ export function createOpenAITranscriptionDriver({
   // Encodes whatever has been accumulated in activeFrames and sends it through the same queue as
   // a normal onSpeechEnd chunk. Resets the accumulator but deliberately leaves `inSpeech` alone --
   // callers decide whether the segment continues (long-utterance split) or has actually ended.
-  function flushAccumulated(currentSession, reasonMessage) {
+  // upToFrame splits the accumulator: frames before it are sent, frames from it on stay in place as
+  // the start of the next chunk. Omitted, the whole accumulator goes (stop(), end-of-segment tail).
+  function flushAccumulated(currentSession, reasonMessage, { upToFrame = null } = {}) {
     if (activeSampleCount === 0) return;
-    const merged = concatFloat32(activeFrames);
-    activeFrames = [];
-    activeSampleCount = 0;
+    const cut = upToFrame == null ? activeFrames.length : upToFrame;
+    if (cut <= 0) return;
+    const going = activeFrames.slice(0, cut);
+    const staying = activeFrames.slice(cut);
+    const merged = concatFloat32(going);
+    activeFrames = staying;
+    activeSampleCount = staying.reduce((total, frame) => total + frame.length, 0);
+    quietCutFrameIndex = null;
+    if (upToFrame != null) segmentPartlyFlushed = true;
     const int16 = floatTo16BitPCM(merged);
     const wavBytes = buildWavBytes(int16, TARGET_SAMPLE_RATE);
     onAudioDiagnostics({ message: reasonMessage, at: now() });
@@ -328,6 +369,8 @@ export function createOpenAITranscriptionDriver({
         inSpeech = true;
         activeFrames = [];
         activeSampleCount = 0;
+        segmentPartlyFlushed = false;
+        quietCutFrameIndex = null;
       },
       // Fires once per audio frame for the whole recording, not just during speech -- so only
       // accumulate while `inSpeech` is true. This is our own copy of the in-progress utterance,
@@ -336,21 +379,72 @@ export function createOpenAITranscriptionDriver({
         if (!inSpeech || currentSession !== sessionId) return;
         activeFrames.push(frame);
         activeSampleCount += frame.length;
+
+        // Remember the most recent breath/comma once the segment is long enough to be worth
+        // splitting. Recorded continuously rather than searched for at the deadline, because by
+        // the time we need one the frames have already gone past.
+        const speechProbability = Number(probabilities?.isSpeech ?? 1);
+        if (activeSampleCount >= MIN_CUT_SAMPLES && speechProbability < QUIET_FRAME_PROBABILITY) {
+          quietCutFrameIndex = activeFrames.length;
+        }
+
+        // Past the soft budget: cut at the last quiet frame if we found one. This is the path that
+        // matters in a real meeting -- it keeps text flowing during a long testimony instead of
+        // holding all of it until the speaker finally pauses.
+        if (activeSampleCount >= SOFT_SEGMENT_SAMPLES && quietCutFrameIndex != null) {
+          flushAccumulated(currentSession, `Long utterance split at a pause after ${SOFT_SEGMENT_SECONDS}s (still speaking).`, {
+            upToFrame: quietCutFrameIndex
+          });
+          return;
+        }
+
         if (activeSampleCount >= MAX_SEGMENT_SAMPLES) {
-          // Safety net, not the primary path -- Silero has no maximum-speech-duration option and
-          // only ends a segment after a 1.4s pause, so someone speaking for a full minute without
-          // one would otherwise grow this segment (and its eventual POST body) unbounded. Split it
-          // here and keep listening; the utterance continues into the next piece.
-          flushAccumulated(currentSession, `Long utterance split after ${MAX_SEGMENT_SECONDS}s (still speaking).`);
+          // Backstop for someone who never gives us a quiet frame at all. This one DOES cut
+          // mid-word, which is why it sits well past the soft budget rather than replacing it.
+          flushAccumulated(currentSession, `Long utterance split after ${MAX_SEGMENT_SECONDS}s (no pause found).`);
         }
       },
       onSpeechEnd: (audio) => {
         inSpeech = false;
-        activeFrames = [];
-        activeSampleCount = 0;
-        if (!listening || currentSession !== sessionId) return;
         const startedAt = speechStartedAt.get(currentSession);
         speechStartedAt.delete(currentSession);
+        const wasPartlyFlushed = segmentPartlyFlushed;
+        segmentPartlyFlushed = false;
+
+        if (!listening || currentSession !== sessionId) {
+          activeFrames = [];
+          activeSampleCount = 0;
+          quietCutFrameIndex = null;
+          return;
+        }
+
+        // The library's `audio` is the WHOLE segment measured from its start. Once we have already
+        // sent a piece of this segment, sending `audio` would retransmit every word of it -- the
+        // reader would see the first half of a testimony twice, in confident first person, with
+        // nothing in the transcript to show it had happened. So after a split we send our own
+        // accumulator instead, which holds exactly the frames since the cut.
+        //
+        // Before any split, `audio` is still preferred: it carries the library's pre-speech padding,
+        // and our accumulator only starts at onSpeechStart, so using it unconditionally would clip
+        // the first phoneme off every utterance in the meeting.
+        if (wasPartlyFlushed) {
+          onAudioDiagnostics({
+            message: `Speech segment tail captured after a split (${activeSampleCount} samples @ 16kHz).`,
+            at: now(),
+            durationMs: Number.isFinite(startedAt) ? now() - startedAt : undefined
+          });
+          if (activeSampleCount >= MIN_FLUSH_SAMPLES) {
+            flushAccumulated(currentSession, 'Tail of a split utterance.');
+          }
+          activeFrames = [];
+          activeSampleCount = 0;
+          quietCutFrameIndex = null;
+          return;
+        }
+
+        activeFrames = [];
+        activeSampleCount = 0;
+        quietCutFrameIndex = null;
         onAudioDiagnostics({
           message: `Speech segment captured (${audio.length} samples @ 16kHz).`,
           at: now(),
@@ -364,6 +458,8 @@ export function createOpenAITranscriptionDriver({
         inSpeech = false;
         activeFrames = [];
         activeSampleCount = 0;
+        segmentPartlyFlushed = false;
+        quietCutFrameIndex = null;
         onAudioDiagnostics({
           message: 'Speech was too short to send (VAD misfire).',
           at: now()

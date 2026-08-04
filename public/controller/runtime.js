@@ -1,4 +1,6 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
+import { createCardReleaseQueue } from '../services/card-release-queue.js';
+import { chooseSummaryLevel } from '../services/summary-level.js';
 import {
   appendTranscriptItems,
   createTranscriptItems
@@ -93,6 +95,12 @@ const STORAGE = {
 };
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
+
+// How long one card holds the wall before the next one from the same summarize result goes up.
+// Not tied to the summarize interval on purpose: that setting controls how often we ASK the model
+// for text, this controls how fast a reader is asked to absorb it. They answer different questions
+// and coupling them would make the words-per-card and interval sliders fight each other.
+const CARD_RELEASE_INTERVAL_MS = 5000;
 const UNDO_STATUS_MAX_CHARS = 40;
 
 // How often the watchdog re-checks the gap since the last transcript event (partial or final).
@@ -238,8 +246,37 @@ export function createRuntime(ctx, deps = {}) {
     });
   }
 
-  function addLine(line, { source = 'manual', mode = ctx.state.mode } = {}) {
-    const clean = normalizeText(line);
+  function commitItems(items) {
+    ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, items);
+    renderDisplay(ctx);
+    showRecentTranscript();
+  }
+
+  // One summarize result is now several cards (the model splits by thought, packLinesIntoCards
+  // sizes them), and putting four cards on the wall in the same frame costs a slow reader their
+  // place -- the exact thing the display exists to protect. `paced` hands them to the release queue
+  // instead, one every CARD_RELEASE_INTERVAL_MS.
+  //
+  // Manual lines are never paced: the operator typed that and pressed Show now, so it shows now.
+  const cardReleaseQueue = createCardReleaseQueue({
+    intervalMs: CARD_RELEASE_INTERVAL_MS,
+    onRelease: (item) => commitItems([item]),
+    setTimeoutFn,
+    clearTimeoutFn
+  });
+
+  function addLine(line, { source = 'manual', mode = ctx.state.mode, paced = false } = {}) {
+    // Normalized PER LINE, not across the whole string. normalizeText collapses /\s+/ to a single
+    // space, which includes the newlines the server uses to separate cards -- so running it over
+    // the whole reply flattened a multi-card result into one card before createTranscriptItems
+    // (whose AI path splits on newlines and nothing else) ever saw the breaks. Latent since
+    // multi-line replies were introduced: information mode's three announcements have been
+    // arriving as a single run-on card. Found 2026-08-02 while pacing testimony cards.
+    const clean = String(line || '')
+      .split(/\r?\n/)
+      .map((part) => normalizeText(part))
+      .filter(Boolean)
+      .join('\n');
     if (!clean) return false;
     const nextItems = createTranscriptItems({
       text: clean,
@@ -247,9 +284,13 @@ export function createRuntime(ctx, deps = {}) {
       source
     });
     if (!nextItems.length) return false;
-    ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, nextItems);
-    renderDisplay(ctx);
-    showRecentTranscript();
+    // Queued even for a single card when cards are already waiting, or a later result would
+    // overtake an earlier one and the testimony would come out of order.
+    if (paced && (nextItems.length > 1 || cardReleaseQueue.pendingCount() > 0)) {
+      cardReleaseQueue.enqueue(nextItems);
+      return true;
+    }
+    commitItems(nextItems);
     return true;
   }
 
@@ -308,6 +349,9 @@ export function createRuntime(ctx, deps = {}) {
     }
     ctx.state.lastClearedItems = outgoing;
     ctx.state.transcriptItems = [];
+    // Anything still queued belongs to what was just cleared. Without this it would arrive a few
+    // seconds later on a screen the operator deliberately emptied.
+    cardReleaseQueue.clear();
     ctx.state.summaryHistory = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';
@@ -1282,6 +1326,10 @@ export function createRuntime(ctx, deps = {}) {
         previousBlock,
         visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
         maxWords: ctx.state.summaryMaxWords,
+        // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
+        // words-per-card setting and the amount of compression can never disagree. Measured pace is
+        // about one word every two seconds, which puts the live path on brief.
+        level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords }),
         history: ctx.state.summaryHistory
       });
 
@@ -1318,7 +1366,7 @@ export function createRuntime(ctx, deps = {}) {
       if (result.line) {
         // Labelled from the CHUNK's own mode (sendMode), not ctx.state.mode -- backlogged speech
         // must read under the mode it was actually said in, even if the operator has since switched.
-        addLine(result.line, { source: 'ai', mode: sendMode });
+        addLine(result.line, { source: 'ai', mode: sendMode, paced: true });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
@@ -1382,7 +1430,14 @@ export function createRuntime(ctx, deps = {}) {
     // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
     // context before the history is dropped.
     void startNewSpeaker();
-    updateStatus(ctx, changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`);
+    const message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
+    updateStatus(ctx, message);
+    // updateStatus with no level writes only to #status, which lives inside the settings dialog --
+    // unreadable during a meeting, when the panel is closed and this button is the one the operator
+    // presses most. Pressing the mode you are already on changes nothing else on screen either (the
+    // buttons re-render identically), so without this the clear is completely silent. Same benign
+    // polite flash Clear/Undo use.
+    flashRailNote(ctx, message, { setTimeoutFn, clearTimeoutFn });
   }
 
   function setFontSize(nextSize) {

@@ -45,11 +45,67 @@ faster to read and harder to misread at a distance.
 Do not add anything that was not said. Do not say the same thing twice. Return only the text, with
 no preamble.`;
 
-export function buildMinimalSummarizePrompt({ recentTranscript = '', mode = 'speaker', maxWords = CARD_WORDS } = {}) {
+export function buildMinimalSummarizePrompt({
+  recentTranscript = '',
+  mode = 'speaker',
+  maxWords = CARD_WORDS,
+  level = 'condense'
+} = {}) {
   const text = String(recentTranscript).trim();
   const cardWords = Number.isFinite(maxWords) && maxWords > 0 ? Math.round(maxWords) : CARD_WORDS;
 
+  // BRIEF: one card, third person, the single most important thing. Chosen when the reading budget
+  // is too small for anything else -- see summary-level.js for the measurement behind that.
+  //
+  // Third person here is a REVERSAL of this file's original rule, made on evidence rather than
+  // taste. Keeping a speaker's own voice was the better goal and it is what the condense level below
+  // still does; at ten words it stopped working. Steve, after running it live 2026-08-02: it "gave
+  // bad feedback on what they were actually saying and really messed things up". First person has no
+  // room left to attribute anything, so a compressed sentence in the speaker's voice reads as a
+  // claim THEY made -- and when the compression picks the wrong clause, the display has quietly put
+  // words in somebody's mouth in front of the congregation. A report cannot make that mistake,
+  // because it never pretends to be them.
+  if (level === 'brief') {
+    const subject = mode === 'prayer'
+      ? 'This is a prayer being offered.'
+      : mode === 'speaker'
+        ? 'This is somebody speaking to the congregation.'
+        : 'This is meeting information: announcements, dates, times, assignments, logistics.';
+
+    return `
+${READER}
+
+${subject}
+
+Write ONE line of no more than ${cardWords} words. One line only.
+
+The reader gets about one word every two seconds, so this line is all they will manage before the
+next one replaces it. Do not try to cover everything that was said. Pick the single most important
+thing -- the one piece somebody would need to follow what is happening -- and write only that.
+
+Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
+
+Do not spend words on who is talking. "The speaker", "someone", "a member" and the like tell the
+reader nothing they cannot already see, and at this length they cost a fifth of the card. Lead with
+the thing itself. Name a person only when a name was actually said and the point depends on it.
+
+If nothing in the text below is worth a card, return nothing at all rather than filling the line.
+
+${VERBATIM}
+
+Text:
+${text}
+`.trim();
+  }
+
   // CONDENSE: the speaker's own words, made shorter. Their voice is the point.
+  //
+  // Note what this branch does NOT ask for: a number of lines. Measured 2026-08-02 against a real
+  // 62-word testimony, "no more than 3 lines" returned 8 -- and 3x15, 3x17 and 2x20 all produced
+  // byte-identical output, so the constraint was not being read at all. The model splits by thought
+  // reliably and cannot count its own lines, so we ask only for the split and let
+  // packLinesIntoCards own the word budget. cardWords is still passed in and still matters; it is
+  // just enforced in code now rather than requested in prose.
   if (mode === 'speaker' || mode === 'prayer') {
     const shape = mode === 'prayer'
       ? `This is a prayer. It must still read as a prayer being offered, not as a report that someone
@@ -61,8 +117,9 @@ ${READER}
 
 ${shape}
 
-Write ONE line of no more than ${cardWords} words. One line, not two, not three. Whatever the
-length of the text below, it becomes a single short line: pick what matters most and say only that.
+Put each separate thought on its own line, in the order they were said. Do not number them and do
+not add bullets. Do not worry about how many lines there are or how long each one is -- something
+after you packs them into cards, and it can only do that if the thoughts arrive separated.
 
 Shortening is the whole job: do not retell it, do not explain it, and never describe the speaker
 from outside ("the speaker said", "he explained", "she shared"). Cut words, keep theirs.
@@ -116,13 +173,14 @@ export function buildMinimalSummarizeMessages({
   recentTranscript = '',
   mode = 'speaker',
   maxWords = CARD_WORDS,
+  level = 'condense',
   history = [],
   historyTurns = 4
 } = {}) {
   const text = String(recentTranscript).trim();
   // Reuse the single-message builder for the rules, then strip the transcript it appends: the text
   // belongs in its own final turn, not inside the instructions.
-  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords });
+  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords, level });
   const rules = full.replace(/\n*Text:\n*$/, '').trim();
 
   const messages = [{ role: 'system', content: rules }];
