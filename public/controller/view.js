@@ -617,12 +617,33 @@ export function updateSummaryIntervalControl(ctx) {
   updateSliderFill(ctx.dom.summaryIntervalInput);
 }
 
+function pluraliseWords(count) {
+  return `${count} ${count === 1 ? 'word' : 'words'}`;
+}
+
 export function updateSummaryMaxWordsControl(ctx) {
   if (!ctx.dom.summaryMaxWordsInput || !ctx.dom.summaryMaxWordsValue) return;
   const index = summaryMaxWordsSliderIndexFromWords(ctx.state.summaryMaxWords);
   ctx.dom.summaryMaxWordsInput.value = String(index);
-  ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', `${ctx.state.summaryMaxWords} words`);
-  ctx.dom.summaryMaxWordsValue.textContent = `${ctx.state.summaryMaxWords} words`;
+  // The TRUE budget, not the clamped one, whenever the two differ. At 30 wpm every interval from 2s
+  // to 15s clamped up to the same 11 and was displayed as "11 words", so the number on screen was
+  // false across the entire usable range of the control that produces it -- and the operator pushing
+  // that control saw nothing move. A derived figure that cannot be trusted is worse than the two
+  // independent dials it replaced, because it looks authoritative.
+  // Read, never recomputed. runtime.js's recomputeSummaryMaxWords owns this number.
+  const budget = ctx.state.readingBudget;
+  // Three states, not two. Ansel's ruling: a budget sitting exactly on the floor must not read as
+  // comfortable, because the live configuration lands there and rounding in the measured pace flips
+  // the verdict with nothing changing about how readable the card actually is.
+  const text = budget?.belowFloor
+    ? `${pluraliseWords(Math.max(1, Math.round(budget.rawWords)))}, too short for this reader`
+    : budget?.marginal
+      ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
+      : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
+  ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', text);
+  ctx.dom.summaryMaxWordsValue.textContent = text;
+  ctx.dom.summaryMaxWordsValue.classList.toggle('is-belowFloor', Boolean(budget?.belowFloor));
+  ctx.dom.summaryMaxWordsValue.classList.toggle('is-marginal', Boolean(budget?.marginal));
   updateSliderFill(ctx.dom.summaryMaxWordsInput);
 }
 

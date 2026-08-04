@@ -1,4 +1,5 @@
 import test from 'node:test';
+import * as viewSettings from '../../../public/services/view-settings.js';
 import assert from 'node:assert/strict';
 
 import {
@@ -9,7 +10,6 @@ import {
   SUMMARY_INTERVAL_MIN_SECONDS,
   SUMMARY_INTERVAL_MAX_SECONDS,
   summaryMaxWordsOptions,
-  summaryMaxWordsFromSliderIndex,
   summaryMaxWordsSliderIndexFromWords,
   fontSizeFromSliderPosition,
   sliderPositionFromFontSize,
@@ -29,7 +29,7 @@ test('view settings clamp to safe display ranges', () => {
   assert.equal(clampDisplayMargin(99), 40);
   assert.equal(clampSummaryIntervalSeconds(1), 2);
   assert.equal(clampSummaryIntervalSeconds(99), 30);
-  assert.equal(clampSummaryMaxWords(1), 8);
+  assert.equal(clampSummaryMaxWords(1), 11);
   assert.equal(clampSummaryMaxWords(99), 17);
   assert.equal(clampSummaryMaxWords('garbage'), 14);
   assert.equal(clampSummaryMaxWords(undefined), 14);
@@ -64,22 +64,28 @@ test('summary interval clamps to the range and rounds to a whole second', () => 
 });
 
 test('summary max words options stay short for a slow, distance reader', () => {
-  assert.deepEqual(summaryMaxWordsOptions, [8, 11, 14, 17]);
+  // 8 dropped (issue #44): a name plus a number can eat eight words on its own, so it was never a
+  // usable setting for the reader this app is built for.
+  assert.deepEqual(summaryMaxWordsOptions, [11, 14, 17]);
 });
 
-test('summary max words slider maps to the same discrete values', () => {
-  assert.equal(summaryMaxWordsSliderIndexFromWords(8), 0);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(11), 1);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(14), 2);
-  assert.equal(summaryMaxWordsSliderIndexFromWords(17), 3);
-  assert.equal(summaryMaxWordsFromSliderIndex(0), 8);
-  assert.equal(summaryMaxWordsFromSliderIndex(1), 11);
-  assert.equal(summaryMaxWordsFromSliderIndex(2), 14);
-  assert.equal(summaryMaxWordsFromSliderIndex(3), 17);
+// Only the words -> slider-index direction survives #44. The reverse (index -> words) was deleted
+// with the editable slider: words per card is derived from the reading pace now, and a tested helper
+// that turns a slider position into a word count is an invitation to wire the slider back up.
+test('words map onto a slider position, for displaying the derived value', () => {
+  assert.equal(summaryMaxWordsSliderIndexFromWords(11), 0);
+  assert.equal(summaryMaxWordsSliderIndexFromWords(14), 1);
+  assert.equal(summaryMaxWordsSliderIndexFromWords(17), 2);
 
-  // Garbage input on either helper falls back rather than throwing or landing off the option list.
-  assert.equal(summaryMaxWordsSliderIndexFromWords('garbage'), 2);
-  assert.equal(summaryMaxWordsFromSliderIndex('garbage'), 8);
+  // Garbage falls back rather than throwing or landing off the option list.
+  assert.equal(summaryMaxWordsSliderIndexFromWords('garbage'), 1);
+});
+
+test('nothing turns a slider position back into a word count', () => {
+  // Asserting the ABSENCE of the indirection, not just that nothing calls it. A dead export with
+  // passing tests reads as supported, and the next person to want an editable words slider will
+  // find it sitting there ready.
+  assert.equal(typeof viewSettings.summaryMaxWordsFromSliderIndex, 'undefined');
 });
 
 test('font size slider position maps exponentially, not linearly, onto pixels', () => {

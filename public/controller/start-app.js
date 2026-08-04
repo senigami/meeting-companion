@@ -2,14 +2,13 @@ import {
   clampDisplayMargin,
   clampFontSize,
   clampSummaryIntervalSeconds,
-  clampSummaryMaxWords,
-  summaryMaxWordsFromSliderIndex,
   fontSizeFromSliderPosition,
   clampAudioProcessingPreset,
   clampAudioHighPassHz,
   clampAudioBoolean,
   AUDIO_SETTINGS_DEFAULTS
 } from '../services/view-settings.js';
+import { DEFAULT_MEDIAN_WPM, readingBudget } from '../services/reading-pace.js';
 import {
   bindRailResize,
   loadRailWidth
@@ -61,7 +60,11 @@ const STORAGE = {
   // Replay transcription source (GitHub issue #3). Must stay in sync with runtime.js's own
   // STORAGE map -- same gotcha runtime.js's comment documents for summarizationSourceChosen.
   replayRecordingId: 'replayRecordingId',
-  replaySpeed: 'replaySpeed'
+  replaySpeed: 'replaySpeed',
+  // Pointer at a server-side reader profile, not the measurement itself -- see runtime.js's own
+  // STORAGE map for why that distinction is what makes this safe in localStorage. Must stay in sync
+  // with runtime.js's own STORAGE map, same gotcha as summarizationSourceChosen above.
+  readingPaceProfileName: 'readingPaceProfileName'
 };
 
 export function startApp() {
@@ -81,7 +84,29 @@ export function startApp() {
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
-      summaryMaxWords: clampSummaryMaxWords(localStorage.getItem(STORAGE.summaryMaxWords) || 14),
+      // DERIVED (issue #44), not read from localStorage, and seeded from readingBudget rather than
+      // derivedCardWords -- which is the SNAPPED helper, and using it here quietly undid the whole
+      // fix on the one path most readers are on.
+      //
+      // Found by Cato before this shipped. At the default (no profile, 5s interval, assumed 30 wpm)
+      // the true budget is 2.5 words and this line seeded 11. readingBudget was never initialised at
+      // all, so updateSummaryMaxWordsControl's optional chains fell through to the healthy branch:
+      // the screen read "11 words" with no warning and every summarize call was told 11. Not a first
+      // frame flicker either -- recomputeSummaryMaxWords only runs on an interval change or a profile
+      // apply, and applyLastReadingPaceProfile returns early with no remembered name, so with an
+      // operator who never drags the slider the false 11 lasted the whole session.
+      //
+      // Both fields are seeded from ONE call for the same reason the view stopped computing its own:
+      // two places deriving this quantity is the fault #44 exists to remove.
+      ...(() => {
+        const seconds = clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5);
+        const budget = readingBudget(DEFAULT_MEDIAN_WPM, seconds);
+        return { summaryMaxWords: budget.words, readingBudget: budget };
+      })(),
+      // No profile until applyLastReadingPaceProfile (runtime.js) resolves, same "must work with none
+      // set" requirement issue #44 states explicitly -- every reader before this shipped had none.
+      readingPaceProfile: null,
+      readingPaceProfileName: localStorage.getItem(STORAGE.readingPaceProfileName) || '',
       displayMarginGuidesVisible: false,
       displayMarginAdjusting: false,
       transcriptChunks: [],
@@ -186,6 +211,7 @@ export function startApp() {
       summaryMaxWordsInput: $('summaryMaxWords'),
       summaryMaxWordsValue: $('summaryMaxWordsValue'),
       summaryMaxWordsField: $('summaryMaxWordsField'),
+      readingPaceProfileSelect: $('readingPaceProfileSelect'),
       viewPanel: $('viewPanel'),
       viewButton: $('viewButton'),
       closeViewPanel: $('closeViewPanel'),
@@ -279,6 +305,11 @@ export function startApp() {
   renderDisplay(ctx);
   runtime.showRecentTranscript();
   const runtimeConfig = runtime.loadRuntimeConfig();
+  // Issue #44: populate the profile picker and apply the last-used one, if there is one.
+  // Fire-and-forget, same reasoning as loadRuntimeConfig above -- both are nice-to-haves layered on
+  // top of a UI that already rendered with a working default, never something the boot path waits on.
+  void runtime.refreshReadingPaceProfileList();
+  void runtime.applyLastReadingPaceProfile();
   if (isDemoModeEnabled(globalThis.location?.search)) {
     runtimeConfig.finally?.(() => {
       startDemoFeed(runtime);
@@ -423,8 +454,12 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(e.target.value);
   });
-  ctx.dom.summaryMaxWordsInput.addEventListener('input', (e) => {
-    runtime.setSummaryMaxWords(summaryMaxWordsFromSliderIndex(e.target.value, ctx.state.summaryMaxWords));
+  // summaryMaxWordsInput has no 'input' listener (issue #44): words per card is derived from the
+  // reading pace and the interval above, not an independent dial. The slider stays in the DOM,
+  // disabled, purely so updateSummaryMaxWordsControl (view.js) has somewhere to render the derived
+  // number Ansel needs visible.
+  ctx.dom.readingPaceProfileSelect?.addEventListener('change', (e) => {
+    runtime.setReadingPaceProfileName(e.target.value);
   });
 
   bindDragFade(ctx.dom.fontSizeInput, ctx.dom.fontSizeField);

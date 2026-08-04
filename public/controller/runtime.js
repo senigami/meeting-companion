@@ -15,9 +15,13 @@ import {
   AUDIO_SETTINGS_KEYS,
   clampDisplayMargin,
   clampFontSize,
-  clampSummaryIntervalSeconds,
-  clampSummaryMaxWords
+  clampSummaryIntervalSeconds
 } from '../services/view-settings.js';
+import {
+  DEFAULT_MEDIAN_WPM,
+  medianWpmFromProfile,
+  readingBudget
+} from '../services/reading-pace.js';
 import {
   listAudioInputs,
   resolveDeviceId,
@@ -67,6 +71,13 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   summaryInterval: 'summaryIntervalSeconds',
   summaryMaxWords: 'summaryMaxWords',
+  // A POINTER, not the measurement itself (issue #44): the measured pace stays on disk under
+  // reader-profiles/, gitignored, loopback-only, same as recordings/. This is only the NAME of the
+  // profile to auto-apply on the next start, the same shape as replayRecordingId a few keys down
+  // (a browser-local pointer at server-side data), which is why it is safe in localStorage where the
+  // measurement itself would not be. Must stay in sync with start-app.js's own STORAGE map -- same
+  // gotcha as summarizationSourceChosen above.
+  readingPaceProfileName: 'readingPaceProfileName',
   transcriptionSource: 'transcriptionSource',
   summarizationSource: 'summarizationSource',
   // Must stay in sync with start-app.js's own STORAGE map, which is a separate object listing the
@@ -1503,25 +1514,159 @@ export function createRuntime(ctx, deps = {}) {
     setDisplayMarginGuidesVisible(ctx, false);
   }
 
+  // The one pace this budget is derived from: the applied profile's measured median, or the app's
+  // documented default with none applied (reading-pace.js's DEFAULT_MEDIAN_WPM). Never read directly
+  // by anything outside this file -- everything else goes through recomputeSummaryMaxWords below, so
+  // there is exactly one place that turns a pace into a word count.
+  function medianWpmForBudget() {
+    // Explicitly > 0 rather than ?? -- a 0 is not nullish, so `??` let a profile whose median
+    // computed to zero through as a real pace, and every card after that was sized from it.
+    const measured = Number(ctx.state.readingPaceProfile?.medianWpm);
+    return Number.isFinite(measured) && measured > 0 ? measured : DEFAULT_MEDIAN_WPM;
+  }
+
+  // Words per card is DERIVED, not an independent setting (issue #44, Steve's call confirmed by
+  // Ansel): reading load is one rate, and a slider that could disagree with the measured pace is how
+  // it disagreed. Called whenever either input changes -- the interval (setSummaryInterval below) or
+  // the applied profile (applyReadingPaceProfile) -- so ctx.state.summaryMaxWords can never go stale
+  // against either.
+  function recomputeSummaryMaxWords() {
+    // The whole budget is stored, not just the clamped word count, so the view never recomputes it.
+    // A first version had the view derive its own copy from state and it read one interval behind --
+    // it ran before summaryIntervalSeconds was committed, so the screen said "8 words, too short" at
+    // a 20s interval where the real answer is 10 and fine. Two places computing one quantity is the
+    // exact fault #44 exists to remove, and putting the second one in the DISPLAY is worse, because
+    // that is the copy a person reads and trusts.
+    const budget = readingBudget(medianWpmForBudget(), ctx.state.summaryIntervalSeconds);
+    const unchanged = budget.words === ctx.state.summaryMaxWords
+      && budget.belowFloor === ctx.state.readingBudget?.belowFloor
+      && budget.rawWords === ctx.state.readingBudget?.rawWords;
+    if (unchanged) return;
+    ctx.state.readingBudget = budget;
+    ctx.state.summaryMaxWords = budget.words;
+    updateSummaryMaxWordsControl(ctx);
+  }
+
   function setSummaryInterval(nextInterval) {
     const next = clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds);
     if (next === ctx.state.summaryIntervalSeconds) return;
     ctx.state.summaryIntervalSeconds = next;
     localStorage.setItem(STORAGE.summaryInterval, String(next));
     updateSummaryIntervalControl(ctx);
+    recomputeSummaryMaxWords();
     updateStatus(ctx, `Update interval set to ${next}s.`);
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();
     }
   }
 
-  function setSummaryMaxWords(nextMaxWords) {
-    const next = clampSummaryMaxWords(nextMaxWords, ctx.state.summaryMaxWords);
-    if (next === ctx.state.summaryMaxWords) return;
-    ctx.state.summaryMaxWords = next;
-    localStorage.setItem(STORAGE.summaryMaxWords, String(next));
-    updateSummaryMaxWordsControl(ctx);
-    updateStatus(ctx, `Words per card set to ${next}.`);
+  // Applies a saved reader profile (or clears it, when profile is null/unusable): the derived words
+  // budget switches to the profile's measured pace, and the font size it was measured at is restored
+  // too -- a pace measured at one type size does not transfer to a display at another (the same
+  // reasoning public/reading-pace.js records the measurement font size for). Never touches
+  // summaryIntervalSeconds: the interval stays the operator's own control, at whatever value it was
+  // already set to, same as before a profile existed.
+  function applyReadingPaceProfile(name, profile) {
+    const medianWpm = medianWpmFromProfile(profile);
+    if (medianWpm == null) {
+      ctx.state.readingPaceProfile = null;
+      recomputeSummaryMaxWords();
+      return;
+    }
+    ctx.state.readingPaceProfile = {
+      name,
+      medianWpm,
+      recordedAt: profile.recordedAt || null,
+      fontSizePx: profile.fontSizePx
+    };
+    if (Number.isFinite(profile.fontSizePx) && profile.fontSizePx !== ctx.state.fontSize) {
+      // Say it. setFontSize persists through saveViewerSettings, so loading a profile silently
+      // overwrote a size the operator had deliberately set for the room, with the old value gone and
+      // nothing on screen explaining the change. Restoring the measured size is right (the pace is
+      // only valid at the size it was measured at) but it is not something to do behind their back.
+      const previous = ctx.state.fontSize;
+      setFontSize(profile.fontSizePx);
+      updateStatus(ctx, `Text size set to ${ctx.state.fontSize}px, the size this reading pace was measured at (was ${previous}px).`);
+    }
+    recomputeSummaryMaxWords();
+  }
+
+  // Runs once at boot (start-app.js). No profile pointer, a fetch failure, or a server that refuses
+  // (off-loopback, or simply not there) all leave ctx.state.readingPaceProfile at its initial null --
+  // the app must work with none set exactly as it did before this existed, so every failure path here
+  // is silent, never a status message or an alert the operator did not ask for.
+  async function applyLastReadingPaceProfile() {
+    const name = ctx.state.readingPaceProfileName;
+    if (!name) return;
+    try {
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        `/api/reading-pace/${encodeURIComponent(name)}`,
+        {},
+        { setTimeoutFn, clearTimeoutFn }
+      );
+      if (!response.ok) return;
+      const profile = await response.json();
+      applyReadingPaceProfile(name, profile);
+    } catch {
+      // Server unreachable, request timed out, or a malformed response -- none of these are worth
+      // surfacing for a nice-to-have applied silently at boot. medianWpmForBudget's own fallback
+      // (DEFAULT_MEDIAN_WPM) already covers "no profile" correctly.
+    }
+    populateReadingPaceProfileOptions();
+  }
+
+  // Mirrors refreshRecordingList/populateRecordingOptions (issue #3) -- same shape, fetch the
+  // server's list, rebuild the <option> set, same defensive empty-list fallback.
+  async function refreshReadingPaceProfileList() {
+    try {
+      const response = await fetchImpl('/api/reading-pace/list');
+      const data = await response.json().catch(() => ({}));
+      ctx.state.availableReadingPaceProfiles = Array.isArray(data?.profiles) ? data.profiles : [];
+    } catch {
+      ctx.state.availableReadingPaceProfiles = ctx.state.availableReadingPaceProfiles || [];
+    }
+    populateReadingPaceProfileOptions();
+  }
+
+  function populateReadingPaceProfileOptions() {
+    const select = ctx.dom.readingPaceProfileSelect;
+    if (!select) return;
+
+    const profiles = ctx.state.availableReadingPaceProfiles || [];
+    select.innerHTML = '';
+
+    const noneOption = createOptionElementFn();
+    noneOption.value = '';
+    noneOption.textContent = 'No profile (assumed pace)';
+    select.appendChild(noneOption);
+
+    for (const profile of profiles) {
+      const option = createOptionElementFn();
+      option.value = profile.name;
+      option.textContent = profile.name;
+      select.appendChild(option);
+    }
+
+    // A remembered name that no longer exists on disk (deleted since last load) falls back to no
+    // profile -- same correction populateRecordingOptions makes for a deleted recording -- rather
+    // than leaving the select showing a name the server has nothing behind.
+    const stillExists = profiles.some((profile) => profile.name === ctx.state.readingPaceProfileName);
+    select.value = stillExists ? ctx.state.readingPaceProfileName : '';
+  }
+
+  // Picking a profile (or "No profile") from the settings picker: persists the pointer, then applies
+  // (or clears) it immediately, so the derived words-per-card display updates without a reload.
+  function setReadingPaceProfileName(name) {
+    const next = name || '';
+    if (next === ctx.state.readingPaceProfileName) return;
+    ctx.state.readingPaceProfileName = next;
+    localStorage.setItem(STORAGE.readingPaceProfileName, next);
+    if (!next) {
+      applyReadingPaceProfile(null, null);
+      return;
+    }
+    applyLastReadingPaceProfile();
   }
 
   async function startListening({ force = false } = {}) {
@@ -1941,7 +2086,10 @@ export function createRuntime(ctx, deps = {}) {
       return setSettingsOpen(ctx, open, options);
     },
     setSummaryInterval,
-    setSummaryMaxWords,
+    applyReadingPaceProfile,
+    applyLastReadingPaceProfile,
+    refreshReadingPaceProfileList,
+    setReadingPaceProfileName,
     setSummarizationSource,
     setTranscriptionSource,
     setRegistrationProvider,
