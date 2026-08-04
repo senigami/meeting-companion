@@ -439,6 +439,33 @@ test('the speaker label scales with the card text and cannot shrink below a read
     'and it needs the absolute floor, because the fraction alone fails at small calibrations');
 });
 
+// The test above pins the SHAPE of the rule and not its numbers, which Cato pointed out is the
+// assert-on-a-name failure again: `max(1.35rem, ...)` passes with any ratio, so someone could change
+// 0.4 to 0.1 and stay green. This resolves the declaration to actual pixels across the real range of
+// the font-size control and checks the result, which is the property Ansel actually ruled on.
+test('the label resolves to a readable size across the whole font-size control range', async () => {
+  const css = await readSplitCss();
+  const rule = css.slice(css.indexOf('.transcript-speaker'), css.indexOf('}', css.indexOf('.transcript-speaker')) + 1);
+  const match = rule.match(/font-size:\s*max\(\s*([\d.]+)rem\s*,\s*calc\(\s*var\(--font-size\)\s*\*\s*([\d.]+)\s*\)\s*\)/);
+  assert.ok(match, `could not parse the size declaration from: ${rule.trim()}`);
+  const [, floorRem, ratio] = match;
+  const floorPx = Number(floorRem) * 16; // no root font-size is declared anywhere, so rem is 16px
+  const resolve = (cardPx) => Math.max(floorPx, cardPx * Number(ratio));
+
+  const { FONT_SIZE_MIN, FONT_SIZE_MAX } = await import('../../public/services/view-settings.js');
+
+  // Never unreadable, at any setting. 12.48px is what #52 was: the number to stay well clear of.
+  for (let cardPx = FONT_SIZE_MIN; cardPx <= FONT_SIZE_MAX; cardPx += 4) {
+    assert.ok(resolve(cardPx) >= 20,
+      `at a ${cardPx}px card the label resolves to ${resolve(cardPx)}px, which is back toward the 12.48px this fixed`);
+  }
+
+  // And it must actually track the reader's size rather than sitting on the floor forever.
+  assert.ok(resolve(FONT_SIZE_MAX) > resolve(FONT_SIZE_MIN) * 2,
+    'a reader who doubles their text size must see the name grow with it');
+  assert.equal(resolve(84), 33.6, 'the measured case, pinned so the ratio cannot drift silently');
+});
+
 test('the mode chip deliberately stays at chrome scale, so it does not track the reader size', async () => {
   // Ansel was asked directly whether the size mismatch on that row bothered him. It does not: the
   // mode is operator status, not content the reader is identifying a person by.
