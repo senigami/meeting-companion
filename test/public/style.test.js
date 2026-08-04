@@ -420,3 +420,62 @@ test('the timing sliders span exactly the range their own constants allow', asyn
   const words = html.match(/<input id="summaryMaxWords"[^>]*>/)[0];
   assert.match(words, new RegExp(`max="${summaryMaxWordsOptions.length - 1}"`), 'words slider indexes the option set');
 });
+
+// Issue #52. The speaker label had no font-size of its own, so it inherited .transcript-meta's
+// clamp() -- the OPERATOR CHROME scale -- and measured 12.48px against 84px card text. The part of
+// the card that says WHO was the part a low-vision reader was least able to read, and it did not move
+// when he changed the font-size control.
+//
+// Ansel's numbers, 2026-08-04: 0.4 of the card text, with an absolute floor because the fraction
+// alone fails at small calibrations (0.4 of a 32px card is 12.8px, straight back to unreadable).
+test('the speaker label scales with the card text and cannot shrink below a readable floor', async () => {
+  const css = await readSplitCss();
+  const rule = css.slice(css.indexOf('.transcript-speaker'), css.indexOf('}', css.indexOf('.transcript-speaker')) + 1);
+
+  assert.match(rule, /font-size:/, 'it must set its own size, not inherit the chrome scale');
+  assert.match(rule, /var\(--font-size\)/,
+    'it must be derived from the reader calibrated size, or it stops moving when he changes it');
+  assert.match(rule, /max\(\s*1\.35rem/,
+    'and it needs the absolute floor, because the fraction alone fails at small calibrations');
+});
+
+// The test above pins the SHAPE of the rule and not its numbers, which Cato pointed out is the
+// assert-on-a-name failure again: `max(1.35rem, ...)` passes with any ratio, so someone could change
+// 0.4 to 0.1 and stay green. This resolves the declaration to actual pixels across the real range of
+// the font-size control and checks the result, which is the property Ansel actually ruled on.
+test('the label resolves to a readable size across the whole font-size control range', async () => {
+  const css = await readSplitCss();
+  const rule = css.slice(css.indexOf('.transcript-speaker'), css.indexOf('}', css.indexOf('.transcript-speaker')) + 1);
+  const match = rule.match(/font-size:\s*max\(\s*([\d.]+)rem\s*,\s*calc\(\s*var\(--font-size\)\s*\*\s*([\d.]+)\s*\)\s*\)/);
+  assert.ok(match, `could not parse the size declaration from: ${rule.trim()}`);
+  const [, floorRem, ratio] = match;
+  const floorPx = Number(floorRem) * 16; // no root font-size is declared anywhere, so rem is 16px
+  const resolve = (cardPx) => Math.max(floorPx, cardPx * Number(ratio));
+
+  const { FONT_SIZE_MIN, FONT_SIZE_MAX } = await import('../../public/services/view-settings.js');
+
+  // Never unreadable, at any setting. 12.48px is what #52 was: the number to stay well clear of.
+  for (let cardPx = FONT_SIZE_MIN; cardPx <= FONT_SIZE_MAX; cardPx += 4) {
+    assert.ok(resolve(cardPx) >= 20,
+      `at a ${cardPx}px card the label resolves to ${resolve(cardPx)}px, which is back toward the 12.48px this fixed`);
+  }
+
+  // And it must actually track the reader's size rather than sitting on the floor forever.
+  assert.ok(resolve(FONT_SIZE_MAX) > resolve(FONT_SIZE_MIN) * 2,
+    'a reader who doubles their text size must see the name grow with it');
+  assert.equal(resolve(84), 33.6, 'the measured case, pinned so the ratio cannot drift silently');
+});
+
+test('the mode chip deliberately stays at chrome scale, so it does not track the reader size', async () => {
+  // Ansel was asked directly whether the size mismatch on that row bothered him. It does not: the
+  // mode is operator status, not content the reader is identifying a person by.
+  const css = await readSplitCss();
+  // Every .transcript-meta block, not the first one found -- there are two, and the first is an
+  // opacity-only rule. A test that slices to the first match silently checks the wrong thing.
+  const blocks = [...css.matchAll(/\.transcript-meta\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  assert.ok(blocks.length >= 1, 'sanity: the rule must exist to be checked');
+  for (const block of blocks) {
+    assert.doesNotMatch(block, /var\(--font-size\)/, 'the chip must not scale with the reader size');
+  }
+  assert.ok(blocks.some((block) => /clamp\(/.test(block)), 'it stays on the chrome clamp');
+});
