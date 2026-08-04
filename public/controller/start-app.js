@@ -105,6 +105,8 @@ export function startApp() {
       })(),
       // No profile until applyLastReadingPaceProfile (runtime.js) resolves, same "must work with none
       // set" requirement issue #44 states explicitly -- every reader before this shipped had none.
+      // No card on the wall yet, so the first complete chunk summarizes on arrival (#31).
+      firstCardShown: false,
       readingPaceProfile: null,
       readingPaceProfileName: localStorage.getItem(STORAGE.readingPaceProfileName) || '',
       displayMarginGuidesVisible: false,
