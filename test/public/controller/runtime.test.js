@@ -1982,7 +1982,49 @@ test('nothing is consumed twice across the four-tick rolling sequence', async ()
   });
 });
 
-test('visible lines carries the last ten summaries, not five', async () => {
+test('visible lines includes the cards still waiting in the release queue', async () => {
+  // #61. Cards release one at a time, so a card the summarizer has already produced is not in
+  // transcriptItems for several seconds. It is still going on screen, so the model has to be told
+  // about it or it can restate it, and cleanModelLines cannot catch that either since it dedupes
+  // against this same list.
+  const seen = [];
+  let call = 0;
+  const driver = {
+    id: 'openai',
+    summarize: async ({ visibleLines }) => {
+      seen.push(visibleLines);
+      call += 1;
+      return call === 1 ? { line: 'The picnic is Saturday.\nBring a chair.\nSign up at the door.' } : { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'An announcement about the picnic.', at: now - 30000, mode: 'information' }],
+      mode: 'information'
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Only the first of the three has been released, so the other two are invisible to
+    // transcriptItems and were invisible to the dedupe window before this fix.
+    assert.equal(ctx.state.transcriptItems.length, 1);
+
+    ctx.state.transcriptChunks.push({ text: 'A second announcement.', at: now - 20000, mode: 'information' });
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen[1], [
+      'The picnic is Saturday.',
+      'Bring a chair.',
+      'Sign up at the door.'
+    ], 'the queued cards must be named to the model, not just the one already on screen');
+  });
+});
+
+test('visible lines carries at least as many cards as one call can produce', async () => {
   let seenVisibleLines = null;
   const succeedingDriver = {
     id: 'openai',
@@ -1996,13 +2038,15 @@ test('visible lines carries the last ten summaries, not five', async () => {
   await withRuntimeHarness({
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: {
-      transcriptItems: Array.from({ length: 12 }, (_, i) => ({ text: `Line ${i}`, mode: 'speaker', source: 'ai' })),
+      transcriptItems: Array.from({ length: 14 }, (_, i) => ({ text: `Line ${i}`, mode: 'speaker', source: 'ai' })),
       transcriptChunks: [{ text: 'New block.', at: now, mode: 'speaker' }]
     }
   }, async ({ runtime }) => {
+    // 12 is the literal runaway guard from #49, not a value read back out of the code under test:
+    // a window smaller than one call's own output drops a card before the next call is made.
     await runtime.summarizeCurrentText();
-    assert.equal(seenVisibleLines.length, 10);
-    assert.deepEqual(seenVisibleLines, Array.from({ length: 10 }, (_, i) => `Line ${i + 2}`));
+    assert.equal(seenVisibleLines.length, 12);
+    assert.deepEqual(seenVisibleLines, Array.from({ length: 12 }, (_, i) => `Line ${i + 2}`));
   });
 });
 
