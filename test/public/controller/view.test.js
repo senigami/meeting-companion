@@ -1114,6 +1114,12 @@ function createFlipTestDom(passRectsRef) {
         // pass, even after the test moves passRectsRef.current on to the next pass's values.
         const passRects = passRectsRef.current;
         node.getBoundingClientRect = () => ({ top: passRects[node.dataset.itemId] });
+        // Minimal enough to let applyTranscriptFlip's transitionend cleanup run in this test.
+        const listeners = [];
+        node.addEventListener = (type, handler) => listeners.push({ type, handler });
+        node.dispatchEvent = (type) => {
+          listeners.filter((l) => l.type === type).forEach((l) => l.handler());
+        };
       }
       return node;
     }
@@ -1160,6 +1166,14 @@ test('renderDisplay parks surviving cards back and animates them into place when
 
     const [cardOne, cardTwo, cardThree] = transcriptStack.children;
 
+    // Cato's finding (issue #13 follow-up): a survivor must carry no entrance animation at all,
+    // or its cascade beats the inline FLIP transform below and the park never renders -- verified
+    // against a real cascade in the browser (getComputedStyle), not assertable in this fake DOM.
+    // This assertion only guards the JS-side classification feeding that CSS selector.
+    assert.equal(cardOne.dataset.entering, 'false');
+    assert.equal(cardTwo.dataset.entering, 'false');
+    assert.equal(cardThree.dataset.entering, 'true');
+
     // Parked back at the old position (Invert), transition disabled, before any frame runs.
     assert.equal(cardOne.style.transform, 'translateY(96px)');
     assert.equal(cardOne.style.transition, 'none');
@@ -1176,6 +1190,14 @@ test('renderDisplay parks surviving cards back and animates them into place when
     assert.equal(cardOne.style.transition, 'transform 420ms ease');
     assert.equal(cardTwo.style.transform, '');
     assert.equal(cardTwo.style.transition, 'transform 420ms ease');
+
+    // Non-blocker Cato flagged: once the transition actually finishes, it must be cleared --
+    // otherwise it sits on the node forever and silently animates the next unrelated transform
+    // change on the same element.
+    cardOne.dispatchEvent('transitionend');
+    cardTwo.dispatchEvent('transitionend');
+    assert.equal(cardOne.style.transition, '');
+    assert.equal(cardTwo.style.transition, '');
   } finally {
     global.document = originalDocument;
     global.requestAnimationFrame = originalRequestAnimationFrame;

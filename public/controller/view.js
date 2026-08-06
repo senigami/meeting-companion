@@ -238,9 +238,10 @@ export function renderDisplay(ctx) {
   // Issue #13: every render replaces the whole card list, so a card being pushed in (or scrolled
   // off the top) reflows every surviving card instantly with nothing to animate that move -- the
   // jump. Capture where the surviving cards are NOW, before the swap, so the FLIP step below can
-  // put them back and animate them into their new spot instead. Skipped under reduced motion --
-  // no capture, no transform, so there is nothing to snap and nothing to jump either.
-  const oldRects = reducedMotion ? null : captureTranscriptRects(ctx.dom.transcriptStack);
+  // put them back and animate them into their new spot instead. Captured unconditionally (cheap,
+  // read-only) because it also decides which cards are genuinely entering, below -- only the
+  // actual FLIP application is skipped under reduced motion.
+  const oldRects = captureTranscriptRects(ctx.dom.transcriptStack);
 
   // Issue #40: the label shows only on a change of speaker, walked forward through the items in
   // display order -- a name repeated on every card is reading load a slow reader pays for nothing.
@@ -252,7 +253,13 @@ export function renderDisplay(ctx) {
     // Empty is a valid state and never gets a label, no matter what came before it.
     const showSpeaker = Boolean(speaker) && speaker !== previousSpeaker;
     previousSpeaker = speaker;
-    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker });
+    // Issue #13 (Cato's finding): only a card whose id was NOT already on the wall gets the
+    // entrance animation. A survivor must carry no animation on `transform` at all -- a CSS
+    // animation's own value for a property wins over inline style for as long as it runs, `both`
+    // keeps it winning outside 0%-100% too, so a survivor that kept the entrance animation would
+    // never actually render the FLIP park-and-release view.js sets on it below.
+    const entering = !oldRects.has(String(item.id ?? ''));
+    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker, entering });
   });
   if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
     ctx.dom.transcriptStack.replaceChildren(...nodes);
@@ -260,7 +267,7 @@ export function renderDisplay(ctx) {
     ctx.dom.transcriptStack.children = [...nodes];
   }
 
-  if (oldRects && oldRects.size) {
+  if (!reducedMotion) {
     applyTranscriptFlip(ctx.dom.transcriptStack, oldRects);
   }
 
@@ -771,7 +778,7 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
   }
 }
 
-function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
+function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', entering = true } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
   const visualMode = isManual ? 'manual' : item.mode || 'speaker';
@@ -782,6 +789,10 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   // DOM snapshots by this id -- the whole point is that the id survives the article being an
   // entirely new element each render.
   article.dataset.itemId = String(item.id ?? '');
+  // Issue #13 (Cato's finding): the entrance keyframe in layout.css is scoped to this attribute
+  // now, not to .transcript-item unconditionally -- see the CSS comment for why a survivor must
+  // never carry it.
+  setDataAttribute(article, 'entering', String(entering));
   setDataAttribute(article, 'mode', visualMode);
   setDataAttribute(article, 'source', item.source || 'ai');
   setDataAttribute(article, 'active', String(active));
@@ -1145,6 +1156,14 @@ function applyTranscriptFlip(stack, oldRects) {
     moved.forEach((node) => {
       node.style.transition = `transform ${TRANSCRIPT_FLIP_DURATION_MS}ms ease`;
       node.style.transform = '';
+      // Non-blocker Cato flagged alongside the main finding: without this, the transition stays
+      // on the node forever, so any later, unrelated transform change on the same element (a
+      // future FLIP pass, or the [data-active] rules) would silently animate too.
+      if (typeof node.addEventListener === 'function') {
+        node.addEventListener('transitionend', () => {
+          node.style.transition = '';
+        }, { once: true });
+      }
     });
   });
 }
