@@ -6,6 +6,7 @@ import {
   renderDisplay,
   renderReadyCheck,
   setViewPanelOpen,
+  setQuickPanelOpen,
   setSettingsOpen,
   setSettingsSection,
   getDefaultSettingsSection,
@@ -41,6 +42,110 @@ function createNode(tagName = 'div') {
     }
   };
 }
+
+// Issue #35: closing a panel while a control inside it is focused must move focus out before
+// the panel is hidden, and the panel itself must end up inert -- Chrome refuses aria-hidden (and
+// warns) on a container that still contains the focused element, so the old behaviour was
+// whatever the browser decided rather than something chosen.
+function createFocusableNode(tagName = 'button') {
+  const node = createNode(tagName);
+  node.focusCalls = 0;
+  node.blurCalls = 0;
+  node.focus = () => {
+    node.focusCalls += 1;
+    global.document.activeElement = node;
+  };
+  node.blur = () => {
+    node.blurCalls += 1;
+    if (global.document.activeElement === node) {
+      global.document.activeElement = null;
+    }
+  };
+  return node;
+}
+
+function createContainerNode(tagName = 'div') {
+  const node = createNode(tagName);
+  node.contains = (candidate) => node.children.includes(candidate);
+  return node;
+}
+
+test('closing the view panel while the close button holds focus moves focus out first, then marks the panel inert', () => {
+  const originalDocument = global.document;
+
+  const viewPanel = createContainerNode('aside');
+  const viewButton = createFocusableNode('button');
+  const closeViewPanel = createFocusableNode('button');
+  viewPanel.children.push(closeViewPanel);
+
+  global.document = { activeElement: closeViewPanel };
+
+  try {
+    const ctx = {
+      state: { viewPanelOpen: true, transcriptItems: [], stickToBottom: true, prefersReducedMotion: true },
+      dom: { viewPanel, viewButton, closeViewPanel, transcriptViewport: createNode('div'), transcriptStack: createNode('div') }
+    };
+
+    setViewPanelOpen(ctx, false);
+
+    assert.notEqual(global.document.activeElement, closeViewPanel, 'focus must move out of the panel before it is hidden');
+    assert.equal(viewPanel.inert, true, 'the closed panel must be inert');
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('closing the quick panel while a control inside it holds focus moves focus out first, then marks the panel inert', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const startListening = createFocusableNode('button');
+  quickPanel.children.push(startListening);
+
+  global.document = { activeElement: startListening };
+
+  try {
+    const ctx = {
+      state: { quickPanelOpen: true },
+      dom: { quickPanel, quickPanelToggle, startListening }
+    };
+
+    setQuickPanelOpen(ctx, false);
+
+    assert.notEqual(global.document.activeElement, startListening, 'focus must move out of the panel before it is hidden');
+    assert.equal(quickPanel.inert, true, 'the closed panel must be inert');
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('closing the settings dialog while a control inside it holds focus moves focus out first', () => {
+  const originalDocument = global.document;
+
+  const settingsPanel = createContainerNode('dialog');
+  settingsPanel.hidden = false;
+  settingsPanel.open = true;
+  settingsPanel.close = () => { settingsPanel.open = false; };
+  const settingsButton = createFocusableNode('button');
+  const closeSettings = createFocusableNode('button');
+  settingsPanel.children.push(closeSettings);
+
+  global.document = { activeElement: closeSettings };
+
+  try {
+    const ctx = {
+      state: { settingsOpen: true },
+      dom: { settingsPanel, settingsButton, closeSettings }
+    };
+
+    setSettingsOpen(ctx, false);
+
+    assert.notEqual(global.document.activeElement, closeSettings, 'focus must move out of the dialog before it is hidden/closed');
+  } finally {
+    global.document = originalDocument;
+  }
+});
 
 test('renderDisplay renders transcript cards and scrolls to the latest item', async () => {
   const originalDocument = global.document;
