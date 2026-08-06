@@ -1347,21 +1347,38 @@ export function createRuntime(ctx, deps = {}) {
   // Hard-capped independently of that success gate, because an outage backlog sitting in the bucket
   // while the provider recovers is precisely the case where "keep draining while runs remain" would
   // otherwise turn into an unbounded burst of calls the moment the provider comes back. Hitting the
-  // cap is reported through updateStatus (not silently swallowed) and counted in
-  // summarizeDrainCapHits so a test -- or a future operator-facing surface -- can observe it.
+  // cap is counted in summarizeDrainCapHits and passed to updateStatus, but that call alone does NOT
+  // put it in front of the operator -- updateStatus with no level only writes #status, which lives
+  // inside the closed settings dialog. Whether this needs a rail-visible surface is Marlow's call,
+  // not mine; summarizeDrainCapHits exists so a test (or Marlow's surface) can observe the cap was
+  // hit without needing one.
   // A caller-supplied `text` (used only by tests) is a single explicit call, never a bucket drain,
   // so it never loops.
   const MAX_DRAIN_RUNS_PER_TICK = 5;
 
+  // Returns true when the bucket has another complete run worth draining, OR when peeking at it
+  // threw (e.g. takeOldestModeRun's over-BUCKET_MAX_CHARS guard at transcript-bucket.js:109) --
+  // a peek that swallowed that throw and returned false would keep the while loop's body from ever
+  // running, which means drainOnce's OWN try/catch (the thing that actually counts the failure and
+  // reports "Could not prepare the transcript") would never see it either. So a fault here must read
+  // as "yes, go drain" rather than "no work to do": the throw is deliberately NOT handled in this
+  // function, just let through so the caller enters drainOnce, which re-runs the exact same
+  // partitionBucket/takeOldestModeRun call and hits its existing INV-10 reporting path.
   function hasCompleteModeRun(settleMs) {
+    const { consumable } = partitionBucket(ctx.state.transcriptChunks, { settleMs });
+    const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode, defaultSpeaker: ctx.state.speakerName });
+    return Boolean(run.chunks?.length);
+  }
+
+  // Peeks for more work without ever swallowing a bucket fault: a throw means "there is real,
+  // unprocessed work here (it just can't be safely measured)", so the drain loop must still enter
+  // the body and let drainOnce's own try/catch see the same throw and report/count it -- exactly
+  // the property this wrapper exists to preserve after #54 (see hasCompleteModeRun above).
+  function mustKeepDraining(settleMs) {
     try {
-      const { consumable } = partitionBucket(ctx.state.transcriptChunks, { settleMs });
-      const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode, defaultSpeaker: ctx.state.speakerName });
-      return Boolean(run.chunks?.length);
+      return hasCompleteModeRun(settleMs);
     } catch (_error) {
-      // A bucket fault will be reported properly once drainOnce actually runs and hits the same
-      // partitionBucket/takeOldestModeRun call; treat it here as "nothing safely drainable".
-      return false;
+      return true;
     }
   }
 
@@ -1372,11 +1389,21 @@ export function createRuntime(ctx, deps = {}) {
     }
     let runs = 0;
     let ok = true;
-    while (ok && !ctx.state.paused && runs < MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs)) {
+    while (ok && !ctx.state.paused && runs < MAX_DRAIN_RUNS_PER_TICK && mustKeepDraining(settleMs)) {
       runs += 1;
       ok = await drainOnce(undefined, settleMs);
     }
-    if (ok && !ctx.state.paused && runs >= MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs)) {
+    // The cap-hit check below is purely informational (whether a real backlog remains after the
+    // cap), so a fault here is treated as "no cap message" rather than forced true -- the fault
+    // itself was already counted/reported by drainOnce on whichever iteration hit it, and will be
+    // again next tick since drainOnce never removes the offending chunk (INV-11).
+    let stillPending = false;
+    try {
+      stillPending = ok && !ctx.state.paused && runs >= MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs);
+    } catch (_error) {
+      stillPending = false;
+    }
+    if (stillPending) {
       ctx.state.summarizeDrainCapHits = (ctx.state.summarizeDrainCapHits || 0) + 1;
       updateStatus(ctx, 'Backlog is longer than expected; catching up over the next few ticks.');
     }

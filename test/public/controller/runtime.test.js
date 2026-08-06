@@ -1664,6 +1664,35 @@ test('a summarize failure consumes nothing so the same text retries later', asyn
   });
 });
 
+test('#54 regression: a bucket fault (oversized run) is still counted and reported, not swallowed by the same-tick drain peek', async () => {
+  // takeOldestModeRun throws when a run's joined text exceeds BUCKET_MAX_CHARS
+  // (transcript-bucket.js:109). Before #54's same-tick drain loop, that throw was hit
+  // unconditionally inside runSummarizeCurrentText's own try/catch every tick, so it was counted
+  // in summarizeFailureCount and escalated at 3 like any other failure (INV-10). The loop added a
+  // peek (hasCompleteModeRun) ahead of the real call to decide whether to keep draining; a peek
+  // that swallows this same throw and reports "nothing to drain" would starve the real call
+  // entirely -- the fault would never be counted, the bucket would never be flagged, and the rail
+  // would keep reading a healthy status while no card is ever produced again.
+  const now = Date.now();
+  const oversizedRun = `${'word '.repeat(2000)}.`; // well over BUCKET_MAX_CHARS (8000 chars)
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: 'x' }) }),
+    stateOverrides: {
+      mode: 'speaker',
+      transcriptChunks: [{ text: oversizedRun, at: now - 30000, mode: 'speaker', speaker: 'Alice' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.summarizeFailureCount, 1, 'a bucket fault must count as a failure, exactly as before #54');
+    assert.match(ctx.dom.status.textContent, /Could not prepare the transcript/);
+    // The oversized run is never discarded to "recover" -- it stays in the bucket and will fault
+    // (and count) again next tick, same as before this loop existed.
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+  });
+});
+
 test('a backlog well over 1000 characters is sent and consumed as one card, with nothing dropped from the head', async () => {
   let sentText = null;
   const succeedingDriver = {
