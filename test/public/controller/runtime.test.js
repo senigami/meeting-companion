@@ -5,7 +5,7 @@ import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 
 test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
-  // The drain is skippable: runSummarizeCurrentText returns early while summarizeInFlight is set.
+  // The drain is skippable: summarizeCurrentText returns early while summarizeInFlight is set.
   // Without waiting, a mode press during a call clears the history but leaves the outgoing tail in
   // the bucket, and since testimony meeting never leaves speaker mode, takeOldestModeRun merges
   // that tail with the next speaker's opening into one card, in first person. Nobody in the room
@@ -38,6 +38,56 @@ test('a mode press waits out a call already in flight before draining, so the ou
     assert.deepEqual(seen, ['The outgoing speaker finished saying this.'],
       'the outgoing tail must be summarized once the in-flight call clears');
     assert.deepEqual(ctx.state.summaryHistory, [], 'and only then is the history dropped');
+  });
+});
+
+test('a tick skipped by the in-flight guard does not become the promise the drain waits on', async () => {
+  // #76. Every call used to overwrite summarizeCallPromise, including the ones that returned
+  // immediately at the guard. A mode press then awaited an already-resolved no-op, its own forced
+  // settleMs: 0 drain was skipped by the same guard, and the outgoing speaker's tail stayed in the
+  // bucket to be merged into the next speaker's first card in first person.
+  const seen = [];
+  let releaseFirst;
+  const firstCallGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      seen.push(recentTranscript);
+      if (seen.length === 1) await firstCallGate;
+      return { line: 'card' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      mode: 'speaker',
+      transcriptChunks: [{ text: 'The outgoing speaker finished saying this.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    // Passing text explicitly leaves the bucket alone, so the tail is still there to be lost.
+    const realCall = runtime.summarizeCurrentText('a call that is genuinely running');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(ctx.state.summarizeInFlight, true, 'the first call must still be running');
+
+    const skipped = runtime.summarizeCurrentText('a tick that the guard turns away');
+    assert.equal(ctx.state.summarizeCallPromise, realCall,
+      'a skipped tick must leave the in-flight call as the promise the drain waits on');
+    await skipped;
+
+    const pressed = runtime.setMode('speaker') ?? Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(seen, ['a call that is genuinely running'],
+      'the drain must wait for the real call, not for the skipped tick');
+
+    releaseFirst();
+    await realCall;
+    await pressed;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(seen, ['a call that is genuinely running', 'The outgoing speaker finished saying this.'],
+      'the outgoing tail must be drained before the history is cleared');
   });
 });
 

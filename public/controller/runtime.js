@@ -1314,18 +1314,26 @@ export function createRuntime(ctx, deps = {}) {
   // running" is always reachable from ctx.state, not just from whichever caller happens to hold
   // it. stopListening needs exactly that: it must await the call already in flight (if any)
   // before starting its own final drain, or the two could race and double-consume the bucket.
+  // The two early returns live HERE rather than inside the real call, so that a call which never
+  // ran cannot become the promise everyone else awaits. startNewSpeaker and stopListening await
+  // summarizeCallPromise to be sure the outgoing speaker's tail is drained; when a skipped tick
+  // overwrote it with its own resolved no-op, that await returned instantly, their forced
+  // settleMs: 0 drain was then skipped by the in-flight guard too, and the tail merged into the next
+  // speaker's first card in first person (#76). A skipped call resolves immediately rather than
+  // handing back the in-flight promise, because the tick callers await their own return value and
+  // must not be made to block on a slow call they were turned away from.
   function summarizeCurrentText(text, options) {
+    if (ctx.state.paused) return Promise.resolve();
+    if (ctx.state.summarizeInFlight) {
+      noteSkippedSummarizeTick();
+      return Promise.resolve();
+    }
     const promise = runSummarizeCurrentText(text, options);
     ctx.state.summarizeCallPromise = promise;
     return promise;
   }
 
   async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS } = {}) {
-    if (ctx.state.paused) return;
-    if (ctx.state.summarizeInFlight) {
-      noteSkippedSummarizeTick();
-      return;
-    }
     resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
@@ -2104,7 +2112,7 @@ export function createRuntime(ctx, deps = {}) {
   // will ever come along to flush that tail.
   async function startNewSpeaker() {
     // Wait out any call already in flight FIRST, exactly as stopListening does a few lines below,
-    // and for a sharper reason here. runSummarizeCurrentText returns early while summarizeInFlight
+    // and for a sharper reason here. summarizeCurrentText returns early while summarizeInFlight
     // is set, so without this the drain is silently skipped while the history is cleared anyway.
     // The outgoing speaker's tail then stays in the bucket, and since testimony meeting never
     // leaves speaker mode, takeOldestModeRun merges it into one contiguous run with the next
