@@ -325,6 +325,29 @@ export function setSettingsSection(ctx, section) {
   });
 }
 
+// Above 900px `.drawerContent` is `display: contents` (controls.css:519), so #quickPanel is
+// not a box at all -- its children ARE the permanent desktop rail chrome. `inert` applies to
+// the flat-tree regardless of `display: contents`, so writing it there kills the rail. Only
+// write `inert` when the panel is actually acting as a closed drawer (<=900px).
+function isQuickPanelDrawerActive() {
+  return Boolean(globalThis.matchMedia?.('(max-width: 900px)')?.matches);
+}
+
+// Chrome refuses aria-hidden (and inert has the same effect) on a container that still holds the
+// focused element, and warns instead of applying it -- so a panel closing while focus is still
+// inside it must move focus out FIRST, synchronously, not on the next animation frame.
+function releaseFocusBeforeHiding(container, fallback) {
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (!container || typeof container.contains !== 'function' || !active || !container.contains(active)) {
+    return;
+  }
+  if (fallback && typeof fallback.focus === 'function') {
+    fallback.focus();
+  } else if (typeof active.blur === 'function') {
+    active.blur();
+  }
+}
+
 export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
   const next = Boolean(open);
   ctx.state.settingsOpen = next;
@@ -336,8 +359,13 @@ export function setSettingsOpen(ctx, open, { focusReturn = false } = {}) {
   }
 
   if (ctx.dom.settingsPanel) {
+    if (!next) {
+      // A native <dialog> that is hidden and closed is already out of the focus order and the
+      // accessibility tree, so it needs no aria-hidden/inert of its own -- but close() only takes
+      // focus with it reliably once focus has already left the dialog.
+      releaseFocusBeforeHiding(ctx.dom.settingsPanel, ctx.dom.settingsButton);
+    }
     ctx.dom.settingsPanel.hidden = !next;
-    ctx.dom.settingsPanel.setAttribute('aria-hidden', String(!next));
     if (next && typeof ctx.dom.settingsPanel.showModal === 'function' && !ctx.dom.settingsPanel.open) {
       ctx.dom.settingsPanel.showModal();
     } else if (next && !ctx.dom.settingsPanel.open) {
@@ -387,8 +415,11 @@ export function setViewPanelOpen(ctx, open, { focusReturn = false } = {}) {
   }
 
   if (ctx.dom.viewPanel) {
+    if (!next) {
+      releaseFocusBeforeHiding(ctx.dom.viewPanel, ctx.dom.viewButton);
+    }
     ctx.dom.viewPanel.hidden = !next;
-    ctx.dom.viewPanel.setAttribute('aria-hidden', String(!next));
+    ctx.dom.viewPanel.inert = !next;
     if (next) {
       ctx.dom.viewPanel.classList?.add?.('is-open');
     } else {
@@ -434,8 +465,10 @@ export function setQuickPanelOpen(ctx, open, { focusReturn = false } = {}) {
       // up, without animating the height itself -- only the slide
       // transform should visibly animate on open.
       applyQuickPanelSnap(ctx, ctx.state.quickPanelSnap || loadQuickPanelSnap(), { animate: false });
+    } else {
+      releaseFocusBeforeHiding(ctx.dom.quickPanel, ctx.dom.quickPanelToggle);
     }
-    ctx.dom.quickPanel.setAttribute('aria-hidden', String(!next));
+    ctx.dom.quickPanel.inert = !next && isQuickPanelDrawerActive();
     if (next) {
       ctx.dom.quickPanel.classList?.add?.('is-open');
     } else {

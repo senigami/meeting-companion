@@ -6,6 +6,7 @@ import {
   renderDisplay,
   renderReadyCheck,
   setViewPanelOpen,
+  setQuickPanelOpen,
   setSettingsOpen,
   setSettingsSection,
   getDefaultSettingsSection,
@@ -41,6 +42,162 @@ function createNode(tagName = 'div') {
     }
   };
 }
+
+// Issue #35: closing a panel while a control inside it is focused must move focus out before
+// the panel is hidden, and the panel itself must end up inert -- Chrome refuses aria-hidden (and
+// warns) on a container that still contains the focused element, so the old behaviour was
+// whatever the browser decided rather than something chosen.
+function createFocusableNode(tagName = 'button') {
+  const node = createNode(tagName);
+  node.focusCalls = 0;
+  node.blurCalls = 0;
+  node.focus = () => {
+    node.focusCalls += 1;
+    global.document.activeElement = node;
+  };
+  node.blur = () => {
+    node.blurCalls += 1;
+    if (global.document.activeElement === node) {
+      global.document.activeElement = null;
+    }
+  };
+  return node;
+}
+
+function createContainerNode(tagName = 'div') {
+  const node = createNode(tagName);
+  node.contains = (candidate) => node.children.includes(candidate);
+  return node;
+}
+
+test('closing the view panel while the close button holds focus moves focus out first, then marks the panel inert', () => {
+  const originalDocument = global.document;
+
+  const viewPanel = createContainerNode('aside');
+  const viewButton = createFocusableNode('button');
+  const closeViewPanel = createFocusableNode('button');
+  viewPanel.children.push(closeViewPanel);
+
+  global.document = { activeElement: closeViewPanel };
+
+  try {
+    const ctx = {
+      state: { viewPanelOpen: true, transcriptItems: [], stickToBottom: true, prefersReducedMotion: true },
+      dom: { viewPanel, viewButton, closeViewPanel, transcriptViewport: createNode('div'), transcriptStack: createNode('div') }
+    };
+
+    setViewPanelOpen(ctx, false);
+
+    assert.notEqual(global.document.activeElement, closeViewPanel, 'focus must move out of the panel before it is hidden');
+    assert.equal(viewPanel.inert, true, 'the closed panel must be inert');
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+// Issue #82 regression: above 900px `.drawerContent` is `display: contents`, so #quickPanel is
+// not a closed drawer at all -- it's the permanent desktop rail. `inert` must only be written
+// when the drawer breakpoint (<=900px) is actually active; on desktop the panel is always
+// "closed" (quickPanelOpen starts false) but must never go inert, or the whole rail goes dead.
+function withMatchMedia(matches, fn) {
+  const originalMatchMedia = global.matchMedia;
+  global.matchMedia = (query) => ({
+    matches: query.includes('900px') ? matches : false,
+    addEventListener() {},
+    removeEventListener() {}
+  });
+  try {
+    return fn();
+  } finally {
+    global.matchMedia = originalMatchMedia;
+  }
+}
+
+test('closing the quick panel at the mobile drawer breakpoint (<=900px) moves focus out first, then marks the panel inert', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const startListening = createFocusableNode('button');
+  quickPanel.children.push(startListening);
+
+  global.document = { activeElement: startListening };
+
+  try {
+    withMatchMedia(true, () => {
+      const ctx = {
+        state: { quickPanelOpen: true },
+        dom: { quickPanel, quickPanelToggle, startListening }
+      };
+
+      setQuickPanelOpen(ctx, false);
+
+      assert.notEqual(global.document.activeElement, startListening, 'focus must move out of the panel before it is hidden');
+      assert.equal(quickPanel.inert, true, 'the closed mobile drawer must be inert');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('the quick panel never goes inert above the 900px drawer breakpoint, even while "closed"', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const startListening = createFocusableNode('button');
+  quickPanel.children.push(startListening);
+
+  global.document = { activeElement: null };
+
+  try {
+    withMatchMedia(false, () => {
+      const ctx = {
+        state: { quickPanelOpen: false },
+        dom: { quickPanel, quickPanelToggle, startListening }
+      };
+
+      // Boot calls setQuickPanelOpen(ctx, false) unconditionally; on desktop this must be a no-op
+      // for inertness, because #quickPanel is `display: contents` -- its children are the
+      // permanent visible rail, not a hidden drawer.
+      setQuickPanelOpen(ctx, false);
+
+      assert.equal(quickPanel.inert, false, 'the desktop rail must never be inert');
+
+      startListening.focus();
+      assert.equal(global.document.activeElement, startListening, '#startListening must stay focusable on desktop');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('closing the settings dialog while a control inside it holds focus moves focus out first', () => {
+  const originalDocument = global.document;
+
+  const settingsPanel = createContainerNode('dialog');
+  settingsPanel.hidden = false;
+  settingsPanel.open = true;
+  settingsPanel.close = () => { settingsPanel.open = false; };
+  const settingsButton = createFocusableNode('button');
+  const closeSettings = createFocusableNode('button');
+  settingsPanel.children.push(closeSettings);
+
+  global.document = { activeElement: closeSettings };
+
+  try {
+    const ctx = {
+      state: { settingsOpen: true },
+      dom: { settingsPanel, settingsButton, closeSettings }
+    };
+
+    setSettingsOpen(ctx, false);
+
+    assert.notEqual(global.document.activeElement, closeSettings, 'focus must move out of the dialog before it is hidden/closed');
+  } finally {
+    global.document = originalDocument;
+  }
+});
 
 test('renderDisplay renders transcript cards and scrolls to the latest item', async () => {
   const originalDocument = global.document;
