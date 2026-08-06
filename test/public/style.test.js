@@ -134,6 +134,9 @@ test('display text stays centered and viewport-safe', async () => {
   assert.ok(bareTranscriptItemRule, 'expected to find the bare .transcript-item rule');
   assert.doesNotMatch(bareTranscriptItemRule[0], /animation:/, 'the bare .transcript-item rule must not carry the entrance animation');
   assert.match(css, /\.transcript-item\[data-entering="true"\]\s*\{[^}]*animation:\s*transcriptIn 420ms ease-out both;/s);
+  // Naming an animation is not having one. Every assertion above stays green if the keyframes are
+  // deleted, which is the one mutation this harness cannot otherwise see (Cato, gating #80).
+  assert.match(css, /@keyframes transcriptIn\s*\{/);
   assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*var\(--font-size\);/s);
 });
 
