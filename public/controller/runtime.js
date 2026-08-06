@@ -2112,7 +2112,7 @@ export function createRuntime(ctx, deps = {}) {
   // will ever come along to flush that tail.
   async function startNewSpeaker() {
     // Wait out any call already in flight FIRST, exactly as stopListening does a few lines below,
-    // and for a sharper reason here. runSummarizeCurrentText returns early while summarizeInFlight
+    // and for a sharper reason here. summarizeCurrentText returns early while summarizeInFlight
     // is set, so without this the drain is silently skipped while the history is cleared anyway.
     // The outgoing speaker's tail then stays in the bucket, and since testimony meeting never
     // leaves speaker mode, takeOldestModeRun merges it into one contiguous run with the next

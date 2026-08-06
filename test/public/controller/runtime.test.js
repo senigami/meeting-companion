@@ -5,7 +5,7 @@ import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 
 test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
-  // The drain is skippable: runSummarizeCurrentText returns early while summarizeInFlight is set.
+  // The drain is skippable: summarizeCurrentText returns early while summarizeInFlight is set.
   // Without waiting, a mode press during a call clears the history but leaves the outgoing tail in
   // the bucket, and since testimony meeting never leaves speaker mode, takeOldestModeRun merges
   // that tail with the next speaker's opening into one card, in first person. Nobody in the room
