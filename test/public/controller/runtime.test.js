@@ -2043,7 +2043,9 @@ test('visible lines carries at least as many cards as one call can produce', asy
     }
   }, async ({ runtime }) => {
     // 12 is the literal runaway guard from #49, not a value read back out of the code under test:
-    // a window smaller than one call's own output drops a card before the next call is made.
+    // a window smaller than one call's own output drops a card before the next call is made. If
+    // this fails after somebody moves the guard, that number is Ansel's (see line-guard.test.js),
+    // so it is a conversation with him rather than a number to follow along here.
     await runtime.summarizeCurrentText();
     assert.equal(seenVisibleLines.length, 12);
     assert.deepEqual(seenVisibleLines, Array.from({ length: 12 }, (_, i) => `Line ${i + 2}`));
