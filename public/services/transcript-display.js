@@ -153,6 +153,28 @@ export function appendTranscriptItems(items, nextItems) {
   return existing.slice(-MAX_DISPLAY_ITEMS);
 }
 
+// Issue #13: a card pushed in (or scrolled off the top) reflows every other card on the wall
+// instantly -- that reflow, not the entrance animation, is the jump a slow reader loses their
+// place to. FLIP (First/Last/Invert/Play) fixes it generically for either direction: capture
+// each surviving card's position before the DOM update (oldRects), again after (newRects), and
+// hand the delta to the caller, which parks each card back at its old spot with a transform and
+// then transitions it to zero -- so the layout change and the animation are one movement. Pure
+// and DOM-free on purpose: the caller (view.js) supplies rects from getBoundingClientRect, but
+// this function is what's actually asserting the math, so it's unit-testable with plain numbers.
+export function computeFlipDeltas(oldRects, newRects) {
+  const deltas = new Map();
+  if (!oldRects || !newRects) return deltas;
+
+  for (const [id, oldTop] of oldRects) {
+    if (!newRects.has(id)) continue;
+    const newTop = newRects.get(id);
+    const delta = oldTop - newTop;
+    if (delta) deltas.set(id, delta);
+  }
+
+  return deltas;
+}
+
 export function isTranscriptNearBottom(viewport, threshold = 96) {
   if (!viewport) return true;
   const remaining = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;

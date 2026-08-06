@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  computeFlipDeltas,
   createTranscriptItems,
   segmentTranscriptText
 } from '../../../public/services/transcript-display.js';
@@ -191,4 +192,61 @@ test('an over-length AI response still gets width-wrapped by the runaway-length 
 
   assert.ok(items.length > 1, 'a runaway AI line must still be width-wrapped');
   assert.ok(items.every((item) => item.text.length <= 240));
+});
+
+// Issue #13: a card pushed in (or scrolled off the top) reflows every surviving card instantly --
+// that reflow, not the entrance animation, is the jump. computeFlipDeltas is the pure math behind
+// the fix: given where a card was before the DOM update and where it landed after, it says how
+// far to park it back so the caller can animate the move instead of snapping to it. Every expected
+// number here is a literal computed by hand from the input rects, never derived from re-running
+// the subtraction the implementation performs.
+test('computeFlipDeltas reports the distance a surviving card must be parked back to animate a push-in', () => {
+  // A new card was pushed in below both of these, shoving them both up by 96px.
+  const oldRects = new Map([
+    ['card-a', 400],
+    ['card-b', 496]
+  ]);
+  const newRects = new Map([
+    ['card-a', 304],
+    ['card-b', 400]
+  ]);
+
+  const deltas = computeFlipDeltas(oldRects, newRects);
+  assert.equal(deltas.get('card-a'), 96);
+  assert.equal(deltas.get('card-b'), 96);
+});
+
+test('computeFlipDeltas reports a negative distance when a card scrolled off the top pulls survivors up', () => {
+  // card-old was evicted off the top; card-b and card-c each moved up by 60px to fill the gap.
+  const oldRects = new Map([
+    ['card-b', 200],
+    ['card-c', 320]
+  ]);
+  const newRects = new Map([
+    ['card-b', 140],
+    ['card-c', 260]
+  ]);
+
+  const deltas = computeFlipDeltas(oldRects, newRects);
+  assert.equal(deltas.get('card-b'), 60);
+  assert.equal(deltas.get('card-c'), 60);
+});
+
+test('computeFlipDeltas omits a card that did not move, and a card present on only one side', () => {
+  const oldRects = new Map([
+    ['unchanged', 200],
+    ['only-old', 500]
+  ]);
+  const newRects = new Map([
+    ['unchanged', 200],
+    ['only-new', 700]
+  ]);
+
+  const deltas = computeFlipDeltas(oldRects, newRects);
+  assert.equal(deltas.size, 0);
+});
+
+test('computeFlipDeltas returns an empty map when given nothing to compare', () => {
+  assert.equal(computeFlipDeltas(null, new Map()).size, 0);
+  assert.equal(computeFlipDeltas(new Map(), null).size, 0);
 });

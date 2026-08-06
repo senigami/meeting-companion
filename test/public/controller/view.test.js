@@ -1090,3 +1090,193 @@ test('renderReadyCheck marks the microphone row green for the OpenAI transcripti
     global.window = originalWindow;
   }
 });
+
+// Issue #13: a card pushed in reflows every surviving card instantly, and that instant reflow --
+// not the new card's own entrance animation -- is the jump. These measure the actual FLIP
+// mechanics renderDisplay applies to survivors: a getBoundingClientRect stub reports each card's
+// real screen position at the moment it's read, fixed per render pass, so the expected transform
+// values below are independently computed from those fixed positions, never from re-running
+// renderDisplay's own subtraction.
+function createFlipTestDom(passRectsRef) {
+  const transcriptViewport = createNode('div');
+  transcriptViewport.clientHeight = 600;
+  transcriptViewport.scrollHeight = 600;
+  const transcriptStack = createNode('div');
+
+  global.document = {
+    createElement(tagName) {
+      const node = createNode(tagName);
+      node.style = {};
+      if (tagName === 'article') {
+        node.querySelector = () => null;
+        // Captured by reference to passRectsRef.current at CREATION time, not read live -- a
+        // render pass's cards must keep reporting where they actually were laid out in that
+        // pass, even after the test moves passRectsRef.current on to the next pass's values.
+        const passRects = passRectsRef.current;
+        node.getBoundingClientRect = () => ({ top: passRects[node.dataset.itemId] });
+      }
+      return node;
+    }
+  };
+
+  return { transcriptViewport, transcriptStack };
+}
+
+test('renderDisplay parks surviving cards back and animates them into place when a card is pushed in', () => {
+  const originalDocument = global.document;
+  const originalRequestAnimationFrame = global.requestAnimationFrame;
+  const originalCancelAnimationFrame = global.cancelAnimationFrame;
+
+  const frames = [];
+  global.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  global.cancelAnimationFrame = () => {};
+
+  const passRectsRef = { current: { one: 400, two: 496 } };
+  const { transcriptViewport, transcriptStack } = createFlipTestDom(passRectsRef);
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [
+          { id: 'one', mode: 'speaker', text: 'First thought.', createdAt: 1, source: 'ai' },
+          { id: 'two', mode: 'speaker', text: 'Second thought.', createdAt: 2, source: 'ai' }
+        ],
+        stickToBottom: false,
+        prefersReducedMotion: false
+      },
+      dom: { transcriptViewport, transcriptStack }
+    };
+
+    renderDisplay(ctx);
+
+    // A third card lands at the bottom and pushes "one" and "two" up by 96px each -- the reflow
+    // this issue is about. Their laid-out top after the push is 96px less than before.
+    passRectsRef.current = { one: 304, two: 400, three: 496 };
+    ctx.state.transcriptItems.push({ id: 'three', mode: 'speaker', text: 'Third thought.', createdAt: 3, source: 'ai' });
+    renderDisplay(ctx);
+
+    const [cardOne, cardTwo, cardThree] = transcriptStack.children;
+
+    // Parked back at the old position (Invert), transition disabled, before any frame runs.
+    assert.equal(cardOne.style.transform, 'translateY(96px)');
+    assert.equal(cardOne.style.transition, 'none');
+    assert.equal(cardTwo.style.transform, 'translateY(96px)');
+    assert.equal(cardTwo.style.transition, 'none');
+    // The entering card never got a FLIP transform -- it has nowhere to have been parked from.
+    assert.equal(cardThree.style.transform, undefined);
+
+    assert.equal(frames.length, 1, 'the Play half must be scheduled for the next frame, not run synchronously');
+    frames.shift()(0);
+
+    // Play: transitioned back to zero, with a transition now enabled.
+    assert.equal(cardOne.style.transform, '');
+    assert.equal(cardOne.style.transition, 'transform 420ms ease');
+    assert.equal(cardTwo.style.transform, '');
+    assert.equal(cardTwo.style.transition, 'transform 420ms ease');
+  } finally {
+    global.document = originalDocument;
+    global.requestAnimationFrame = originalRequestAnimationFrame;
+    global.cancelAnimationFrame = originalCancelAnimationFrame;
+  }
+});
+
+test('renderDisplay parks a surviving card back when an older card scrolls off the top', () => {
+  const originalDocument = global.document;
+  const originalRequestAnimationFrame = global.requestAnimationFrame;
+  const originalCancelAnimationFrame = global.cancelAnimationFrame;
+
+  const frames = [];
+  global.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  global.cancelAnimationFrame = () => {};
+
+  const passRectsRef = { current: { old: 100, b: 200, c: 320 } };
+  const { transcriptViewport, transcriptStack } = createFlipTestDom(passRectsRef);
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [
+          { id: 'old', mode: 'speaker', text: 'Oldest thought.', createdAt: 1, source: 'ai' },
+          { id: 'b', mode: 'speaker', text: 'Middle thought.', createdAt: 2, source: 'ai' },
+          { id: 'c', mode: 'speaker', text: 'Newest thought.', createdAt: 3, source: 'ai' }
+        ],
+        stickToBottom: false,
+        prefersReducedMotion: false
+      },
+      dom: { transcriptViewport, transcriptStack }
+    };
+
+    renderDisplay(ctx);
+
+    // "old" is evicted off the top; "b" and "c" each move up 60px to fill the gap.
+    passRectsRef.current = { b: 140, c: 260 };
+    ctx.state.transcriptItems = [
+      { id: 'b', mode: 'speaker', text: 'Middle thought.', createdAt: 2, source: 'ai' },
+      { id: 'c', mode: 'speaker', text: 'Newest thought.', createdAt: 3, source: 'ai' }
+    ];
+    renderDisplay(ctx);
+
+    const [cardB, cardC] = transcriptStack.children;
+    assert.equal(cardB.style.transform, 'translateY(60px)');
+    assert.equal(cardC.style.transform, 'translateY(60px)');
+
+    frames.shift()(0);
+    assert.equal(cardB.style.transform, '');
+    assert.equal(cardC.style.transform, '');
+  } finally {
+    global.document = originalDocument;
+    global.requestAnimationFrame = originalRequestAnimationFrame;
+    global.cancelAnimationFrame = originalCancelAnimationFrame;
+  }
+});
+
+test('renderDisplay applies no transform under prefers-reduced-motion -- cards land in place with nothing to animate', () => {
+  const originalDocument = global.document;
+  const originalRequestAnimationFrame = global.requestAnimationFrame;
+  const originalCancelAnimationFrame = global.cancelAnimationFrame;
+
+  const frames = [];
+  global.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  global.cancelAnimationFrame = () => {};
+
+  const passRectsRef = { current: { one: 400, two: 496 } };
+  const { transcriptViewport, transcriptStack } = createFlipTestDom(passRectsRef);
+
+  try {
+    const ctx = {
+      state: {
+        transcriptItems: [
+          { id: 'one', mode: 'speaker', text: 'First thought.', createdAt: 1, source: 'ai' },
+          { id: 'two', mode: 'speaker', text: 'Second thought.', createdAt: 2, source: 'ai' }
+        ],
+        stickToBottom: false,
+        prefersReducedMotion: true
+      },
+      dom: { transcriptViewport, transcriptStack }
+    };
+
+    renderDisplay(ctx);
+
+    passRectsRef.current = { one: 304, two: 400, three: 496 };
+    ctx.state.transcriptItems.push({ id: 'three', mode: 'speaker', text: 'Third thought.', createdAt: 3, source: 'ai' });
+    renderDisplay(ctx);
+
+    const [cardOne, cardTwo] = transcriptStack.children;
+    assert.equal(cardOne.style.transform, undefined);
+    assert.equal(cardTwo.style.transform, undefined);
+    assert.equal(frames.length, 0, 'reduced motion must never schedule a Play frame');
+  } finally {
+    global.document = originalDocument;
+    global.requestAnimationFrame = originalRequestAnimationFrame;
+    global.cancelAnimationFrame = originalCancelAnimationFrame;
+  }
+});
