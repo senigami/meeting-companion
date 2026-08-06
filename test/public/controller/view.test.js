@@ -95,7 +95,25 @@ test('closing the view panel while the close button holds focus moves focus out 
   }
 });
 
-test('closing the quick panel while a control inside it holds focus moves focus out first, then marks the panel inert', () => {
+// Issue #82 regression: above 900px `.drawerContent` is `display: contents`, so #quickPanel is
+// not a closed drawer at all -- it's the permanent desktop rail. `inert` must only be written
+// when the drawer breakpoint (<=900px) is actually active; on desktop the panel is always
+// "closed" (quickPanelOpen starts false) but must never go inert, or the whole rail goes dead.
+function withMatchMedia(matches, fn) {
+  const originalMatchMedia = global.matchMedia;
+  global.matchMedia = (query) => ({
+    matches: query.includes('900px') ? matches : false,
+    addEventListener() {},
+    removeEventListener() {}
+  });
+  try {
+    return fn();
+  } finally {
+    global.matchMedia = originalMatchMedia;
+  }
+}
+
+test('closing the quick panel at the mobile drawer breakpoint (<=900px) moves focus out first, then marks the panel inert', () => {
   const originalDocument = global.document;
 
   const quickPanel = createContainerNode('div');
@@ -106,15 +124,49 @@ test('closing the quick panel while a control inside it holds focus moves focus 
   global.document = { activeElement: startListening };
 
   try {
-    const ctx = {
-      state: { quickPanelOpen: true },
-      dom: { quickPanel, quickPanelToggle, startListening }
-    };
+    withMatchMedia(true, () => {
+      const ctx = {
+        state: { quickPanelOpen: true },
+        dom: { quickPanel, quickPanelToggle, startListening }
+      };
 
-    setQuickPanelOpen(ctx, false);
+      setQuickPanelOpen(ctx, false);
 
-    assert.notEqual(global.document.activeElement, startListening, 'focus must move out of the panel before it is hidden');
-    assert.equal(quickPanel.inert, true, 'the closed panel must be inert');
+      assert.notEqual(global.document.activeElement, startListening, 'focus must move out of the panel before it is hidden');
+      assert.equal(quickPanel.inert, true, 'the closed mobile drawer must be inert');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('the quick panel never goes inert above the 900px drawer breakpoint, even while "closed"', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const startListening = createFocusableNode('button');
+  quickPanel.children.push(startListening);
+
+  global.document = { activeElement: null };
+
+  try {
+    withMatchMedia(false, () => {
+      const ctx = {
+        state: { quickPanelOpen: false },
+        dom: { quickPanel, quickPanelToggle, startListening }
+      };
+
+      // Boot calls setQuickPanelOpen(ctx, false) unconditionally; on desktop this must be a no-op
+      // for inertness, because #quickPanel is `display: contents` -- its children are the
+      // permanent visible rail, not a hidden drawer.
+      setQuickPanelOpen(ctx, false);
+
+      assert.equal(quickPanel.inert, false, 'the desktop rail must never be inert');
+
+      startListening.focus();
+      assert.equal(global.document.activeElement, startListening, '#startListening must stay focusable on desktop');
+    });
   } finally {
     global.document = originalDocument;
   }

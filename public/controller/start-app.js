@@ -381,6 +381,12 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.closeViewPanel.addEventListener('click', () => setViewPanelOpen(ctx, false, { focusReturn: true }));
   ctx.dom.quickPanelToggle?.addEventListener('click', () => setQuickPanelOpen(ctx, !ctx.state.quickPanelOpen, { focusReturn: false }));
   ctx.dom.quickPanelBackdrop?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
+  // Crossing the 900px drawer breakpoint (e.g. rotating a tablet) changes whether #quickPanel
+  // is a real closed drawer or the `display: contents` desktop rail -- resync inert so it never
+  // gets stuck applied to the visible rail, or stuck absent on a still-closed mobile drawer.
+  globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', () => {
+    setQuickPanelOpen(ctx, ctx.state.quickPanelOpen, { focusReturn: false });
+  });
   const recordingEnabledInput = $('recordingEnabledInput');
   if (recordingEnabledInput) {
     recordingEnabledInput.checked = ctx.state.recordingEnabled;
