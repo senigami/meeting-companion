@@ -1,6 +1,7 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
 import { createCardReleaseQueue } from '../services/card-release-queue.js';
 import { chooseSummaryLevel } from '../services/summary-level.js';
+import { RUNAWAY_LINE_GUARD } from '../services/summary-prompt.js';
 import {
   appendTranscriptItems,
   createTranscriptItems
@@ -117,6 +118,9 @@ const ARRIVAL_SUMMARIZE_MIN_GAP_MS = 3000;
 // for text, this controls how fast a reader is asked to absorb it. They answer different questions
 // and coupling them would make the words-per-card and interval sliders fight each other.
 const CARD_RELEASE_INTERVAL_MS = 5000;
+// The cross-call dedupe window, derived rather than picked: it has to hold at least everything a
+// single call can return, or a card falls out of it before the next call is even made (#61).
+const DEDUPE_WINDOW_LINES = RUNAWAY_LINE_GUARD;
 const UNDO_STATUS_MAX_CHARS = 40;
 
 // How often the watchdog re-checks the gap since the last transcript event (partial or final).
@@ -1412,7 +1416,16 @@ export function createRuntime(ctx, deps = {}) {
         mode: sendMode,
         recentTranscript: recent,
         previousBlock,
-        visibleLines: ctx.state.transcriptItems.slice(-10).map((item) => item.text),
+        // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
+        // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
+        // announcements the oldest card was already outside it and the model could restate it,
+        // with cleanModelLines unable to catch it either since it dedupes against this same list.
+        // And cards release one at a time, so anything still in cardReleaseQueue is not in
+        // transcriptItems yet and was invisible here regardless of the size. Those cards are going
+        // on screen, so the model has to be told about them.
+        visibleLines: [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
+          .slice(-DEDUPE_WINDOW_LINES)
+          .map((item) => item.text),
         maxWords: ctx.state.summaryMaxWords,
         // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
         // words-per-card setting and the amount of compression can never disagree. Measured pace is

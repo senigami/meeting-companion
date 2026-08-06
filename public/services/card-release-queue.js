@@ -53,6 +53,12 @@ export function createCardReleaseQueue({
     pendingCount() {
       return pending.length;
     },
+    // A copy, not the live array: the dedupe window in runtime.js reads this on every summarize
+    // call, and a caller that could mutate the queue's own backlog would be able to drop a card
+    // that was already promised to the display.
+    pendingItems() {
+      return [...pending];
+    },
     setIntervalMs(next) {
       if (Number.isFinite(next) && next > 0) intervalMs = next;
     },
