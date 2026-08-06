@@ -1518,9 +1518,18 @@ test('in-flight text un-dims when paused mid-flight, before the (too-late) respo
 
 test('only the in-flight (oldest mode run) portion dims -- a later chunk in a different mode is held back and stays undimmed', async () => {
   let resolveSummarize;
+  let calls = 0;
   const stallingDriver = {
     id: 'openai',
-    summarize: () => new Promise((resolve) => { resolveSummarize = resolve; })
+    // Only the FIRST call stalls (what this test inspects mid-flight). The second chunk here is
+    // genuinely complete and in a different mode, so #54's same-tick drain loop correctly comes
+    // back for it once the first call resolves -- resolve that one immediately since this test's
+    // assertions are all about the first call's in-flight dim state, not the second run.
+    summarize: () => {
+      calls += 1;
+      if (calls > 1) return Promise.resolve({ line: '' });
+      return new Promise((resolve) => { resolveSummarize = resolve; });
+    }
   };
   const now = Date.now();
   const { documentImpl, container } = fakeRailDom();
@@ -1655,6 +1664,35 @@ test('a summarize failure consumes nothing so the same text retries later', asyn
   });
 });
 
+test('#54 regression: a bucket fault (oversized run) is still counted and reported, not swallowed by the same-tick drain peek', async () => {
+  // takeOldestModeRun throws when a run's joined text exceeds BUCKET_MAX_CHARS
+  // (transcript-bucket.js:109). Before #54's same-tick drain loop, that throw was hit
+  // unconditionally inside runSummarizeCurrentText's own try/catch every tick, so it was counted
+  // in summarizeFailureCount and escalated at 3 like any other failure (INV-10). The loop added a
+  // peek (hasCompleteModeRun) ahead of the real call to decide whether to keep draining; a peek
+  // that swallows this same throw and reports "nothing to drain" would starve the real call
+  // entirely -- the fault would never be counted, the bucket would never be flagged, and the rail
+  // would keep reading a healthy status while no card is ever produced again.
+  const now = Date.now();
+  const oversizedRun = `${'word '.repeat(2000)}.`; // well over BUCKET_MAX_CHARS (8000 chars)
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: 'x' }) }),
+    stateOverrides: {
+      mode: 'speaker',
+      transcriptChunks: [{ text: oversizedRun, at: now - 30000, mode: 'speaker', speaker: 'Alice' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.summarizeFailureCount, 1, 'a bucket fault must count as a failure, exactly as before #54');
+    assert.match(ctx.dom.status.textContent, /Could not prepare the transcript/);
+    // The oversized run is never discarded to "recover" -- it stays in the bucket and will fault
+    // (and count) again next tick, same as before this loop existed.
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+  });
+});
+
 test('a backlog well over 1000 characters is sent and consumed as one card, with nothing dropped from the head', async () => {
   let sentText = null;
   const succeedingDriver = {
@@ -1779,11 +1817,11 @@ test('a chunk captured under one speaker is summarized under, and labelled with,
 });
 
 test('one summarize call never receives text spanning two modes', async () => {
-  let sentText = null;
+  const sentTexts = [];
   const succeedingDriver = {
     id: 'openai',
     summarize: async ({ recentTranscript }) => {
-      sentText = recentTranscript;
+      sentTexts.push(recentTranscript);
       return { line: '' };
     }
   };
@@ -1801,9 +1839,69 @@ test('one summarize call never receives text spanning two modes', async () => {
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
 
-    assert.equal(sentText, 'First speaker sentence. Second speaker sentence.');
-    // The later mode's chunk is untouched, ready for its own call next tick.
-    assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['An information announcement.']);
+    // #54: both complete runs drain in the SAME tick rather than the later mode's chunk waiting
+    // for the next one -- but still as two separate calls, one per mode, never merged into one.
+    assert.deepEqual(sentTexts, [
+      'First speaker sentence. Second speaker sentence.',
+      'An information announcement.'
+    ]);
+    assert.deepEqual(ctx.state.transcriptChunks, []);
+  });
+});
+
+test('#54: a second speaker landing in the same tick gets a card in that tick, not the next one', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => ({ line: `Card for: ${recentTranscript}` })
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      mode: 'speaker',
+      transcriptChunks: [
+        { text: 'First speaker said this.', at: now - 30000, mode: 'speaker', speaker: 'Alice' },
+        { text: 'Second speaker said this.', at: now - 30000, mode: 'speaker', speaker: 'Bob' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    // One tick, one call to summarizeCurrentText -- exactly what the interval fires.
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(
+      ctx.state.summaryHistory.map((turn) => turn.shown),
+      ['Card for: First speaker said this.', 'Card for: Second speaker said this.'],
+      'both speakers must produce a card within the same tick, not one waiting for the next'
+    );
+    assert.deepEqual(ctx.state.transcriptChunks, [], 'both runs drained out of the bucket');
+  });
+});
+
+test('#54: the same-tick drain loop is hard-capped, and hitting the cap is observable', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => ({ line: `Card for: ${recentTranscript}` })
+  };
+  const now = Date.now();
+  // Seven distinct one-chunk runs (each its own speaker breaks the run), all already settled and
+  // punctuated so every one of them is a complete, drainable run on the very first check.
+  const transcriptChunks = Array.from({ length: 7 }, (_, i) => ({
+    text: `Speaker ${i} said this.`,
+    at: now - 30000,
+    mode: 'speaker',
+    speaker: `Speaker${i}`
+  }));
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: { mode: 'speaker', transcriptChunks }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.summaryHistory.length, 5, 'the drain loop must stop at its hard cap, not drain every run in one tick');
+    assert.equal(ctx.state.transcriptChunks.length, 2, 'runs left over after the cap stay in the bucket for the next tick');
+    assert.equal(ctx.state.summarizeDrainCapHits, 1, 'hitting the cap must be observable, not silent');
   });
 });
 
@@ -3450,11 +3548,16 @@ test('a final drain on Stop still ends a run at a mode boundary -- one summarize
     await runtime.startListening();
     await runtime.stopListening();
 
-    assert.equal(calls.length, 1, 'only the oldest mode run may be sent in one call, even on a final drain');
+    // #54: the final drain now keeps pulling complete runs out in the same drain rather than
+    // leaving the second speaker's/mode's words stuck in the bucket after Stop with nothing left
+    // to ever pick them up again -- but still as two separate calls, one per mode, never one call
+    // spanning both.
+    assert.equal(calls.length, 2, 'each mode run is still its own call, even when both drain on Stop');
     assert.equal(calls[0].recentTranscript, 'welcome everyone to the meeting');
     assert.equal(calls[0].mode, 'speaker');
-    // The later, different-mode chunk is left in the bucket rather than folded into that call.
-    assert.deepEqual(ctx.state.transcriptChunks.map((c) => c.text), ['the potluck is Saturday']);
+    assert.equal(calls[1].recentTranscript, 'the potluck is Saturday');
+    assert.equal(calls[1].mode, 'information');
+    assert.deepEqual(ctx.state.transcriptChunks, []);
   });
 });
 
