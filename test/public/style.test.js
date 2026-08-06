@@ -123,7 +123,20 @@ test('display text stays centered and viewport-safe', async () => {
   assert.match(css, /\.transcript-viewport\s*\{[^}]*padding-inline:\s*var\(--display-margin\);/s);
   assert.match(css, /\.transcript-stack\s*\{[^}]*width:\s*100%;/s);
   assert.match(css, /\.transcript-stack\s*\{[^}]*max-width:\s*100%;/s);
-  assert.match(css, /\.transcript-item\s*\{[^}]*animation:\s*transcriptIn 420ms ease-out both;/s);
+  // Issue #13 (Cato's finding): the entrance keyframe is scoped to data-entering="true", not to
+  // .transcript-item unconditionally -- unconditional means a surviving card carrying view.js's
+  // inline FLIP transform loses to the animation's own value for `transform` and never parks
+  // (verified against a real cascade in the browser, not just this regex). Both halves matter:
+  // the scoped selector must carry the animation, and the bare selector must NOT -- restoring the
+  // animation to .transcript-item unconditionally would pass the first assertion just as well
+  // while quietly reintroducing the exact bug, since both rules would then apply to a survivor.
+  const bareTranscriptItemRule = css.match(/(?<!\[data-entering="true"\]\s*)\.transcript-item\s*\{[^}]*\}/);
+  assert.ok(bareTranscriptItemRule, 'expected to find the bare .transcript-item rule');
+  assert.doesNotMatch(bareTranscriptItemRule[0], /animation:/, 'the bare .transcript-item rule must not carry the entrance animation');
+  assert.match(css, /\.transcript-item\[data-entering="true"\]\s*\{[^}]*animation:\s*transcriptIn 420ms ease-out both;/s);
+  // Naming an animation is not having one. Every assertion above stays green if the keyframes are
+  // deleted, which is the one mutation this harness cannot otherwise see (Cato, gating #80).
+  assert.match(css, /@keyframes transcriptIn\s*\{/);
   assert.match(css, /\.transcript-text\s*\{[^}]*font-size:\s*var\(--font-size\);/s);
 });
 

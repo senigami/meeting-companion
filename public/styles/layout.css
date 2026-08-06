@@ -224,8 +224,21 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
     0 12px 32px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px) saturate(1.05);
   transform-origin: center bottom;
-  animation: transcriptIn 420ms ease-out both;
   overflow: hidden;
+}
+
+/*
+ * Issue #13 (Cato's finding): this used to be unconditional on .transcript-item, so a surviving
+ * card -- carrying an inline FLIP transform from view.js's applyTranscriptFlip -- ran it too. A
+ * CSS animation's own transform wins over inline style for as long as it's running, and `both`
+ * keeps it winning outside 0%-100% as well, so the inline park-and-release never rendered: the
+ * used transform sat at the keyframe's `from` value, then jumped straight to identity when the
+ * animation ended. Scoped to data-entering="true" -- set in view.js only for a card whose id
+ * didn't exist in the previous render -- so a survivor's cascade has no animation on `transform`
+ * for the inline style to lose to.
+ */
+.transcript-item[data-entering="true"] {
+  animation: transcriptIn 420ms ease-out both;
 }
 
 .transcript-item::before {

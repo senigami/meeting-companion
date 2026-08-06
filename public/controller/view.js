@@ -4,6 +4,7 @@ import {
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
 import { autoExpandRailForCondition, resetRailAutoExpand } from './rail-collapse.js';
+import { computeFlipDeltas } from '../services/transcript-display.js';
 
 const MODE_META = {
   speaker: { label: 'Speaker', icon: 'icon-speaker' },
@@ -18,6 +19,9 @@ const MANUAL_META = {
 };
 
 const TRANSCRIPT_SCROLL_DURATION_MS = 720;
+// Matches the existing transcriptIn entrance keyframe (base.css) rather than inventing a second
+// timing for the same visual moment -- see the FLIP note on applyTranscriptFlip below.
+const TRANSCRIPT_FLIP_DURATION_MS = 420;
 
 const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
 const DEFAULT_SETTINGS_SECTION = 'timing';
@@ -231,6 +235,14 @@ export function renderDisplay(ctx) {
   const previousScrollTop = ctx.dom.transcriptViewport.scrollTop || 0;
   const reducedMotion = Boolean(ctx.state.prefersReducedMotion);
 
+  // Issue #13: every render replaces the whole card list, so a card being pushed in (or scrolled
+  // off the top) reflows every surviving card instantly with nothing to animate that move -- the
+  // jump. Capture where the surviving cards are NOW, before the swap, so the FLIP step below can
+  // put them back and animate them into their new spot instead. Captured unconditionally (cheap,
+  // read-only) because it also decides which cards are genuinely entering, below -- only the
+  // actual FLIP application is skipped under reduced motion.
+  const oldRects = captureTranscriptRects(ctx.dom.transcriptStack);
+
   // Issue #40: the label shows only on a change of speaker, walked forward through the items in
   // display order -- a name repeated on every card is reading load a slow reader pays for nothing.
   // previousSpeaker starts as null (not ''), so a genuinely empty first card's speaker ('') is
@@ -241,12 +253,22 @@ export function renderDisplay(ctx) {
     // Empty is a valid state and never gets a label, no matter what came before it.
     const showSpeaker = Boolean(speaker) && speaker !== previousSpeaker;
     previousSpeaker = speaker;
-    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker });
+    // Issue #13 (Cato's finding): only a card whose id was NOT already on the wall gets the
+    // entrance animation. A survivor must carry no animation on `transform` at all -- a CSS
+    // animation's own value for a property wins over inline style for as long as it runs, `both`
+    // keeps it winning outside 0%-100% too, so a survivor that kept the entrance animation would
+    // never actually render the FLIP park-and-release view.js sets on it below.
+    const entering = !oldRects.has(String(item.id ?? ''));
+    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker, entering });
   });
   if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
     ctx.dom.transcriptStack.replaceChildren(...nodes);
   } else {
     ctx.dom.transcriptStack.children = [...nodes];
+  }
+
+  if (!reducedMotion) {
+    applyTranscriptFlip(ctx.dom.transcriptStack, oldRects);
   }
 
   if (shouldStick) {
@@ -756,13 +778,21 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
   }
 }
 
-function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
+function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', entering = true } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
   const visualMode = isManual ? 'manual' : item.mode || 'speaker';
   const modeMeta = isManual ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
   article.className = `transcript-item transcript-item--${visualMode}${isManual ? ' transcript-item--manual' : ''}${isSample ? ' transcript-item--sample' : ''}`;
+  // Issue #13: the FLIP animation in renderDisplay matches a card across the "before" and "after"
+  // DOM snapshots by this id -- the whole point is that the id survives the article being an
+  // entirely new element each render.
+  article.dataset.itemId = String(item.id ?? '');
+  // Issue #13 (Cato's finding): the entrance keyframe in layout.css is scoped to this attribute
+  // now, not to .transcript-item unconditionally -- see the CSS comment for why a survivor must
+  // never carry it.
+  setDataAttribute(article, 'entering', String(entering));
   setDataAttribute(article, 'mode', visualMode);
   setDataAttribute(article, 'source', item.source || 'ai');
   setDataAttribute(article, 'active', String(active));
@@ -1074,6 +1104,68 @@ function buildAlerts(ctx) {
 
 export function browserSpeechAvailable() {
   return Boolean(globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition);
+}
+
+// Issue #13: reads each surviving card's current screen position, keyed by the id set in
+// createTranscriptCard. Defensive about getBoundingClientRect/children because the same fake DOM
+// used across this file's tests doesn't implement layout -- absent either, this returns an empty
+// map and the FLIP step below simply does nothing, which is also the correct behavior offline.
+function captureTranscriptRects(stack) {
+  const rects = new Map();
+  const children = stack?.children;
+  if (!children) return rects;
+
+  for (const node of children) {
+    const id = node?.dataset?.itemId;
+    if (!id || typeof node.getBoundingClientRect !== 'function') continue;
+    rects.set(id, node.getBoundingClientRect().top);
+  }
+
+  return rects;
+}
+
+// Issue #13: the Invert + Play half of FLIP. The DOM swap in renderDisplay has already happened
+// (First/Last), so every surviving card is already sitting at its new, correct position -- that
+// silent snap is the jump. This parks each one back at its old position with an untransitioned
+// transform (Invert), then on the next frame clears the transform with a transition running
+// (Play), so the move away from "old" and the layout change land as one animated motion instead
+// of an instant reflow followed by an unrelated fade-in on the new card alone.
+function applyTranscriptFlip(stack, oldRects) {
+  const newRects = captureTranscriptRects(stack);
+  const deltas = computeFlipDeltas(oldRects, newRects);
+  if (!deltas.size) return;
+
+  const moved = [];
+  for (const node of stack.children) {
+    const id = node?.dataset?.itemId;
+    const deltaY = id ? deltas.get(id) : undefined;
+    if (!deltaY || !node.style) continue;
+    node.style.transition = 'none';
+    node.style.transform = `translateY(${deltaY}px)`;
+    moved.push(node);
+  }
+  if (!moved.length) return;
+
+  // Force layout to flush the untransitioned transform above before the transitioned one is
+  // applied -- otherwise the browser coalesces both into a single style recalc and there is
+  // nothing to animate from.
+  void stack.offsetHeight;
+
+  const requestFrame = globalThis.requestAnimationFrame || ((callback) => setTimeout(() => callback(Date.now()), 16));
+  requestFrame(() => {
+    moved.forEach((node) => {
+      node.style.transition = `transform ${TRANSCRIPT_FLIP_DURATION_MS}ms ease`;
+      node.style.transform = '';
+      // Non-blocker Cato flagged alongside the main finding: without this, the transition stays
+      // on the node forever, so any later, unrelated transform change on the same element (a
+      // future FLIP pass, or the [data-active] rules) would silently animate too.
+      if (typeof node.addEventListener === 'function') {
+        node.addEventListener('transitionend', () => {
+          node.style.transition = '';
+        }, { once: true });
+      }
+    });
+  });
 }
 
 function isTranscriptNearBottom(viewport, threshold = 96) {
