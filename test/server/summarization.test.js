@@ -593,11 +593,6 @@ test('the token allowance can always hold the text we actually asked for', async
   // (#69). The guard's own value is pinned in test/public/services/summarization/line-guard.test.js,
   // against Ansel's ruling, which is where a change to it should be argued.
   const DENSE_TOKENS_PER_WORD = 3;
-  // #69. The line count now comes FROM the guard, and the literal 12 moved to its own test below.
-  // A literal here had a false-failure direction Cato proved by probe: lowering the guard to 6 failed
-  // this test for no real reason, since six lines need half the room. Splitting the two questions
-  // keeps the rate honest (3 is supplied from outside, and the allowance must beat it) while a guard
-  // RISE, the dangerous silent direction, is caught by the pin rather than by arithmetic here.
   const MODEL_LINES = RUNAWAY_LINE_GUARD;
 
   async function allowanceFor({ level, maxWords, source }) {
