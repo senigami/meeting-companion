@@ -31,6 +31,31 @@ export function createBrowserTranscriptionDriver({
   const RESTART_BASE_DELAY_MS = 500;
   const RESTART_MAX_DELAY_MS = 30000;
 
+  // #37. The Web Speech API takes whatever microphone the browser hands it, and the app's picker
+  // does not reach it. On Steve's machine Chrome opened the built-in mic instead of the interface
+  // he had chosen, that device measured -Infinity dBFS, and recognition timed out with no-speech,
+  // restarted and repeated for hours while the rail said "Listening". Two no-speech timeouts with
+  // no sound EVER heard is not a quiet room, it is a device delivering nothing, and the rail has to
+  // stop claiming otherwise (INV-10). One is deliberately not enough: a genuine pause before anyone
+  // speaks produces exactly one.
+  const SILENT_DEVICE_NO_SPEECH_STREAK = 2;
+  let heardSound = false;
+  let noSpeechStreak = 0;
+  let reportedSilentDevice = false;
+
+  function noteAudioHeard() {
+    heardSound = true;
+    noSpeechStreak = 0;
+    if (!reportedSilentDevice) return;
+    reportedSilentDevice = false;
+    // Deliberately levelless. Asserting 'listening' from here withdrew the claim and took a live
+    // 'problem' off the rail with it, because a non-persistent level clears the persistent note
+    // whatever caused it (Cato, gating #93). A driver cannot make that call: it does not know what
+    // the rail is currently showing. Clearing the silence level belongs to noteTranscriptActivity
+    // in runtime.js, which already guards on railStatusLevel being the level it is clearing.
+    onStatus('Browser transcription is hearing audio.');
+  }
+
   function clearRestartTimer() {
     if (restartTimer !== null) {
       clearTimeoutFn(restartTimer);
@@ -93,12 +118,31 @@ export function createBrowserTranscriptionDriver({
       }
 
       restartFailureCount = 0;
+      noteAudioHeard();
       if (finalText.trim()) emit('final', finalText, { source: 'browser' });
       if (interimText.trim()) emit('partial', interimText, { source: 'browser' });
     };
 
+    recognition.onsoundstart = () => {
+      noteAudioHeard();
+    };
+    recognition.onspeechstart = () => {
+      noteAudioHeard();
+    };
+
     recognition.onerror = (event) => {
       const error = String(event?.error || 'unknown error');
+      if (error.toLowerCase() === 'no-speech') {
+        noSpeechStreak += 1;
+        if (!heardSound && noSpeechStreak >= SILENT_DEVICE_NO_SPEECH_STREAK && !reportedSilentDevice) {
+          reportedSilentDevice = true;
+          onStatus(
+            'No audio at all from the browser\'s microphone. It picks its own device and ignores the picker in Settings, so check which one the browser is using.',
+            { level: 'silence' }
+          );
+          return;
+        }
+      }
       if (isFatalSpeechRecognitionError(error)) {
         listening = false;
         started = false;
@@ -130,6 +174,11 @@ export function createBrowserTranscriptionDriver({
       clearRestartTimer();
       listening = true;
       restartFailureCount = 0;
+      // A fresh start is a fresh question about the device: whatever the last session heard says
+      // nothing about the one the browser is about to open.
+      heardSound = false;
+      noSpeechStreak = 0;
+      reportedSilentDevice = false;
       if (!started) {
         rec.start();
         started = true;
