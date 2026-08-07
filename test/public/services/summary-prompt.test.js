@@ -10,6 +10,7 @@ import {
   shouldAcceptModelLine,
   SUMMARY_MAX_WORDS
 } from '../../../public/services/summary-prompt.js';
+import { buildMinimalSummarizePrompt } from '../../../public/services/summary-prompt-minimal.js';
 
 // Asserted by substance, not by exact prose: pinning the whole sentence made every wording
 // improvement look like a regression, which is the opposite of what this test is for.
@@ -238,4 +239,28 @@ test('cleanModelLines de-duplicates a repeated line within the same reply withou
 test('cleanModelLines returns an empty array for blank or whitespace-only replies', () => {
   assert.deepEqual(cleanModelLines('', []), []);
   assert.deepEqual(cleanModelLines('   \n  \n', []), []);
+});
+
+test('both summarize prompts ask for digits, and neither loses the rule that a number nobody said stays unsaid', () => {
+  // #12. Spelled-out numbers are slower to read, and "exactly as they were said" pushed toward
+  // them. The OpenAI path already carried this rule; the path built here did not, which is the
+  // whole gap. The two rules sit close together and pull in opposite directions, so this pins them
+  // as a pair: a prompt with the digits rule and without the descriptive-reference protection is
+  // the failure mode worth guarding against, since it is a prompt that will guess a hymn number.
+  const prompts = [
+    buildSummarizePrompt({ mode: 'information', recentTranscript: 'Hymn one hundred thirty six at nine o clock.', maxWords: 12 }),
+    buildMinimalSummarizePrompt({ mode: 'information', recentTranscript: 'Hymn one hundred thirty six at nine o clock.', cardWords: 12 })
+  ];
+
+  for (const prompt of prompts) {
+    assert.match(prompt, /digits/i, 'the reader gets digits, not spelled-out numbers');
+    assert.match(prompt, /not\s+(?:as\s+)?words|rather than nine o'clock|rather than hymn one hundred/i);
+    assert.match(prompt, /not\s+(?:be\s+)?(?:add|said|spoken)|was not spoken|not said/i,
+      'a number nobody said must still stay unsaid');
+  }
+
+  // The path this issue is actually about must be explicit that the two rules have an order,
+  // rather than leaving a reader of the prompt to guess which one gives way.
+  assert.match(prompts[0], /never licenses supplying one that was not/i);
+  assert.match(prompts[0], /"our first hymn,?"/i);
 });

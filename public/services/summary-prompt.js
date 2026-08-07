@@ -203,6 +203,11 @@ they were said. These are what a reader cannot recover from context; never parap
 does not relax when the transcript is long: compression means dropping detail, never dropping or
 softening a name, date, time, hymn number, or assignment, and the word maximum below is still a
 ceiling to cut toward, not a target to reach by rounding a number off.
+Write every number that was spoken as digits, never as words: 9:00 rather than nine o'clock, hymn
+136 rather than hymn one hundred and thirty six, 19 rather than nineteen, $4 rather than four
+dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are faster to read and
+harder to misread from across the room. This is about the FORM of a number that was said, and it
+never licenses supplying one that was not: the rule below wins wherever the two touch.
 Never invent a number, name, date, time, or other specific detail that was not spoken. A descriptive
 or ordinal reference ("our first hymn," "the closing hymn," "next week's reading," "the usual
 volunteers") stays exactly that -- do not turn it into "hymn number one" or any other specific
