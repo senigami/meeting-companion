@@ -294,3 +294,110 @@ test('browser transcription stop cancels a pending restart and does not resume i
     global.window = originalWindow;
   }
 });
+
+// #37. Chrome handed the page a microphone Steve had not chosen, that device measured -Infinity
+// dBFS, and recognition timed out with no-speech, restarted and repeated for hours while the rail
+// said "Listening". The picker cannot reach the Web Speech API, so the only honest signal left is
+// the driver noticing it has never heard anything at all.
+function silentDeviceHarness() {
+  const statuses = [];
+  let recognitionInstance = null;
+
+  class FakeSpeechRecognition {
+    constructor() {
+      recognitionInstance = this;
+    }
+
+    start() {}
+    stop() { this.onend?.(); }
+  }
+
+  const originalWindow = global.window;
+  global.window = { SpeechRecognition: FakeSpeechRecognition };
+
+  const driver = createBrowserTranscriptionDriver({
+    onStatus: (text, options) => statuses.push({ text, level: options?.level }),
+    setTimeoutFn: () => 1,
+    clearTimeoutFn: () => {}
+  });
+
+  return {
+    driver,
+    statuses,
+    get recognition() { return recognitionInstance; },
+    restore() { global.window = originalWindow; }
+  };
+}
+
+test('#37: a microphone that never delivers audio stops being reported as listening', async () => {
+  const harness = silentDeviceHarness();
+  try {
+    await harness.driver.start();
+
+    harness.recognition.onerror({ error: 'no-speech' });
+    assert.equal(harness.statuses.filter((entry) => entry.level === 'silence').length, 0,
+      'one timeout is a quiet room before anyone speaks, not a dead device');
+
+    harness.recognition.onerror({ error: 'no-speech' });
+    const claim = harness.statuses.at(-1);
+    assert.equal(claim.level, 'silence', 'the rail must stop claiming Listening');
+    assert.match(claim.text, /picker/i, 'and must point at the thing that actually causes it');
+  } finally {
+    harness.restore();
+  }
+});
+
+test('#37: a quiet stretch after real audio is not a dead device', async () => {
+  const harness = silentDeviceHarness();
+  try {
+    await harness.driver.start();
+    harness.recognition.onsoundstart();
+
+    harness.recognition.onerror({ error: 'no-speech' });
+    harness.recognition.onerror({ error: 'no-speech' });
+    harness.recognition.onerror({ error: 'no-speech' });
+
+    assert.equal(harness.statuses.filter((entry) => entry.level === 'silence').length, 0,
+      'a device that has been heard from is a silent room, and a silent room is normal here');
+  } finally {
+    harness.restore();
+  }
+});
+
+test('#37: the claim is withdrawn as soon as audio actually arrives', async () => {
+  const harness = silentDeviceHarness();
+  try {
+    await harness.driver.start();
+    harness.recognition.onerror({ error: 'no-speech' });
+    harness.recognition.onerror({ error: 'no-speech' });
+    assert.equal(harness.statuses.at(-1).level, 'silence');
+
+    harness.recognition.onresult({
+      resultIndex: 0,
+      results: [Object.assign([{ transcript: 'Brother Reed will speak.' }], { isFinal: true })]
+    });
+
+    // A levelless status cannot clear a persistent one, so the recovery has to carry a level.
+    assert.equal(harness.statuses.at(-1).level, 'listening');
+  } finally {
+    harness.restore();
+  }
+});
+
+test('#37: restarting asks the device question again rather than trusting the last session', async () => {
+  const harness = silentDeviceHarness();
+  try {
+    await harness.driver.start();
+    harness.recognition.onsoundstart();
+    await harness.driver.stop();
+
+    // A different device may be behind the next session, so what the last one heard proves nothing.
+    await harness.driver.start();
+    harness.recognition.onerror({ error: 'no-speech' });
+    harness.recognition.onerror({ error: 'no-speech' });
+
+    assert.equal(harness.statuses.at(-1).level, 'silence');
+  } finally {
+    harness.restore();
+  }
+});
