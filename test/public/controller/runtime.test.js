@@ -3828,3 +3828,30 @@ test('#56: an interval too short for the measured reader is not reachable once t
     assert.equal(ctx.state.summaryIntervalSeconds, 20, 'a value arriving from anywhere else is held at the floor too');
   });
 });
+
+test('#56: the slider and the floor cannot drift apart when the interval itself does not move', async () => {
+  // Both paths found by Cato gating #97, and both leave the control disagreeing with the setter.
+  const SLOW_PROFILE = {
+    recordedAt: '2026-08-02T10:00:00.000Z',
+    cards: [
+      { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 },
+      { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 }
+    ]
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { summaryIntervalSeconds: 25 }
+  }, async ({ ctx, elements, runtime }) => {
+    // Already above the floor, so nothing raises the value and nothing else re-renders the control.
+    runtime.applyReadingPaceProfile('steve', SLOW_PROFILE);
+    assert.equal(ctx.state.summaryIntervalSeconds, 25, 'an interval that already works is left alone');
+    assert.equal(elements.summaryIntervalInput.min, '20', 'and the unusable range is still taken away');
+
+    // Clearing the profile gives the range back. Without this the operator is locked above 20s with
+    // no way down through the control, while the setter would happily accept 5.
+    runtime.applyReadingPaceProfile('', null);
+    assert.equal(elements.summaryIntervalInput.min, '2', 'no measurement, no floor');
+    runtime.setSummaryInterval(5);
+    assert.equal(ctx.state.summaryIntervalSeconds, 5);
+  });
+});

@@ -194,8 +194,8 @@ test('#56: the shortest usable interval is derived from the measured pace, not f
   assert.equal(minimumUsableIntervalSeconds(60), 10);
   assert.equal(minimumUsableIntervalSeconds(120), 5);
 
-  // Rounds up rather than down: 33 wpm needs 18.18 seconds, and 18 clears the floor where 18.1 down
-  // to 18 would not.
+  // Rounds up rather than down: at 33 wpm a ten-word card needs 18.18 seconds, so 18 buys only 9.9
+  // words and does not clear the floor. 19 is the first whole second that does.
   assert.equal(minimumUsableIntervalSeconds(33), 19);
 });
 

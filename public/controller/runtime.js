@@ -1659,6 +1659,10 @@ export function createRuntime(ctx, deps = {}) {
     const medianWpm = medianWpmFromProfile(profile);
     if (medianWpm == null) {
       ctx.state.readingPaceProfile = null;
+      // The control has to be re-rendered even though no value changed: clearing a profile lowers
+      // the floor again, and a slider left at the old minimum forbids what the setter now permits,
+      // with no way back below it by dragging (Cato, gating #97).
+      updateSummaryIntervalControl(ctx);
       recomputeSummaryMaxWords();
       return;
     }
@@ -1682,6 +1686,11 @@ export function createRuntime(ctx, deps = {}) {
       const previousInterval = ctx.state.summaryIntervalSeconds;
       setSummaryInterval(floor);
       updateStatus(ctx, `Update interval raised to ${ctx.state.summaryIntervalSeconds}s, the shortest this reader can read a full card in (was ${previousInterval}s).`);
+    } else {
+      // An interval already above the floor means setSummaryInterval never runs, and it is the only
+      // other thing that re-renders the control. Without this the slider keeps offering the whole
+      // unusable range and only snaps back once dragged, which is the labelling this card replaces.
+      updateSummaryIntervalControl(ctx);
     }
     recomputeSummaryMaxWords();
   }
