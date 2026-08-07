@@ -48,9 +48,12 @@ export function createBrowserTranscriptionDriver({
     noSpeechStreak = 0;
     if (!reportedSilentDevice) return;
     reportedSilentDevice = false;
-    // Passing a level explicitly, because the claim being withdrawn was made with one and a
-    // levelless status cannot clear it.
-    onStatus('Browser transcription is hearing audio.', { level: 'listening' });
+    // Deliberately levelless. Asserting 'listening' from here withdrew the claim and took a live
+    // 'problem' off the rail with it, because a non-persistent level clears the persistent note
+    // whatever caused it (Cato, gating #93). A driver cannot make that call: it does not know what
+    // the rail is currently showing. Clearing the silence level belongs to noteTranscriptActivity
+    // in runtime.js, which already guards on railStatusLevel being the level it is clearing.
+    onStatus('Browser transcription is hearing audio.');
   }
 
   function clearRestartTimer() {

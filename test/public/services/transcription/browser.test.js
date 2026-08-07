@@ -377,8 +377,11 @@ test('#37: the claim is withdrawn as soon as audio actually arrives', async () =
       results: [Object.assign([{ transcript: 'Brother Reed will speak.' }], { isFinal: true })]
     });
 
-    // A levelless status cannot clear a persistent one, so the recovery has to carry a level.
-    assert.equal(harness.statuses.at(-1).level, 'listening');
+    // The recovery must NOT assert a level. A non-persistent level clears the rail's persistent
+    // note whatever caused it, so a driver claiming 'listening' here wipes a live 'problem' raised
+    // somewhere else, and the driver has no way to know whether one is showing.
+    assert.equal(harness.statuses.at(-1).level, undefined);
+    assert.match(harness.statuses.at(-1).text, /hearing audio/i);
   } finally {
     harness.restore();
   }
