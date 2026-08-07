@@ -3,6 +3,7 @@ import {
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
+import { usableIntervalFloor } from '../services/reading-pace.js';
 import { autoExpandRailForCondition, resetRailAutoExpand } from './rail-collapse.js';
 
 const MODE_META = {
@@ -644,6 +645,12 @@ function updateSliderFill(input) {
 
 export function updateSummaryIntervalControl(ctx) {
   if (!ctx.dom.summaryIntervalInput || !ctx.dom.summaryIntervalValue) return;
+  // #56. The unusable part of the range is removed rather than labelled: at this reader's measured
+  // pace every position below this one derives a card budget under the floor, and a caption is not
+  // a guard. The floor moves with the measurement, so a faster profile gives the range back.
+  const floor = usableIntervalFloor(ctx);
+  ctx.dom.summaryIntervalInput.min = String(floor);
+  ctx.dom.summaryIntervalInput.setAttribute?.('min', String(floor));
   ctx.dom.summaryIntervalInput.value = String(ctx.state.summaryIntervalSeconds);
   ctx.dom.summaryIntervalInput.setAttribute('aria-valuetext', `${ctx.state.summaryIntervalSeconds}s`);
   ctx.dom.summaryIntervalValue.textContent = `${ctx.state.summaryIntervalSeconds}s`;

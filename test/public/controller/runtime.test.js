@@ -3800,3 +3800,31 @@ test('barren chunks cannot each buy a provider call (#31)', async () => {
     assert.ok(calls > afterFirst, 'past the floor the wall is still empty, so trying again is right');
   });
 });
+
+test('#56: an interval too short for the measured reader is not reachable once their profile is applied', async () => {
+  // At 30 wpm a 10-word card takes 20 seconds to read, so every position below 20s on the slider
+  // derives a budget under the floor. Ansel's point: that configuration should not be reachable,
+  // rather than reachable with a caption saying it does not work.
+  await withRuntimeHarness({
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ ctx, elements, runtime }) => {
+    // With no measured profile nothing moves: the default pace is not a measurement of this reader,
+    // and changing the out-of-the-box cadence is not this card's call.
+    runtime.setSummaryInterval(9);
+    assert.equal(ctx.state.summaryIntervalSeconds, 9);
+
+    runtime.applyReadingPaceProfile('steve', {
+      recordedAt: '2026-08-02T10:00:00.000Z',
+      cards: [
+        { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 },
+        { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 }
+      ]
+    });
+
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'the interval is raised to the shortest one this reader can use');
+    assert.equal(elements.summaryIntervalInput.min, '20', 'and the slider cannot be dragged back below it');
+
+    runtime.setSummaryInterval(4);
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'a value arriving from anywhere else is held at the floor too');
+  });
+});
