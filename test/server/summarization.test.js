@@ -590,7 +590,12 @@ test('the token allowance can always hold the text we actually asked for', async
   // content that must survive verbatim tokenizes far worse than prose ("John 14:26-27" is about 6
   // tokens for 2 words).
   const DENSE_TOKENS_PER_WORD = 3;
-  const MODEL_LINES = 12; // literal on purpose: if the guard rises, this test must fail rather than follow
+  // #69. The line count now comes FROM the guard, and the literal 12 moved to its own test below.
+  // A literal here had a false-failure direction Cato proved by probe: lowering the guard to 6 failed
+  // this test for no real reason, since six lines need half the room. Splitting the two questions
+  // keeps the rate honest (3 is supplied from outside, and the allowance must beat it) while a guard
+  // RISE, the dangerous silent direction, is caught by the pin rather than by arithmetic here.
+  const MODEL_LINES = RUNAWAY_LINE_GUARD;
 
   async function allowanceFor({ level, maxWords, source }) {
     let seen = null;
@@ -623,6 +628,13 @@ test('the token allowance can always hold the text we actually asked for', async
       assert.ok(brief >= maxWords * DENSE_TOKENS_PER_WORD, `${source}: brief must still fit its own dense line`);
     }
   }
+});
+
+test('the runaway line guard is 12, and moving it is a decision rather than a consequence', () => {
+  // The pin the sufficiency test above used to carry as a literal. Twelve is Ansel's number, set in
+  // #49 and #59 for a round of announcements. A change here is a conversation with him, not a tweak
+  // that quietly widens every allowance derived from it.
+  assert.equal(RUNAWAY_LINE_GUARD, 12);
 });
 
 test('the old flat allowance would not have fitted a full reply, which is why this is derived', async () => {

@@ -163,6 +163,10 @@ async function main() {
 
     let result;
     let error = null;
+    // #69. TOKENS_PER_WORD is 3 by reasoning about how references tokenize, not by measurement, and
+    // the providers hand back the real number for free. Recorded per call so a run over the
+    // reference-dense fixtures answers the question with the actual tokenizers.
+    let completionTokens = null;
     try {
       if (args.prompt === 'chat') {
         // Real turns: rules as system, each earlier block as a user turn with the card we actually
@@ -176,10 +180,15 @@ async function main() {
           // the one the OpenAI prompt was proven in, would truncate where production does not and could
           // no longer reproduce the thing it exists to measure. Found by Cato.
           max_tokens: replyTokenBudget({ level: 'condense', maxWords: SUMMARY_MAX_WORDS }),
-          messages: buildMinimalSummarizeMessages({ recentTranscript: recent, mode: sendMode, history: chatHistory })
+          // #69. One word budget, passed to both. The builder used to fall back to its own default
+          // of CARD_WORDS while the allowance was sized from SUMMARY_MAX_WORDS, so the harness asked
+          // for slightly more text than it sized for. Safe at today's numbers and still wrong: a
+          // harness that disagrees with itself cannot be evidence about the thing it measures.
+          messages: buildMinimalSummarizeMessages({ recentTranscript: recent, mode: sendMode, maxWords: SUMMARY_MAX_WORDS, history: chatHistory })
         });
         const line = (completion.choices[0]?.message?.content || '').trim();
         chatHistory.push({ spoken: recent, shown: line });
+        completionTokens = completion.usage?.completion_tokens ?? null;
         result = { line };
         throw { __handled: true, result };
       }
@@ -191,8 +200,9 @@ async function main() {
           model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
           temperature: 0.2,
           max_tokens: replyTokenBudget({ level: 'condense', maxWords: SUMMARY_MAX_WORDS }),
-          messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent, mode: sendMode }) }]
+          messages: [{ role: 'user', content: buildMinimalSummarizePrompt({ recentTranscript: recent, mode: sendMode, maxWords: SUMMARY_MAX_WORDS }) }]
         });
+        completionTokens = completion.usage?.completion_tokens ?? null;
         result = { line: (completion.choices[0]?.message?.content || '').trim() };
         throw { __handled: true, result };
       }
@@ -230,6 +240,8 @@ async function main() {
       chunkCount: run.chunks.length,
       recentTranscript: recent,
       lines,
+      completionTokens,
+      replyWords: lines.reduce((total, line) => total + wordCount(line), 0),
       error
     });
 
@@ -323,6 +335,20 @@ async function main() {
   const spokenDurationMin = wordsSpoken / WORDS_PER_MINUTE;
   const readingMinAt60 = totalWordsDisplayed / 60;
   const readingMinAt120 = totalWordsDisplayed / 120;
+
+  // #69. The one number TOKENS_PER_WORD was only ever reasoned about. Printed only when the
+  // provider actually reported usage, so an absent line means "not measured", never "measured low".
+  const measured = calls.filter((call) => Number.isFinite(call.completionTokens) && call.replyWords > 0);
+  if (measured.length) {
+    const tokens = measured.reduce((sum, call) => sum + call.completionTokens, 0);
+    const words = measured.reduce((sum, call) => sum + call.replyWords, 0);
+    const perCall = measured.map((call) => call.completionTokens / call.replyWords);
+    console.log('\n=== Measured tokens per word ===');
+    console.log(`Calls with reported usage: ${measured.length} of ${calls.length}`);
+    console.log(`Overall: ${tokens} completion tokens / ${words} words = ${(tokens / words).toFixed(2)} tokens per word`);
+    console.log(`Worst single call: ${Math.max(...perCall).toFixed(2)} tokens per word`);
+    console.log('TOKENS_PER_WORD in server/summarization.js is 3. Run the reference-dense fixtures before changing it.');
+  }
 
   console.log('\n=== Summary ===');
   console.log(`Fixture: ${args.fixture}`);
