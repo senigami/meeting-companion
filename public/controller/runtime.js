@@ -21,7 +21,8 @@ import {
 import {
   DEFAULT_MEDIAN_WPM,
   medianWpmFromProfile,
-  readingBudget
+  readingBudget,
+  usableIntervalFloor
 } from '../services/reading-pace.js';
 import {
   listAudioInputs,
@@ -1627,7 +1628,13 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function setSummaryInterval(nextInterval) {
-    const next = clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds);
+    // #56. The slider's own min is moved to match, but the floor has to hold here too: a stored
+    // value from a faster profile, a keyboard press, or a caller passing a number directly all
+    // arrive without going past the control.
+    const next = Math.max(
+      usableIntervalFloor(ctx),
+      clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds)
+    );
     if (next === ctx.state.summaryIntervalSeconds) return;
     ctx.state.summaryIntervalSeconds = next;
     localStorage.setItem(STORAGE.summaryInterval, String(next));
@@ -1642,13 +1649,20 @@ export function createRuntime(ctx, deps = {}) {
   // Applies a saved reader profile (or clears it, when profile is null/unusable): the derived words
   // budget switches to the profile's measured pace, and the font size it was measured at is restored
   // too -- a pace measured at one type size does not transfer to a display at another (the same
-  // reasoning public/reading-pace.js records the measurement font size for). Never touches
-  // summaryIntervalSeconds: the interval stays the operator's own control, at whatever value it was
-  // already set to, same as before a profile existed.
+  // reasoning public/reading-pace.js records the measurement font size for).
+  //
+  // It leaves summaryIntervalSeconds alone in every case but one, added with #56: a slower profile
+  // can move the usable floor above the interval already set, and leaving it there would keep the
+  // exact configuration that card exists to make unreachable. The operator is told when that
+  // happens, because it is their control being moved.
   function applyReadingPaceProfile(name, profile) {
     const medianWpm = medianWpmFromProfile(profile);
     if (medianWpm == null) {
       ctx.state.readingPaceProfile = null;
+      // The control has to be re-rendered even though no value changed: clearing a profile lowers
+      // the floor again, and a slider left at the old minimum forbids what the setter now permits,
+      // with no way back below it by dragging (Cato, gating #97).
+      updateSummaryIntervalControl(ctx);
       recomputeSummaryMaxWords();
       return;
     }
@@ -1666,6 +1680,17 @@ export function createRuntime(ctx, deps = {}) {
       const previous = ctx.state.fontSize;
       setFontSize(profile.fontSizePx);
       updateStatus(ctx, `Text size set to ${ctx.state.fontSize}px, the size this reading pace was measured at (was ${previous}px).`);
+    }
+    const floor = usableIntervalFloor(ctx);
+    if (ctx.state.summaryIntervalSeconds < floor) {
+      const previousInterval = ctx.state.summaryIntervalSeconds;
+      setSummaryInterval(floor);
+      updateStatus(ctx, `Update interval raised to ${ctx.state.summaryIntervalSeconds}s, the shortest this reader can read a full card in (was ${previousInterval}s).`);
+    } else {
+      // An interval already above the floor means setSummaryInterval never runs, and it is the only
+      // other thing that re-renders the control. Without this the slider keeps offering the whole
+      // unusable range and only snaps back once dragged, which is the labelling this card replaces.
+      updateSummaryIntervalControl(ctx);
     }
     recomputeSummaryMaxWords();
   }

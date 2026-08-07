@@ -3800,3 +3800,58 @@ test('barren chunks cannot each buy a provider call (#31)', async () => {
     assert.ok(calls > afterFirst, 'past the floor the wall is still empty, so trying again is right');
   });
 });
+
+test('#56: an interval too short for the measured reader is not reachable once their profile is applied', async () => {
+  // At 30 wpm a 10-word card takes 20 seconds to read, so every position below 20s on the slider
+  // derives a budget under the floor. Ansel's point: that configuration should not be reachable,
+  // rather than reachable with a caption saying it does not work.
+  await withRuntimeHarness({
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ ctx, elements, runtime }) => {
+    // With no measured profile nothing moves: the default pace is not a measurement of this reader,
+    // and changing the out-of-the-box cadence is not this card's call.
+    runtime.setSummaryInterval(9);
+    assert.equal(ctx.state.summaryIntervalSeconds, 9);
+
+    runtime.applyReadingPaceProfile('steve', {
+      recordedAt: '2026-08-02T10:00:00.000Z',
+      cards: [
+        { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 },
+        { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 }
+      ]
+    });
+
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'the interval is raised to the shortest one this reader can use');
+    assert.equal(elements.summaryIntervalInput.min, '20', 'and the slider cannot be dragged back below it');
+
+    runtime.setSummaryInterval(4);
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'a value arriving from anywhere else is held at the floor too');
+  });
+});
+
+test('#56: the slider and the floor cannot drift apart when the interval itself does not move', async () => {
+  // Both paths found by Cato gating #97, and both leave the control disagreeing with the setter.
+  const SLOW_PROFILE = {
+    recordedAt: '2026-08-02T10:00:00.000Z',
+    cards: [
+      { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 },
+      { text: 'ten words here to make the arithmetic land at thirty', words: 10, ms: 20000 }
+    ]
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { summaryIntervalSeconds: 25 }
+  }, async ({ ctx, elements, runtime }) => {
+    // Already above the floor, so nothing raises the value and nothing else re-renders the control.
+    runtime.applyReadingPaceProfile('steve', SLOW_PROFILE);
+    assert.equal(ctx.state.summaryIntervalSeconds, 25, 'an interval that already works is left alone');
+    assert.equal(elements.summaryIntervalInput.min, '20', 'and the unusable range is still taken away');
+
+    // Clearing the profile gives the range back. Without this the operator is locked above 20s with
+    // no way down through the control, while the setter would happily accept 5.
+    runtime.applyReadingPaceProfile('', null);
+    assert.equal(elements.summaryIntervalInput.min, '2', 'no measurement, no floor');
+    runtime.setSummaryInterval(5);
+    assert.equal(ctx.state.summaryIntervalSeconds, 5);
+  });
+});
