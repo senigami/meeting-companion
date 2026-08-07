@@ -9,7 +9,7 @@
 // (a close cousin of, but simpler than, demo.js's own natural-pause model, which this script does
 // not need since nothing here streams word-by-word).
 //
-// Usage: node scripts/simulate-meeting.js [--prompt current|variant] [--speed N] [--fixture demo|talk|testimony] [--noise]
+// Usage: node scripts/simulate-meeting.js [--prompt current|variant|minimal|chat] [--speed N] [--fixture demo|talk|testimony] [--noise]
 // --fixture selects the source script: "demo" (default) is the announcement-heavy scripted
 // meeting in public/services/transcription/demo.js; "talk" is the original narrative talk in
 // scripts/fixtures/sample-talk.js, used to judge summary quality on a real story rather than a
@@ -348,6 +348,12 @@ async function main() {
     console.log(`Overall: ${tokens} completion tokens / ${words} words = ${(tokens / words).toFixed(2)} tokens per word`);
     console.log(`Worst single call: ${Math.max(...perCall).toFixed(2)} tokens per word`);
     console.log('TOKENS_PER_WORD in server/summarization.js is 3. Run the reference-dense fixtures before changing it.');
+  } else if (calls.length) {
+    // Saying so, rather than printing nothing. The default --prompt current path goes through
+    // summarizeWithSource, which returns the line and not the provider's usage, so silence here
+    // would read as "the rate is fine" when the truth is that nothing was measured.
+    console.log('\n=== Measured tokens per word ===');
+    console.log('Not measured on this path. Only --prompt chat and --prompt minimal report provider usage today.');
   }
 
   console.log('\n=== Summary ===');

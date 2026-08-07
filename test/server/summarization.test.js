@@ -582,13 +582,16 @@ test('the Claude prompt is the third-person brief one, not the old voice-preserv
 // reply was cut mid-line, and a cut line is displayed as a finished card. The reader gets a fragment
 // with the same confidence as a whole thought, and nothing reports it.
 test('the token allowance can always hold the text we actually asked for', async () => {
-  // The WORST-case rate and a LITERAL line count, both deliberately independent of the code.
+  // Read this for what it is: the line count cancels on both sides, so what survives is a RATE
+  // comparison. It asserts that the allowance's per-word rate is at least the dense rate supplied
+  // here from outside the code. That is the honest description, and 3 is the bar that matters,
+  // because the content which must survive verbatim tokenizes far worse than prose ("John 14:26-27"
+  // is about 6 tokens for 2 words, where plain English runs about 1.3).
   //
-  // The first version of this test used RUNAWAY_LINE_GUARD on both sides, so the line count cancelled
-  // and all it really asserted was that the rate beat 1.3 -- plain prose. Cato caught that: it reads as
-  // a sufficiency check and was a rate comparison. And 1.3 was the wrong bar anyway, because the
-  // content that must survive verbatim tokenizes far worse than prose ("John 14:26-27" is about 6
-  // tokens for 2 words).
+  // The line count used to be a literal 12, which read as a sufficiency check and had a false
+  // failure in it: lowering the guard to 6 failed this test although six lines need half the room
+  // (#69). The guard's own value is pinned in test/public/services/summarization/line-guard.test.js,
+  // against Ansel's ruling, which is where a change to it should be argued.
   const DENSE_TOKENS_PER_WORD = 3;
   // #69. The line count now comes FROM the guard, and the literal 12 moved to its own test below.
   // A literal here had a false-failure direction Cato proved by probe: lowering the guard to 6 failed
@@ -628,13 +631,6 @@ test('the token allowance can always hold the text we actually asked for', async
       assert.ok(brief >= maxWords * DENSE_TOKENS_PER_WORD, `${source}: brief must still fit its own dense line`);
     }
   }
-});
-
-test('the runaway line guard is 12, and moving it is a decision rather than a consequence', () => {
-  // The pin the sufficiency test above used to carry as a literal. Twelve is Ansel's number, set in
-  // #49 and #59 for a round of announcements. A change here is a conversation with him, not a tweak
-  // that quietly widens every allowance derived from it.
-  assert.equal(RUNAWAY_LINE_GUARD, 12);
 });
 
 test('the old flat allowance would not have fitted a full reply, which is why this is derived', async () => {
