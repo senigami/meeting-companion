@@ -119,6 +119,13 @@ test('#46: saving a named profile sends the request and never lets the form navi
     assert.equal(typeof page.elements.saveProfileForm.handlers.submit, 'function',
       'the results screen must attach the save handler, since it is the only screen that renders here');
 
+    // The first of the three browser failures: the intro sat above the results with a live START,
+    // so opening ?results in front of the reader showed him the instructions again and a stray
+    // press would have restarted the run over what had just been measured.
+    assert.equal(page.elements.introScreen.hidden, true, 'no live START above the results');
+    assert.equal(page.elements.cardScreen.hidden, true);
+    assert.equal(page.elements.doneScreen.hidden, true);
+
     await page.elements.saveProfileForm.handlers.submit({
       preventDefault() { defaultPrevented = true; }
     });
