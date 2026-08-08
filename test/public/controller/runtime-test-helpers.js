@@ -258,6 +258,8 @@ export function createRuntimeHarness({
       summarizationSource: 'openai',
       openAiReady: false,
       anthropicReady: false,
+      appCommit: 'unknown',
+      recordingHeaderQueued: false,
       ...stateOverrides
     },
     dom: {

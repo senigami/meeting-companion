@@ -3616,6 +3616,71 @@ test('inferred sentence-end punctuation is recorded as a follow-up record sharin
   });
 });
 
+test('a header record is queued once, before any chunk or summary record, and carries no transcript text or key material (issue #4)', async () => {
+  const { driver, nowFn, setTimeoutFn, clearTimeoutFn } = createSentenceEndHarness();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn,
+    stateOverrides: {
+      recordingEnabled: true,
+      recordingQueue: [],
+      appCommit: 'abc123',
+      summaryMaxWords: 15,
+      summaryIntervalSeconds: 5,
+      summarizationSource: 'openai'
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.handleTranscriptEvent({ type: 'final', text: 'a very secret thing was said here' });
+
+    assert.equal(ctx.state.recordingQueue[0].t, 'header', 'the header must be the first record in the queue');
+    const header = ctx.state.recordingQueue[0];
+    assert.equal(header.appCommit, 'abc123');
+    assert.equal(header.maxWords, 15);
+    assert.equal(header.provider, 'openai');
+    assert.equal(header.intervalSeconds, 5);
+    assert.match(header.promptHash, /^[0-9a-f]{8}$/);
+
+    // No field on the header may carry the words actually spoken.
+    assert.ok(!JSON.stringify(header).includes('secret'), 'the header must never carry transcript text');
+
+    // Only one header for the whole session, however many chunk records follow.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'a second thing was said' });
+    const headerCount = ctx.state.recordingQueue.filter((record) => record.t === 'header').length;
+    assert.equal(headerCount, 1, 'the header must be written exactly once per session');
+  });
+});
+
+test('turning recording off before the header has been flushed does not leave the file headerless when it goes back on (issue #4)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      recordingEnabled: true,
+      recordingQueue: [],
+      appCommit: 'abc123',
+      summaryMaxWords: 15,
+      summaryIntervalSeconds: 5,
+      summarizationSource: 'openai'
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'first thing said' });
+    assert.equal(ctx.state.recordingQueue[0].t, 'header');
+
+    // Off before any flush: the queued header is discarded along with everything else.
+    runtime.setRecordingEnabled(false);
+    assert.equal(ctx.state.recordingQueue.length, 0);
+
+    runtime.setRecordingEnabled(true);
+    runtime.handleTranscriptEvent({ type: 'final', text: 'second thing said' });
+
+    assert.equal(ctx.state.recordingQueue[0].t, 'header', 'the header must be re-queued, not lost with the discarded batch');
+    assert.equal(ctx.state.recordingQueue.filter((record) => record.t === 'header').length, 1);
+  });
+});
+
 test('several cards from one summary are released one at a time, not dropped on the wall together', async () => {
   // A testimony is now four or five cards (the model splits by thought, packLinesIntoCards sizes
   // them). Four appearing in the same frame costs a slow reader their place, which is the exact
