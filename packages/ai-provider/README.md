@@ -44,8 +44,19 @@ in the app:
 
 ## The one thing this package guarantees on its own
 
-The resolved `apiKey` never appears in a thrown error's message, detail, or serialized form. Every
-adapter routes its throws through a helper that checks the outgoing error against the key first and
-fails loudly (a plain, uncaught `Error`, not a `ProviderError`) if it finds it. See `errors.js` and
-the "never leaks the key" tests for the property this exists to hold on the far side of a copy,
-where there is no code map and no INV-8 note to catch a regression later.
+The resolved `apiKey` never appears **in full** in a thrown error's message, detail, or serialized
+form. Every adapter routes its throws through a helper that checks the outgoing error against the
+key first and fails loudly (a plain, uncaught `Error`, not a `ProviderError`) if it finds it. See
+`errors.js` and the "never leaks the key" tests.
+
+**Read the limits before relying on it.** The check is a substring match on the exact key, so two
+things get past:
+
+- **A truncated or transformed echo.** A provider reflecting the first 20 characters, or a
+  URL-encoded form, does not match and reaches your error.
+- **A key shorter than 8 characters**, skipped entirely so short strings do not match half the
+  world's error text. Real keys are far longer; test doubles often are not.
+
+So it is a backstop against a whole key landing in a log, not a redaction layer. **You still need
+your own.** This app runs every provider detail through `safeErrorDetail` in `server.js` before it
+reaches an operator or a log, and a copying repo has nothing equivalent until it writes one.

@@ -62,9 +62,14 @@ export async function callClaude({ apiKey, messages, maxTokens, model, fetchImpl
     // has to reach `detail`: the caller's operator-facing copy is chosen by regex-matching this
     // text, so dropping it turns "the account has no API credit left" back into a bare
     // "Summarization failed." -- the silent-failure shape that message exists to prevent.
+    // `error` as a bare string is not Anthropic's own shape, but a proxy in front of it can produce
+    // one, and the base branch surfaced it. Dropping it loses the same operator copy `raw` exists
+    // to keep.
     const detail = typeof data?.error?.message === 'string'
       ? data.error.message
-      : (typeof data?.raw === 'string' ? data.raw : '');
+      : (typeof data?.error === 'string'
+        ? data.error
+        : (typeof data?.raw === 'string' ? data.raw : ''));
     return throwProviderError(classify(response.status), detail || 'Claude request failed.', {
       provider: 'claude',
       detail,

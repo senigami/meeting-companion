@@ -370,6 +370,29 @@ test('claude: a non-JSON error body still reaches `detail`, so the caller can ex
   );
 });
 
+test('claude: an `error` field that is a bare string still reaches `detail`', async () => {
+  // Not Anthropic's own shape, but a proxy in front of it produces one, and the pre-extraction path
+  // surfaced it. Same loss as the non-JSON case above: an actionable message becomes "request
+  // failed" if only `error.message` is read.
+  await assert.rejects(
+    () => callProvider({
+      provider: 'claude',
+      apiKey: 'sk-ant-test-key',
+      messages: MESSAGES,
+      maxTokens: 50,
+      model: 'claude-test',
+      fetchImpl: async () => new Response(JSON.stringify({ error: 'upstream gateway timeout' }), {
+        status: 504,
+        headers: { 'content-type': 'application/json' }
+      })
+    }),
+    (error) => {
+      assert.equal(error.detail, 'upstream gateway timeout');
+      return true;
+    }
+  );
+});
+
 test('claude: a body that fails to READ classifies as network rather than escaping unclassified', async () => {
   // Headers arrived, then the connection dropped mid-body. Escaping here would skip both the shared
   // vocabulary and the API-key leak check.
