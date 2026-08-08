@@ -54,6 +54,8 @@ export const MAX_LINES_PER_CALL = 3;
 // So the number lives here and every caller that needs a runaway bound imports it. MAX_LINES_PER_CALL
 // stays 3 because it is the CONTRACT of the older buildSummarizePrompt (which genuinely asks for
 // three lines), not a display limit -- do not merge the two constants, they mean different things.
+// buildSummarizePrompt has reached no provider since #47 and is retained-but-unreachable pending
+// #90, so MAX_LINES_PER_CALL now only binds callers that pass no ceiling of their own.
 export const RUNAWAY_LINE_GUARD = 12;
 
 function lineKey(line = '') {
@@ -92,9 +94,9 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 // real defect) and a duplicate-of-visible or vague SIBLING line is dropped without suppressing the
 // others in the same reply. cleanModelLine itself stays untouched (other callers depend on its
 // single-line collapse of internal whitespace); this only does the newline split that sits above it.
-// maxLines defaults to MAX_LINES_PER_CALL, which is what the Claude path (buildSummarizePrompt)
-// still needs: that prompt asks for three lines and three is the contract. The OpenAI path passes a
-// higher ceiling deliberately -- its prompt now asks for one thought per line and lets
+// maxLines defaults to MAX_LINES_PER_CALL, the contract of buildSummarizePrompt, which asks for
+// three lines. Both providers moved off that prompt at #47 and it is now unreachable (#90), so the
+// default binds nothing in production. Both live paths pass a higher ceiling deliberately -- its prompt now asks for one thought per line and lets
 // packLinesIntoCards decide card sizing, so capping at three there silently discarded the tail of a
 // long testimony (measured: 8 lines returned, 5 dropped, no error and no telemetry).
 export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
