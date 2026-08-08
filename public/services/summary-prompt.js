@@ -20,20 +20,6 @@ export function clampMaxWords(value) {
   return rounded;
 }
 
-export function modeInstruction(mode = 'speaker') {
-  switch (mode) {
-    case 'information':
-      return 'Prioritize exact dates, times, places, hymn numbers, assignments, and announcements. Copy every number, name, and date exactly; drop the surrounding courtesy words rather than shortening a detail.';
-    case 'song':
-      return 'Only show hymn or song status. Do not show lyrics or commentary.';
-    case 'prayer':
-      return 'Write a short prayer-shaped line that keeps the main requests and tone. Start with a simple opening like "Heavenly Father" and end with "Amen". Do not summarize line by line.';
-    case 'speaker':
-    default:
-      return 'Focus on the specific story, event, teaching, feeling, invitation, or example.';
-  }
-}
-
 export function cleanModelLine(line = '') {
   return String(line).trim().replace(/^[-•*]\s*/, '').replace(/^"|"$/g, '').replace(/\s+/g, ' ');
 }
@@ -52,8 +38,8 @@ export const MAX_LINES_PER_CALL = 3;
 // described. A cap fixed at one layer and re-applied at the next is not fixed.
 //
 // So the number lives here and every caller that needs a runaway bound imports it. MAX_LINES_PER_CALL
-// stays 3 because it is the CONTRACT of the older buildSummarizePrompt (which genuinely asks for
-// three lines), not a display limit -- do not merge the two constants, they mean different things.
+// stays 3 as cleanModelLines's own default cap, distinct from RUNAWAY_LINE_GUARD below -- do not
+// merge the two constants, they mean different things.
 export const RUNAWAY_LINE_GUARD = 12;
 
 function lineKey(line = '') {
@@ -92,11 +78,10 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 // real defect) and a duplicate-of-visible or vague SIBLING line is dropped without suppressing the
 // others in the same reply. cleanModelLine itself stays untouched (other callers depend on its
 // single-line collapse of internal whitespace); this only does the newline split that sits above it.
-// maxLines defaults to MAX_LINES_PER_CALL, which is what the Claude path (buildSummarizePrompt)
-// still needs: that prompt asks for three lines and three is the contract. The OpenAI path passes a
-// higher ceiling deliberately -- its prompt now asks for one thought per line and lets
-// packLinesIntoCards decide card sizing, so capping at three there silently discarded the tail of a
-// long testimony (measured: 8 lines returned, 5 dropped, no error and no telemetry).
+// maxLines defaults to MAX_LINES_PER_CALL; both real callers (server/summarization.js and the
+// client drivers) pass RUNAWAY_LINE_GUARD explicitly instead, because a flat cap of three silently
+// discarded the tail of a long testimony (measured: 8 lines returned, 5 dropped, no error and no
+// telemetry).
 export function cleanModelLines(text = '', visibleLines = [], { maxLines = MAX_LINES_PER_CALL } = {}) {
   return cleanModelLinesWithLoss(text, visibleLines, { maxLines }).accepted;
 }
@@ -149,100 +134,3 @@ export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines
   return { accepted, discardedByCap };
 }
 
-export function buildSummarizePrompt({
-  mode = 'speaker',
-  recentTranscript = '',
-  previousBlock = '',
-  visibleLines = [],
-  maxWords = SUMMARY_MAX_WORDS
-} = {}) {
-  const wordLimit = clampMaxWords(maxWords);
-  const visibleBlock = visibleLines.filter(Boolean).length
-    ? visibleLines.filter(Boolean).map((line) => `- ${line}`).join('\n')
-    : '- none';
-
-  // The rolling two-block window (.agent/rolling-window-brief.md): the previous block is rendered
-  // as its own labelled section, distinct from the current transcript, and marked context-only. A
-  // concatenated blob would let the model re-summarize the previous block in different words, which
-  // sails right past shouldAcceptModelLine's exact-key dedupe. Absent/empty previousBlock must leave
-  // the prompt byte-identical to before this feature existed -- that is the regression guard for a
-  // first tick, a mode change, or a failed previous call.
-  const previousBlockText = String(previousBlock || '').trim();
-  const visibleSection = `Visible lines already shown:\n${visibleBlock}`;
-  const previousSection = previousBlockText
-    ? `\n\nPrevious block (already summarized -- context only. Do NOT write a line about this block by itself; use it only to recover an idea that started in it and continues into the new text, or a distinct fact from it that did not fit in an earlier reply's three-line cap):\n${previousBlockText}`
-    : '';
-  const recentLabel = previousBlockText ? 'New transcript (summarize this)' : 'Recent transcript';
-  const recentSection = `${recentLabel}:\n${String(recentTranscript).trim()}`;
-
-  return `
-You are creating large-print assistive text for one deaf, low-vision person during a church meeting.
-American Sign Language is their first language and English is their second, so write clean, simple
-English -- never ASL gloss or ASL word order, which is not a writing system and reads as broken text.
-They read slowly and see poorly, so every word on the card has to earn its place: one card is one
-glance, and a word spent on filler is a word they pay for.
-
-Return zero, one, two, or three lines, one idea per line, separated by newlines. Never merge two
-ideas into one line -- if the transcript holds several distinct facts (for example, two announcements,
-or a hymn number and a separate assignment), write each on its own line, in the order they were
-spoken, rather than folding them into a single crowded sentence or dropping all but one.
-Only add a line when the transcript contains something useful that is new or more specific than the lines already shown.
-Only return an empty string if the new transcript repeats what a visible line already says,
-or holds no words at all. Never return an empty string because what was said seems unimportant,
-small, or ordinary. If it is new, compress it and return it.
-Avoid lines like "He is talking about faith."
-
-Write a single short line that would help someone reading from across the room.
-Do not use labels such as "main point," "speaker," "summary," or "announcement."
-Do not say "still talking about."
-Use plain, specific language.
-Lead with the topic or the person the line is about, then say what about it. Never open with a
-subordinate clause ("If you are able to help, ...") -- put the thing first ("Working bee Saturday").
-Preserve names, dates, times, hymn numbers, scripture references, assignments, and places exactly as
-they were said. These are what a reader cannot recover from context; never paraphrase a number. This
-does not relax when the transcript is long: compression means dropping detail, never dropping or
-softening a name, date, time, hymn number, or assignment, and the word maximum below is still a
-ceiling to cut toward, not a target to reach by rounding a number off.
-Never invent a number, name, date, time, or other specific detail that was not spoken. A descriptive
-or ordinal reference ("our first hymn," "the closing hymn," "next week's reading," "the usual
-volunteers") stays exactly that -- do not turn it into "hymn number one" or any other specific
-designation unless that designation was actually said. If no number was spoken, carry the speaker's
-own descriptive wording instead of supplying one. A confident specific you made up is worse than a
-faithful vague line: never guess a detail to sound precise.
-Use everyday words and no abbreviations. No idioms, figures of speech, sarcasm, or wordplay: if the
-speaker used one, write what it means instead of what they said.
-Name the person rather than writing "he", "she", or "they", unless the name is on a visible line
-directly above.
-One idea per line. Active voice. Do not join two thoughts with "and" or a semicolon.
-Maximum ${wordLimit} words, and fewer whenever fewer will do. Count the words in your line before
-returning it: if it is longer than ${wordLimit} words, cut whole words from the end until it is
-not, rather than returning it as written. Never cut a name, date, time, hymn number, scripture
-reference, or assignment to make room -- if the line cannot hold ${wordLimit} words AND every
-required detail verbatim, drop a surrounding word instead, never the detail.
-Do not add information.
-Do not return an empty string merely because the content seems minor. Compress it instead.
-Do not repeat what a visible line already says.
-When the transcript holds more than one card's worth of speech, write the core message as it stands
-now, not the opening of it -- a reader who gets the gist a little late can still follow the meeting; a
-reader who only ever gets paragraph one of five cannot. If something important in the transcript is
-missing from the visible lines, say that now: this may be the only chance the reader gets at it.
-If the transcript holds more distinct facts than fit in three lines, still write the three most
-important now and do not silently drop the rest -- an item that does not fit this call is expected to
-be recovered on a later call, once it appears in the previous-block context below, rather than lost.
-
-Mode: ${mode}
-${modeInstruction(mode)}
-
-Prayer mode should read like a short, simple prayer rather than a status note.
-
-Do not produce generic statements such as:
-- He is talking about faith.
-- They are talking about the message.
-- Something important is being shared.
-- The speaker is giving encouragement.
-
-${visibleSection}${previousSection}
-
-${recentSection}
-`.trim();
-}

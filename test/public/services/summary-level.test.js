@@ -36,7 +36,7 @@ test('only the two known levels are accepted', () => {
 
 test('the brief prompt asks for one line, third person, and the single most important thing', () => {
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 10, level: 'brief' });
-  assert.match(prompt, /no more than 10 words/);
+  assert.match(prompt, /target 10 words/);
   assert.match(prompt, /ONE line/);
   assert.match(prompt, /third person/i);
   assert.match(prompt, /most important/i);

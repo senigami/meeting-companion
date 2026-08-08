@@ -1,24 +1,14 @@
-// The prompt the OpenAI summarization path uses. (It began as an experiment beside the original
-// summary-prompt.js, which the Claude path still uses; that asymmetry is deliberate, see
-// server/summarization.js.)
+// The one prompt both OpenAI and Claude summarize through (server/summarization.js). Per-mode job,
+// chosen by mode:
 //
-// Steve's rule, and the thing to get right here: these are TWO different jobs, chosen by mode.
-//
-//   speaker, prayer  -> CONDENSE. Shorten what was said and leave it in their voice. A talk stays a
-//                       talk, a prayer stays a prayer. Do not retell it, do not report on it.
-//   information      -> SUMMARIZE. Announcements, dates, logistics. Facts matter, voice does not,
-//                       and third person is correct here.
-//   song             -> status only, which the app already treats as its own thing.
-//
-// The live prompt (summary-prompt.js) does one job for all modes and tells the model how to lay the
-// result out: three lines, one idea per line, lead with the topic, write the core message rather
-// than the opening. Measured over a 1082 word talk that produced more cards than there were
-// utterances, repeated itself, and drifted between "the speaker" and "I".
-//
-// A first version of this file condensed everything regardless of mode. It read far better but
-// attributed other people's facts to the speaker ("I was retired then, after thirty-one years
-// driving a delivery truck" was Harold, not the speaker), which is a confident falsehood on a wall
-// read by someone who cannot hear the room. Hence the attribution rule below.
+//   speaker      -> third-person summary of the main point (2026-08-08 ruling: this used to keep
+//                   the speaker's own voice; a first version that did attributed other people's
+//                   facts to the speaker -- "I was retired then, after thirty-one years driving a
+//                   delivery truck" was Harold's story, not the speaker's -- hence the attribution
+//                   rule below).
+//   prayer       -> still read as a prayer being offered, not reported on.
+//   information  -> summarize. Facts matter, voice does not.
+//   song         -> status only, which the app already treats as its own thing.
 
 // One card, about this many words. NOT a per-line cap: the live prompt allows up to three lines of
 // 14 words, which is 42 words a call, and the model takes all three nearly every time. Measured
@@ -27,10 +17,9 @@
 // words in gave 17 out (19%) and 46 gave 16 (35%).
 export const CARD_WORDS = 15;
 
-const READER = `You are preparing text for a large display read by one person who is Deaf and has low
-vision. American Sign Language is their first language and English is their second, so write clean,
-simple English. Never ASL gloss or ASL word order. They read slowly, so every word has to earn its
-place.`;
+// Tested 2026-08-08 against real recorded speech: dropping the who-this-is-for backstory and
+// keeping only the two directives changed nothing observable in the output.
+const READER = `Write clean, simple English. Never ASL gloss or ASL word order.`;
 
 const VERBATIM = `Keep these exactly as spoken, never paraphrased and never rounded: names, dates,
 times, numbers, hymn numbers, and scripture references.
@@ -77,16 +66,11 @@ ${READER}
 
 ${subject}
 
-Write ONE line of no more than ${cardWords} words. One line only.
-
-The reader gets about one word every two seconds, so this line is all they will manage before the
-next one replaces it. Do not try to cover everything that was said. Pick the single most important
-thing -- the one piece somebody would need to follow what is happening -- and write only that.
+Write ONE line, target ${cardWords} words. Pick the single most important thing and write only that.
 
 Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
 
-Do not spend words on who is talking. "The speaker", "someone", "a member" and the like tell the
-reader nothing they cannot already see, and at this length they cost a fifth of the card. Lead with
+Do not spend words on who is talking. Never say "the speaker", "someone", or "a member". Lead with
 the thing itself. Name a person only when a name was actually said and the point depends on it.
 
 Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
@@ -109,8 +93,7 @@ This is a prayer. It must still read as a prayer being offered, not as a report 
 prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.
 
 Put each separate thought on its own line, in the order they were said. Do not number them and do
-not add bullets. Do not worry about how many lines there are or how long each one is -- something
-after you packs them into cards, and it can only do that if the thoughts arrive separated.
+not add bullets.
 
 ${VERBATIM}
 
@@ -159,11 +142,10 @@ ${text}
   return `
 ${READER}
 
-This is meeting information: announcements, dates, times, assignments, logistics. Summarize it. The
-wording does not matter, the facts do. Third person is correct here, and there is no need to keep
-anybody's voice.
+This is meeting information: announcements, dates, times, assignments, logistics. Summarize it.
+Third person, facts only, no voice to preserve.
 
-Write one line of no more than ${cardWords} words per SEPARATE announcement. Two announcements are
+Write one line, target ${cardWords} words, per SEPARATE announcement. Two announcements are
 two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
 bee Saturday"), never with a clause about it ("If you are able to help...").
 

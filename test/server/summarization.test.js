@@ -2,13 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { summarizeWithSource } from '../../server/summarization.js';
-import { buildSummarizePrompt, RUNAWAY_LINE_GUARD } from '../../public/services/summary-prompt.js';
+import { RUNAWAY_LINE_GUARD } from '../../public/services/summary-prompt.js';
 import { readingBudget } from '../../public/services/reading-pace.js';
 import { SUMMARY_INTERVAL_MAX_SECONDS } from '../../public/services/view-settings.js';
 
-// OpenAI now sends a real message array (buildMinimalSummarizeMessages), not the single
-// buildSummarizePrompt user message the Claude path below still uses -- see
-// server/summarization.js's comment for why the two providers deliberately differ for now.
+// Both providers send a real message array (buildMinimalSummarizeMessages) -- see
+// server/summarization.js's comment.
 test('OpenAI summarize with no history sends a system message plus one user turn', async () => {
   let sentMessages = null;
   const openaiClient = {
@@ -195,7 +194,7 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
         return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
       }
     });
-    const match = seen.match(/no more than (\d+) words/);
+    const match = seen.match(/target (\d+) words/);
     return match ? Number(match[1]) : null;
   }
 
@@ -245,7 +244,7 @@ test('prior context reaches Claude as conversation turns, the same way it reache
 
   const body = JSON.parse(request.options.body);
   // System prompt as its own field, not as a message -- that is Anthropic's shape.
-  assert.match(body.system, /large display read by one person who is Deaf/);
+  assert.match(body.system, /Never ASL gloss/);
   assert.deepEqual(body.messages.map((m) => m.role), ['user', 'assistant', 'user']);
   assert.equal(body.messages[0].content, 'An earlier chunk.');
   assert.equal(body.messages[1].content, 'An earlier card.');

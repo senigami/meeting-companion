@@ -133,10 +133,9 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlo
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
 
-  // OpenAI path only, deliberately: buildMinimalSummarizeMessages is the conversational-turns
-  // prompt proven in scripts/simulate-meeting.js (real user/assistant turns instead of prior
-  // context pasted into one message). The Claude path below still uses buildSummarizePrompt --
-  // that is NOT an oversight, it is the two providers being on different prompts for now.
+  // buildMinimalSummarizeMessages is the conversational-turns prompt proven in
+  // scripts/simulate-meeting.js (real user/assistant turns instead of prior context pasted into
+  // one message). The Claude path below also uses it (#47) -- both providers share one prompt now.
   const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
