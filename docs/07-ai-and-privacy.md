@@ -49,6 +49,12 @@ for the full decision.
 - Recording is ON by default (a default-off instrument gets no data), with a visible, truthful
   indicator in Settings whenever it is active -- see `#recordingIndicator` in `public/index.html` and
   `updateRecordingIndicator`/`setRecordingEnabled` in `public/controller/runtime.js`.
+- Each file opens with one `header` record (issue #4): app commit, a hash of the summary prompt, the
+  word limit, the provider name and the interval. Metadata only, and deliberately so, since this is
+  the one place where "what was on disk" must stay enumerable: the prompt is hashed rather than
+  stored, `provider` is only ever `openai`/`claude`/`demo`, and no field carries transcript text or
+  any part of a key (INV-8, INV-12). Shape in
+  [docs/03-data-model.md](03-data-model.md).
 - Files live under `recordings/` (gitignored), one per app session, and by default never leave the
   machine: the write path is a localhost-only Express route (`/api/recording/append` in
   `server.js`) backed by `server/session-recorder.js`, which never throws and degrades to

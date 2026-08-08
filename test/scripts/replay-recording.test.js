@@ -62,11 +62,17 @@ test('replay-recording still replays a headerless (old) recording, and says so e
   assert.match(output, /1 chunk\(s\), 1 summarize call\(s\)/, 'the rest of the replay must still work with no header present');
 });
 
-test('a recording stamped with a bare commit warns when the checkout it is replayed in is dirty', { skip: DIRTY ? false : 'this checkout is clean' }, () => {
+// The -dirty suffix has to COUNT in the comparison, not merely be recorded. Stamping this same HEAD
+// with the OPPOSITE dirtiness exercises that whichever state the checkout happens to be in. Gated on
+// DIRTY instead, it skips on every clean tree, which is most of them and all of CI, so the property
+// would sit unasserted exactly where nobody would look.
+const OPPOSITE_DIRTINESS = DIRTY ? HEAD : `${HEAD}-dirty`;
+
+test('a recording whose commit differs only by the -dirty suffix warns rather than reading as a match', () => {
   const file = writeRecording([
-    { t: 'header', appCommit: HEAD, promptHash: 'deadbeef', maxWords: 15, provider: 'openai', intervalSeconds: 5 }
+    { t: 'header', appCommit: OPPOSITE_DIRTINESS, promptHash: 'deadbeef', maxWords: 15, provider: 'openai', intervalSeconds: 5 }
   ]);
 
   const output = runReplay(file);
-  assert.match(output, /WARNING/, 'a clean-hash recording must not read as matching a dirty checkout');
+  assert.match(output, /WARNING/, 'same hash, different dirtiness, is not the same code and must not read as a match');
 });
