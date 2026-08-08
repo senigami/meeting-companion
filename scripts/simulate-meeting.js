@@ -212,7 +212,10 @@ async function main() {
         // model sees its own prior output as prior output. Without this the harness would be
         // measuring a path the app never takes.
         history: appHistory,
-        openaiClient
+        // server/summarization.js now calls packages/ai-provider (issue #9), which takes an
+        // already-resolved key string rather than an SDK client -- openaiClient above stays for the
+        // two direct-SDK harness modes (chat/minimal), which bypass summarizeWithSource entirely.
+        openaiApiKey: process.env.OPENAI_API_KEY
       });
     } catch (err) {
       if (err && err.__handled) {
