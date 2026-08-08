@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import express from 'express';
 import OpenAI from 'openai';
 import { toFile } from 'openai';
@@ -10,8 +11,15 @@ import { summarizeWithSource } from './server/summarization.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
 import { createSessionRecorder } from './server/session-recorder.js';
 import { createReadingPaceStore } from './server/reading-pace-store.js';
+import { resolveAppCommit } from './server/app-commit.js';
 
 const MAIN_FILE = fileURLToPath(import.meta.url);
+
+// Issue #4: the browser has no git, so the server is the only place that can learn the commit a
+// recording was made under. Computed once at module load (never per-request -- this cannot change
+// while the process runs) and degrades to 'unknown' rather than a guess. See server/app-commit.js
+// for why a dirty working tree is reported as such rather than as its bare commit.
+const APP_COMMIT = resolveAppCommit(dirname(MAIN_FILE));
 
 export function createApp({
   openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
@@ -40,7 +48,8 @@ export function createApp({
       hasAnthropicKey: Boolean(resolveAnthropicKey({ anthropicApiKey, providerKeyStore })),
       model: resolveOpenAIClient({ openaiClient, createOpenAIClientFn, providerKeyStore }) ? openaiModel : null,
       sources: listAvailableSourcesFn(),
-      providerKeys: describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore })
+      providerKeys: describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore }),
+      appCommit: APP_COMMIT
     });
   });
 

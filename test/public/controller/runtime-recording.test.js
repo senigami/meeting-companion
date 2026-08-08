@@ -25,8 +25,11 @@ test('a final transcript event queues a chunk record tagged with its own capture
     ctx.state.mode = 'prayer';
     runtime.handleTranscriptEvent({ type: 'final', text: 'Please remember the Alvarez family.' });
 
-    assert.equal(ctx.state.recordingQueue.length, 1);
-    const record = ctx.state.recordingQueue[0];
+    // Index 1, not 0: queueRecord (issue #4) inserts the session's header record first, before any
+    // chunk or summary record ever reaches the queue.
+    assert.equal(ctx.state.recordingQueue.length, 2);
+    assert.equal(ctx.state.recordingQueue[0].t, 'header');
+    const record = ctx.state.recordingQueue[1];
     assert.equal(record.t, 'chunk');
     assert.equal(record.mode, 'prayer');
     assert.equal(record.text, 'Please remember the Alvarez family.');
@@ -41,8 +44,8 @@ test('a final transcript event queues a chunk record tagged with its own capture
   }, async ({ ctx, runtime }) => {
     runtime.handleTranscriptEvent({ type: 'final', text: 'Please remember the Alvarez family.' });
 
-    assert.equal(ctx.state.recordingQueue.length, 1);
-    const record = ctx.state.recordingQueue[0];
+    assert.equal(ctx.state.recordingQueue.length, 2);
+    const record = ctx.state.recordingQueue.find((r) => r.t === 'chunk');
     assert.equal(record.speaker, 'Bro. Ashcroft');
   });
 });
@@ -53,7 +56,7 @@ test('an empty speaker records as null, never as a placeholder name', async () =
   }, async ({ ctx, runtime }) => {
     runtime.handleTranscriptEvent({ type: 'final', text: 'No name typed yet.' });
 
-    const record = ctx.state.recordingQueue[0];
+    const record = ctx.state.recordingQueue.find((r) => r.t === 'chunk');
     assert.equal(record.speaker, null);
   });
 });

@@ -167,6 +167,12 @@ export function startApp() {
       recordingSessionId: createRecordingSessionId(),
       recordingQueue: [],
       recordingOk: null,
+      recordingHeaderQueued: false,
+      // Set for real by loadRuntimeConfig() from /api/config's appCommit (server.js is the only
+      // place that can ask git -- the browser can't). 'unknown' is the honest default until that
+      // resolves, and stays the honest answer if the server itself couldn't determine it either
+      // (issue #4).
+      appCommit: 'unknown',
       // Replay transcription source (GitHub issue #3): a recorded session driven back through the
       // live pipeline. availableRecordings starts empty and is filled by runtime.refreshRecordingList()
       // during loadRuntimeConfig() -- until then a persisted selection is trusted but not yet proven.

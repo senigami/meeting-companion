@@ -180,6 +180,45 @@ ${text}
 // block. The model can now SEE what it already wrote, in the position where its own prior output
 // belongs, so not repeating itself is structural rather than instructed.
 
+// Deterministic, non-cryptographic (FNV-1a) hash -- this exists to detect "the prompt changed",
+// never to secure anything, so 32 bits is plenty and no crypto dependency is needed in the browser.
+function fnv1aHash(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Issue #4: the recording header needs a value that tracks the prompt actually in use, not a
+// hand-maintained version constant someone will forget to bump. So this hashes the REAL rules text
+// buildMinimalSummarizePrompt produces (the same string buildMinimalSummarizeMessages sends as the
+// system turn), for a fixed set of mode/level combinations at the fixed CARD_WORDS default -- not a
+// hash of the source file, which would also change on comment edits that alter no model behavior.
+// The sample input is fixed (recentTranscript: '') on purpose: the hash must track the INSTRUCTIONS,
+// not whatever transcript a particular call happens to carry.
+//
+// The list must cover every branch of buildMinimalSummarizePrompt, or an edit to an uncovered one
+// changes the real prompt and leaves the hash sitting still -- a stale recording that reads as
+// current, which is worse than no hash at all. prayer/brief is here for that reason: it is the only
+// case that reaches the brief path's prayer subject line.
+export const PROMPT_HASH_SAMPLE_CASES = [
+  { mode: 'speaker', level: 'condense' },
+  { mode: 'prayer', level: 'condense' },
+  { mode: 'information', level: 'condense' },
+  { mode: 'speaker', level: 'brief' },
+  { mode: 'prayer', level: 'brief' },
+  { mode: 'information', level: 'brief' }
+];
+
+export function computeSummaryPromptHash() {
+  const combined = PROMPT_HASH_SAMPLE_CASES
+    .map(({ mode, level }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: CARD_WORDS }))
+    .join(' ');
+  return fnv1aHash(combined);
+}
+
 export function buildMinimalSummarizeMessages({
   recentTranscript = '',
   mode = 'speaker',
