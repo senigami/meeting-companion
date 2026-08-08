@@ -862,6 +862,22 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   body.textContent = item.text || '';
 
   article.append(meta, body);
+
+  // The sample placeholder isn't a real captured line -- nothing to delete. Every other card gets
+  // a delete button; it stays visually hidden until the card is hovered/focused (see layout.css),
+  // and carries the item id so the delegated handler in start-app.js knows which one to remove.
+  if (!isSample) {
+    setDataAttribute(article, 'itemId', item.id);
+    const deleteBtn = createNode('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'transcript-delete';
+    deleteBtn.textContent = '×';
+    if (typeof deleteBtn.setAttribute === 'function') {
+      deleteBtn.setAttribute('aria-label', 'Delete this card');
+    }
+    article.append(deleteBtn);
+  }
+
   return article;
 }
 

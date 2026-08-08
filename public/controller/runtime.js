@@ -359,6 +359,19 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
+  // One card, by id, from the per-card delete button -- distinct from undoLine (always the last
+  // card) and clearLines (everything, arm-confirmed). No undo of its own: the operator just clicked
+  // a button on the exact card they meant to remove, so there is nothing to confirm.
+  function removeItem(id) {
+    const index = ctx.state.transcriptItems.findIndex((item) => item.id === id);
+    if (index === -1) return;
+    const [removed] = ctx.state.transcriptItems.splice(index, 1);
+    renderDisplay(ctx);
+    const text = `Removed: "${truncateForStatus(removed.text)}"`;
+    updateStatus(ctx, text);
+    flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
+  }
+
   function armClear() {
     ctx.state.clearArmed = true;
     updateClearButton(ctx);
@@ -2207,6 +2220,7 @@ export function createRuntime(ctx, deps = {}) {
     summarizeCurrentText,
     togglePauseAi,
     undoLine,
+    removeItem,
     updatePauseButton: () => updatePauseButton(ctx),
     toggleSettingsOpen: () => {
       const next = !(ctx.state.settingsOpen ?? ctx.state.panelOpen);

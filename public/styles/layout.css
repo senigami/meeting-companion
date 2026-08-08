@@ -279,6 +279,47 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   font-style: italic;
 }
 
+/* Hidden until the operator is actually pointed at this card -- a delete button visible on every
+   card at all times would be one more thing competing with the transcript for attention on a
+   display this dense. :focus-within (not just :hover) keeps it reachable by keyboard. */
+.transcript-delete {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(20, 20, 24, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 1.05rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+
+.transcript-item:hover .transcript-delete,
+.transcript-item:focus-within .transcript-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.transcript-delete:hover {
+  background: rgba(214, 74, 74, 0.78);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.transcript-delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  outline: 2px solid rgba(160, 200, 255, 0.9);
+  outline-offset: 2px;
+}
+
 .transcript-meta {
   display: flex;
   align-items: center;
