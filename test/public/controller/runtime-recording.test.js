@@ -99,6 +99,48 @@ test('a successful summarize call queues one summary record carrying provider, c
   });
 });
 
+// #66: hadPreviousBlock now answers "did this call carry prior context", and summaryHistory is the
+// only thing that can supply it. It has to be read BEFORE the successful line is appended to the
+// history, or the first call of a meeting would claim context it did not have.
+test('the first call of a meeting records hadPreviousBlock false, and the next one true', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState(),
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      async summarize() {
+        return { line: 'Forgiven neighbor.' };
+      }
+    })
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('A neighbor was forgiven, at long last.');
+    await runtime.summarizeCurrentText('And the harvest came in early.');
+
+    const summaryRecords = ctx.state.recordingQueue.filter((r) => r.t === 'summary');
+    assert.equal(summaryRecords.length, 2);
+    assert.equal(summaryRecords[0].hadPreviousBlock, false);
+    assert.equal(summaryRecords[1].hadPreviousBlock, true);
+  });
+});
+
+test('a failed call records hadPreviousBlock from the history it did have', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState({ summaryHistory: [{ spoken: 'An earlier chunk.', shown: 'An earlier card.' }] }),
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      async summarize() {
+        throw new Error('ECONNRESET');
+      }
+    })
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('A neighbor was forgiven, at long last.');
+
+    const summaryRecords = ctx.state.recordingQueue.filter((r) => r.t === 'summary');
+    assert.equal(summaryRecords.length, 1);
+    assert.equal(summaryRecords[0].ok, false);
+    assert.equal(summaryRecords[0].hadPreviousBlock, true);
+  });
+});
+
 test('a failed summarize call still queues a summary record, marked ok:false with the error and no returned text', async () => {
   await withRuntimeHarness({
     stateOverrides: baseState(),

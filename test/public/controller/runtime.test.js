@@ -118,8 +118,10 @@ test('pressing a mode button says so on a surface visible with the settings pane
 });
 
 test('changing mode clears the history, so one speaker does not become context for a prayer', async () => {
-  // This was a real bug: previousBlock was mode-guarded but summaryHistory was not, so switching
-  // from speaker to prayer carried the outgoing speaker's testimony in as conversational context.
+  // This was a real bug: the old rolling-window previousBlock was mode-guarded, but summaryHistory
+  // was not, so switching from speaker to prayer carried the outgoing speaker's testimony in as
+  // conversational context. previousBlock is gone entirely now (#66); summaryHistory is the only
+  // context mechanism left, so it is the only thing this guards.
   await withRuntimeHarness({
     stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a testimony', shown: 'A testimony' }] }
   }, async ({ ctx, runtime }) => {
@@ -127,7 +129,6 @@ test('changing mode clears the history, so one speaker does not become context f
     await Promise.resolve();
     assert.equal(ctx.state.mode, 'prayer');
     assert.deepEqual(ctx.state.summaryHistory, []);
-    assert.equal(ctx.state.lastSentBlock, null, 'the previous block must not survive the switch either');
   });
 });
 
@@ -1807,12 +1808,14 @@ test('one summarize call never receives text spanning two modes', async () => {
   });
 });
 
-test('the rolling window sends A, then A+B, then B+C, then C+D across four ticks, on the actual strings', async () => {
+test('previousBlock is never sent across four ticks, and each tick still carries its own text', async () => {
+  // The old rolling-window mechanism (previousBlock) is gone entirely (#66) -- nothing ever reads
+  // it, so the driver call must never carry the key at all, on any tick.
   const seen = [];
   const succeedingDriver = {
     id: 'openai',
-    summarize: async ({ recentTranscript, previousBlock }) => {
-      seen.push({ recentTranscript, previousBlock });
+    summarize: async (options) => {
+      seen.push(options);
       return { line: '' };
     }
   };
@@ -1829,21 +1832,18 @@ test('the rolling window sends A, then A+B, then B+C, then C+D across four ticks
       await runtime.summarizeCurrentText();
     }
 
-    assert.deepEqual(seen, [
-      { recentTranscript: 'A.', previousBlock: '' },
-      { recentTranscript: 'B.', previousBlock: 'A.' },
-      { recentTranscript: 'C.', previousBlock: 'B.' },
-      { recentTranscript: 'D.', previousBlock: 'C.' }
-    ]);
+    assert.deepEqual(seen.map((options) => options.recentTranscript), ['A.', 'B.', 'C.', 'D.']);
+    assert.ok(seen.every((options) => !('previousBlock' in options)),
+      'no call may carry previousBlock, regardless of tick');
   });
 });
 
-test('a mode change omits the previous block entirely', async () => {
+test('a mode change still never sends previousBlock', async () => {
   const seen = [];
   const succeedingDriver = {
     id: 'openai',
-    summarize: async ({ recentTranscript, previousBlock }) => {
-      seen.push({ recentTranscript, previousBlock });
+    summarize: async (options) => {
+      seen.push(options);
       return { line: '' };
     }
   };
@@ -1857,27 +1857,25 @@ test('a mode change omits the previous block entirely', async () => {
     }
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
-    assert.equal(seen[0].previousBlock, '');
+    assert.ok(!('previousBlock' in seen[0]));
 
     ctx.state.mode = 'information';
     ctx.state.transcriptChunks.push({ text: 'An information announcement.', at: now, mode: 'information' });
     ctx.state.lastSentText = null;
     await runtime.summarizeCurrentText();
 
-    // The previous block was sent under 'speaker'; this call's mode is 'information', so the
-    // previous block must be omitted rather than carried across the mode boundary as context.
     assert.equal(seen[1].recentTranscript, 'An information announcement.');
-    assert.equal(seen[1].previousBlock, '');
+    assert.ok(!('previousBlock' in seen[1]));
   });
 });
 
-test('a failed call does not advance the previous-block slot and consumes nothing', async () => {
+test('a failed call consumes nothing, and never sent previousBlock either way', async () => {
   let shouldFail = true;
   const flakyDriver = {
     id: 'openai',
-    summarize: async ({ recentTranscript, previousBlock }) => {
+    summarize: async (options) => {
       if (shouldFail) throw new Error('network down');
-      return { line: '', recentTranscript, previousBlock };
+      return { line: '', ...options };
     }
   };
   const now = Date.now();
@@ -1889,23 +1887,21 @@ test('a failed call does not advance the previous-block slot and consumes nothin
     }
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
-    // Failed: nothing consumed, slot never set.
+    // Failed: nothing consumed.
     assert.equal(ctx.state.transcriptChunks.length, 1);
-    assert.ok(!ctx.state.lastSentBlock);
 
     shouldFail = false;
-    let capturedPreviousBlock = 'not set';
-    flakyDriver.summarize = async ({ recentTranscript, previousBlock }) => {
-      capturedPreviousBlock = previousBlock;
+    let capturedOptions = null;
+    flakyDriver.summarize = async (options) => {
+      capturedOptions = options;
       return { line: '' };
     };
     await runtime.summarizeCurrentText();
 
-    // Retry succeeds: the same text that failed before is what finally goes out, with no
-    // previous block (there was never a successful prior send to remember).
-    assert.equal(capturedPreviousBlock, '');
+    // Retry succeeds: the same text that failed before is what finally goes out, still with no
+    // previousBlock key at all.
+    assert.ok(!('previousBlock' in capturedOptions));
     assert.equal(ctx.state.transcriptChunks.length, 0);
-    assert.deepEqual(ctx.state.lastSentBlock, { text: 'First block.', mode: 'speaker' });
   });
 });
 

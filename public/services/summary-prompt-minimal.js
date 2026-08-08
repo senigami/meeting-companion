@@ -1,6 +1,6 @@
-// The prompt the OpenAI summarization path uses. (It began as an experiment beside the original
-// summary-prompt.js, which the Claude path still uses; that asymmetry is deliberate, see
-// server/summarization.js.)
+// The prompt BOTH summarization paths use. (It began as an experiment beside the original
+// summary-prompt.js; the Claude path moved onto it at #47, so the asymmetry that comment used to
+// describe is gone and summary-prompt.js's buildSummarizePrompt now reaches no provider, see #90.)
 //
 // Steve's rule, and the thing to get right here: these are TWO different jobs, chosen by mode.
 //

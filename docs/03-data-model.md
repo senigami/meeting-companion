@@ -106,6 +106,10 @@ Folding them together is what let three successive silent-loss defects (#49, #63
 clean call. `discardedByCapClient` should always be 0: a non-zero value means the server and the client
 disagree about how many lines may survive.
 
+`hadPreviousBlock` means "this call carried prior context", and what supplies that changed with #66:
+recordings written before it mean the old one-slot rolling window, and ones after it mean
+`history` was non-empty. The field name is kept so old and new recordings still line up.
+
 `consumedIds` is how a summary record ties back to the exact chunk record(s) it drained. A write
 failure (full disk, bad path, missing directory) degrades to `{ ok: false, error }` and never
 throws into the live transcription/summarize path.
@@ -117,7 +121,7 @@ The server accepts and returns these JSON shapes:
 | Route | Request | Response |
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
-| `POST /api/summarize` | `{ source, mode, recentTranscript, previousBlock, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened?, discardedByCap? }` |
+| `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened?, discardedByCap? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |

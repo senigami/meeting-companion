@@ -77,7 +77,6 @@ export async function summarizeWithSource({
   source = 'openai',
   mode = 'speaker',
   recentTranscript = '',
-  previousBlock = '',
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS,
   level = 'condense',
@@ -97,7 +96,6 @@ export async function summarizeWithSource({
         client: openaiClient,
         mode,
         recentTranscript: text,
-        previousBlock,
         visibleLines,
         maxWords: words,
         // The requested level is honoured -- the client derives it from the reading budget and this
@@ -115,7 +113,6 @@ export async function summarizeWithSource({
         fetchImpl,
         mode,
         recentTranscript: text,
-        previousBlock,
         visibleLines,
         maxWords: words,
         // Same information-mode guard as the OpenAI branch, for the same reason: brief keeps one
@@ -128,15 +125,14 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlock, visibleLines, maxWords, level = 'condense', history = [] }) {
+async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLines, maxWords, level = 'condense', history = [] }) {
   if (!client) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
 
-  // OpenAI path only, deliberately: buildMinimalSummarizeMessages is the conversational-turns
-  // prompt proven in scripts/simulate-meeting.js (real user/assistant turns instead of prior
-  // context pasted into one message). The Claude path below still uses buildSummarizePrompt --
-  // that is NOT an oversight, it is the two providers being on different prompts for now.
+  // buildMinimalSummarizeMessages is the conversational-turns prompt proven in
+  // scripts/simulate-meeting.js: real user/assistant turns instead of prior context pasted into
+  // one message. Both providers have been on it since #47.
   const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,
@@ -212,7 +208,6 @@ async function summarizeWithClaude({
   fetchImpl,
   mode,
   recentTranscript,
-  previousBlock,
   visibleLines,
   maxWords,
   level = 'condense',

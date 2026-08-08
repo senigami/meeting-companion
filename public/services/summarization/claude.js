@@ -11,7 +11,7 @@ export function createClaudeSummarizer({
   return {
     id: 'claude',
     label: 'Claude',
-    async summarize({ mode = 'speaker', recentTranscript = '', previousBlock = '', visibleLines = [], maxWords, level, history = [] } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords, level, history = [] } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -22,7 +22,6 @@ export function createClaudeSummarizer({
           source: 'claude',
           mode,
           recentTranscript: text,
-          previousBlock,
           visibleLines,
           maxWords,
           // #47: without these two, selecting Claude silently dropped the summarization level and all
