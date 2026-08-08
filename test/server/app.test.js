@@ -93,7 +93,8 @@ async function invoke(app, requestOptions) {
 
 test('api config reports provider availability and source metadata', async () => {
   const app = createApp({
-    openaiClient: {},
+    openaiApiKey: 'openai-key',
+    createOpenAIClientFn: () => ({}),
     anthropicApiKey: 'anthropic-key',
     listAvailableSourcesFn: () => ({
       transcription: [{ id: 'browser', label: 'Browser', description: 'Browser' }],
@@ -134,7 +135,7 @@ test('transcription call carries no prompt at all, in any mode', async () => {
   // model recites an instruction-shaped prompt as if it were speech (issue #27), so the only safe
   // state is no prompt on the request, and that is what this pins.
   const seen = [];
-  const openaiClient = {
+  const transcriptionClient = {
     audio: {
       transcriptions: {
         create: async (params) => {
@@ -144,7 +145,7 @@ test('transcription call carries no prompt at all, in any mode', async () => {
       }
     }
   };
-  const app = createApp({ openaiClient });
+  const app = createApp({ openaiApiKey: 'openai-key', createOpenAIClientFn: () => transcriptionClient });
 
   for (const mode of ['speaker', 'information', 'song', 'prayer']) {
     await invoke(app, {
@@ -163,7 +164,7 @@ test('transcription call carries no prompt at all, in any mode', async () => {
 
 test('transcription call is not made with stream: true', async () => {
   let receivedParams = null;
-  const openaiClient = {
+  const transcriptionClient = {
     audio: {
       transcriptions: {
         create: async (params) => {
@@ -173,7 +174,7 @@ test('transcription call is not made with stream: true', async () => {
       }
     }
   };
-  const app = createApp({ openaiClient });
+  const app = createApp({ openaiApiKey: 'openai-key', createOpenAIClientFn: () => transcriptionClient });
 
   const response = await invoke(app, {
     method: 'POST',
@@ -189,7 +190,7 @@ test('transcription call is not made with stream: true', async () => {
 });
 
 test('transcription failure includes a safe, redacted error detail', async () => {
-  const openaiClient = {
+  const transcriptionClient = {
     audio: {
       transcriptions: {
         create: async () => {
@@ -200,7 +201,7 @@ test('transcription failure includes a safe, redacted error detail', async () =>
       }
     }
   };
-  const app = createApp({ openaiClient });
+  const app = createApp({ openaiApiKey: 'openai-key', createOpenAIClientFn: () => transcriptionClient });
 
   const response = await invoke(app, {
     method: 'POST',
@@ -217,19 +218,25 @@ test('transcription failure includes a safe, redacted error detail', async () =>
   assert.ok(!data.detail.includes('sk-ant-zzzzzzzzzz1234567890'));
 });
 
+// summarizeWithSource routes summarization through packages/ai-provider (issue #9), which talks
+// HTTP via fetchImpl rather than an injected SDK client -- transcription builds its client from
+// the same key (see the transcription tests above), but /api/summarize needs a fetchImpl mocking
+// the OpenAI chat-completions endpoint in the shape the `openai` SDK actually calls.
+function openaiFetch(handler) {
+  return async (url, options) => {
+    const body = JSON.parse(options.body);
+    const result = await handler(body);
+    return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+}
+
 test('/api/summarize passes well-formed history through to the provider call', async () => {
   let sentMessages = null;
-  const openaiClient = {
-    chat: {
-      completions: {
-        create: async ({ messages }) => {
-          sentMessages = messages;
-          return { choices: [{ message: { content: 'A short line.' } }] };
-        }
-      }
-    }
-  };
-  const app = createApp({ openaiClient });
+  const fetchImpl = openaiFetch(({ messages }) => {
+    sentMessages = messages;
+    return { choices: [{ message: { content: 'A short line.' } }] };
+  });
+  const app = createApp({ openaiApiKey: 'test-key', fetchImpl });
 
   const history = [
     { spoken: 'Earlier chunk.', shown: 'Earlier card.' }
@@ -251,17 +258,11 @@ test('/api/summarize passes well-formed history through to the provider call', a
 
 test('/api/summarize sanitises a malformed history to at most 8 well-formed entries rather than throwing', async () => {
   let sentMessages = null;
-  const openaiClient = {
-    chat: {
-      completions: {
-        create: async ({ messages }) => {
-          sentMessages = messages;
-          return { choices: [{ message: { content: 'A short line.' } }] };
-        }
-      }
-    }
-  };
-  const app = createApp({ openaiClient });
+  const fetchImpl = openaiFetch(({ messages }) => {
+    sentMessages = messages;
+    return { choices: [{ message: { content: 'A short line.' } }] };
+  });
+  const app = createApp({ openaiApiKey: 'test-key', fetchImpl });
 
   // 20 well-formed entries, plus junk entries that must be dropped rather than throwing.
   const wellFormed = Array.from({ length: 20 }, (_, i) => ({ spoken: `spoken ${i}`, shown: `shown ${i}` }));
@@ -317,4 +318,59 @@ test('oversized payload returns a json error response', async () => {
   assert.equal(response.statusCode, 413);
   assert.equal(response.headers['content-type'], 'application/json; charset=utf-8');
   assert.equal(data.error, 'Request body too large.');
+});
+
+// "Is OpenAI configured?" is asked in two places that used to answer from two different inputs:
+// /api/config from an injected SDK client, summarization from a key string. They agreed on the real
+// env-var path and nowhere else, which is how a seam rots quietly. Both now resolve the same key,
+// and this walks every way a server can be configured to prove they cannot come apart again. It
+// fails if a future change reintroduces a second input for either side.
+test('/api/config and summarization never disagree about whether OpenAI is configured', async () => {
+  const configurations = [
+    ['no key anywhere', { openaiApiKey: '' }, null],
+    ['a server key', { openaiApiKey: 'server-key' }, null],
+    ['no server key, a key saved this session', { openaiApiKey: '' }, 'local-key'],
+    ['a server key overridden by one saved this session', { openaiApiKey: 'server-key' }, 'local-key']
+  ];
+
+  for (const [label, options, localKey] of configurations) {
+    const app = createApp({
+      ...options,
+      createOpenAIClientFn: () => ({}),
+      fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: 'A short line.' } }] }))
+    });
+
+    if (localKey) {
+      await invoke(app, {
+        method: 'POST',
+        url: '/api/provider/key',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai', apiKey: localKey })
+      });
+    }
+
+    const config = JSON.parse((await invoke(app, { method: 'GET', url: '/api/config' })).body);
+    const summary = JSON.parse((await invoke(app, {
+      method: 'POST',
+      url: '/api/summarize',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source: 'openai', recentTranscript: 'Someone said something.' })
+    })).body);
+
+    // The reason string is summarization's way of saying "no key" -- its absence means it had one.
+    const summarizationHadAKey = !summary.reason;
+    assert.equal(
+      config.hasOpenAIKey,
+      summarizationHadAKey,
+      `${label}: /api/config said hasOpenAIKey=${config.hasOpenAIKey} while summarization ${summarizationHadAKey ? 'had' : 'did not have'} a key`
+    );
+    assert.equal(config.providerKeys.openai.configured, summarizationHadAKey, `${label}: providerKeys disagreed too`);
+  }
+});
+
+test('passing the retired openaiClient to createApp throws rather than starting a server that looks configured and cannot summarize', async () => {
+  assert.throws(
+    () => createApp({ openaiClient: { audio: {} } }),
+    /openaiClient is no longer accepted/
+  );
 });
