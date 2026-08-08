@@ -48,10 +48,16 @@ test('the brief prompt asks for one line, third person, and the single most impo
   assert.match(prompt, /Do not spend words on who is talking/);
 });
 
-test('the condense prompt still keeps the speaker\'s voice, so the level is a choice and not a migration', () => {
+test('the condense prompt is third person too now, but still a distinct prompt from brief', () => {
+  // Steve, 2026-08-08, tested against a real recording: condense speaker mode drops the
+  // speaker's-voice framing and goes third person, same as brief. That is a deliberate reversal of
+  // this test's old name, not a regression -- what still matters is that condense and brief remain
+  // two distinct prompts rather than one silently collapsing into the other.
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 17, level: 'condense' });
-  assert.match(prompt, /must still read as them talking/);
-  assert.doesNotMatch(prompt, /third person/i);
+  assert.match(prompt, /Third person only/);
+  assert.doesNotMatch(prompt, /must still read as them talking/);
+  assert.match(prompt, /5 year old/);
+  assert.doesNotMatch(prompt, /single most important/i);
 });
 
 test('brief prayer mode is still reported, not voiced', () => {

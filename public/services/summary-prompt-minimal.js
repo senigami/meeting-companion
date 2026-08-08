@@ -99,37 +99,45 @@ ${text}
 `.trim();
   }
 
-  // CONDENSE: the speaker's own words, made shorter. Their voice is the point.
-  //
-  // Note what this branch does NOT ask for: a number of lines. Measured 2026-08-02 against a real
-  // 62-word testimony, "no more than 3 lines" returned 8 -- and 3x15, 3x17 and 2x20 all produced
-  // byte-identical output, so the constraint was not being read at all. The model splits by thought
-  // reliably and cannot count its own lines, so we ask only for the split and let
-  // packLinesIntoCards own the word budget. cardWords is still passed in and still matters; it is
-  // just enforced in code now rather than requested in prose.
-  if (mode === 'speaker' || mode === 'prayer') {
-    const shape = mode === 'prayer'
-      ? `This is a prayer. It must still read as a prayer being offered, not as a report that someone
-prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.`
-      : `This is somebody speaking to the congregation. It must still read as them talking.`;
-
+  // PRAYER: still its own shape -- a prayer read in third person stops being a prayer, so this one
+  // keeps the address and the amen rather than moving to the report style speaker mode now uses.
+  if (mode === 'prayer') {
     return `
 ${READER}
 
-${shape}
+This is a prayer. It must still read as a prayer being offered, not as a report that someone
+prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.
 
 Put each separate thought on its own line, in the order they were said. Do not number them and do
 not add bullets. Do not worry about how many lines there are or how long each one is -- something
 after you packs them into cards, and it can only do that if the thoughts arrive separated.
 
-Shortening is the whole job: do not retell it, do not explain it, and never describe the speaker
-from outside ("the speaker said", "he explained", "she shared"). Cut words, keep theirs.
+${VERBATIM}
 
-Keep every fact attached to whoever it was about. If they say "I lost my job", write "I lost my
-job". If they say "Harold retired after thirty-one years", that is Harold, not the speaker. Never
-move somebody else's actions, feelings or history onto the person talking.
+Text:
+${text}
+`.trim();
+  }
+
+  // SPEAKER: third person, one summary per call. Steve's ruling, 2026-08-08, tested against a real
+  // recorded talk: direct, simple instructions for exactly what is wanted, no narration -- and no
+  // "keep their voice" framing, which is a deliberate reversal of this branch's original shape (see
+  // git history). A word target belongs in the prompt now too: unlike the old shape, this one asks
+  // for a single right-sized line instead of splitting into several for packLinesIntoCards to size,
+  // so there is nothing left downstream to enforce the budget if the prompt doesn't ask for it.
+  if (mode === 'speaker') {
+    return `
+${READER}
+
+Summarize the main point using simple words, as if explaining it to a 5 year old. Third person only
+-- never write as the speaker or use "I".
+
+Keep facts attached to whoever they are about: if a name is mentioned, that name did it, not the
+speaker.
 
 ${VERBATIM}
+
+Your target is about ${cardWords} words.
 
 Text:
 ${text}
