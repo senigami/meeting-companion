@@ -146,6 +146,11 @@ export function createDemoSummarizer(deps = {}) {
       const line = cleanModelLine(picked);
       if (!shouldAcceptModelLine(line, visibleLines)) return { line: '' };
 
+      // No wasShortened, no discardedByCap, deliberately (#73). fitToWordLimit above does truncate,
+      // so a demo recording shows a clean call for a call that cut something, and that IS the same
+      // shape as #58. It is not an oversight. No real speech reaches this driver, so the fields
+      // would describe cuts nobody depended on, and a recording carrying invented telemetry is
+      // harder to trust than one that plainly has none.
       return { line };
     }
   };
