@@ -117,7 +117,6 @@ export function startApp() {
       listening: false,
       loopHandle: null,
       lastSentText: '',
-      lastSentBlock: null,
       summaryHistory: [],
       stickToBottom: true,
       prefersReducedMotion: Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),

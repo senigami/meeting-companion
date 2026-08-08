@@ -131,7 +131,6 @@ async function main() {
   let bucket = [];
   let mode = script[0]?.mode || 'speaker';
   let lastSentText = '';
-  let lastSentBlock = null; // { text, mode }
   let transcriptItems = [];
 
   const chatHistory = [];
@@ -157,8 +156,6 @@ async function main() {
     if (recent === lastSentText) return;
 
     const sendMode = run.mode;
-    const previousBlock =
-      lastSentBlock && lastSentBlock.mode === sendMode ? lastSentBlock.text : '';
     const visibleLines = transcriptItems.slice(-10).map((item) => item.text);
 
     let result;
@@ -210,7 +207,6 @@ async function main() {
         source: 'openai',
         mode: sendMode,
         recentTranscript: recent,
-        previousBlock,
         visibleLines,
         // The app keeps a short history of what was said and what was shown, and sends it so the
         // model sees its own prior output as prior output. Without this the harness would be
@@ -248,7 +244,6 @@ async function main() {
     if (!lines.length) emptyCalls += 1;
 
     lastSentText = recent;
-    lastSentBlock = { text: recent, mode: sendMode };
     bucket = removeConsumed(bucket, run.chunks);
 
     if (result.line) {
