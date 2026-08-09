@@ -799,8 +799,12 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
 function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
-  const visualMode = isManual ? 'manual' : item.mode || 'speaker';
-  const modeMeta = isManual ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
+  // Song is the one mode meant to be typed, not heard (see runtime.js#setMode) -- a hand-typed hymn
+  // line should read as a song card, not fall back to the generic "Manual" badge every other
+  // hand-typed mode gets to signal "a human wrote this, not the AI."
+  const isManualSong = isManual && item.mode === 'song';
+  const visualMode = isManual && !isManualSong ? 'manual' : item.mode || 'speaker';
+  const modeMeta = isManual && !isManualSong ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
   article.className = `transcript-item transcript-item--${visualMode}${isManual ? ' transcript-item--manual' : ''}${isSample ? ' transcript-item--sample' : ''}`;
   setDataAttribute(article, 'mode', visualMode);
