@@ -1547,6 +1547,12 @@ export function createRuntime(ctx, deps = {}) {
   // mode-change-only reset would never fire, and the buttons are already under his hand.
   function setMode(mode) {
     const changed = ctx.state.mode !== mode;
+    // Song is typed, not heard (#106): listening through a hymn feeds sung audio into a prompt built
+    // for speech, and the app has no way to tell "the hymn ended" from silence. Auto-pause on entry,
+    // auto-resume on exit -- but only ours to touch: a manual Pause press clears songAutoPaused, so
+    // an operator's own call is never overridden by this switching back.
+    const enteringSong = mode === 'song' && ctx.state.mode !== 'song';
+    const leavingAutoPausedSong = ctx.state.mode === 'song' && mode !== 'song' && ctx.state.songAutoPaused;
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
@@ -1556,7 +1562,16 @@ export function createRuntime(ctx, deps = {}) {
     // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
     // context before the history is dropped.
     void startNewSpeaker();
-    const message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
+
+    let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
+    if (enteringSong && ctx.state.listening && !ctx.state.paused) {
+      ctx.state.songAutoPaused = true;
+      void pauseAi();
+      message = 'Song mode. Microphone paused -- type the hymn.';
+    } else if (leavingAutoPausedSong) {
+      ctx.state.songAutoPaused = false;
+      void resumeAi();
+    }
     updateStatus(ctx, message);
     // updateStatus with no level writes only to #status, which lives inside the settings dialog --
     // unreadable during a meeting, when the panel is closed and this button is the one the operator
@@ -1858,23 +1873,45 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  async function togglePauseAi() {
-    ctx.state.paused = !ctx.state.paused;
+  async function pauseAi() {
+    ctx.state.paused = true;
     updatePauseButton(ctx);
+    stopSilenceWatchdog();
+    // Two different questions, and they must not share an answer. `wasListening` decides whether
+    // there is a driver to stop (control flow); only a genuinely live source may be described as
+    // a stopped microphone (wording). Sourcing the sentence from state.listening claimed "microphone
+    // stopped" during a replay, where there is no microphone -- the same lie as the recovery sites
+    // above. pauseActiveTranscription() stops the driver without discarding it, so the helper still
+    // answers correctly after the await.
+    const wasListening = ctx.state.listening;
+    const wasLiveCapture = activeTranscriptionStatusLevel() === 'listening';
+    if (wasListening) {
+      await pauseActiveTranscription();
+    }
+    return wasLiveCapture;
+  }
 
-    if (ctx.state.paused) {
-      stopSilenceWatchdog();
-      // Two different questions, and they must not share an answer. `wasListening` decides whether
-      // there is a driver to stop (control flow); only a genuinely live source may be described as
-      // a stopped microphone (wording). Sourcing the sentence from state.listening claimed "microphone
-      // stopped" during a replay, where there is no microphone -- the same lie as the recovery sites
-      // above. pauseActiveTranscription() stops the driver without discarding it, so the helper still
-      // answers correctly after the await.
-      const wasListening = ctx.state.listening;
-      const wasLiveCapture = activeTranscriptionStatusLevel() === 'listening';
-      if (wasListening) {
-        await pauseActiveTranscription();
-      }
+  async function resumeAi() {
+    ctx.state.paused = false;
+    updatePauseButton(ctx);
+    if (ctx.state.listening) {
+      await startListening({ force: true });
+      // Same honesty rule as startListening: there is no microphone behind replay, so resuming it
+      // must not announce one. startListening() has already let the driver state its own level.
+      // undefined (not false) when listening but not live -- silent, same as the original code's
+      // fall-through: a replay resuming must not claim a microphone it doesn't have, but it also
+      // never claimed to be "stopped" either.
+      return activeTranscriptionStatusLevel() === 'listening' ? true : undefined;
+    }
+    return false;
+  }
+
+  async function togglePauseAi() {
+    // A manual press always wins going forward: whatever auto-pause put us here (song mode included)
+    // stops being this function's business the moment the operator makes their own call.
+    ctx.state.songAutoPaused = false;
+    if (!ctx.state.paused) {
+      const wasLiveCapture = await pauseAi();
       updateStatus(
         ctx,
         wasLiveCapture
@@ -1885,14 +1922,10 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
 
-    if (ctx.state.listening) {
-      await startListening({ force: true });
-      // Same honesty rule as startListening: there is no microphone behind replay, so resuming it
-      // must not announce one. startListening() has already let the driver state its own level.
-      if (activeTranscriptionStatusLevel() === 'listening') {
-        updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
-      }
-    } else {
+    const resumedLive = await resumeAi();
+    if (resumedLive) {
+      updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
+    } else if (resumedLive === false) {
       updateStatus(ctx, 'AI resumed. Microphone is still stopped.', { level: 'manual' });
     }
   }

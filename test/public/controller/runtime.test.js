@@ -498,6 +498,72 @@ test('runtime pauses and resumes the active transcription driver', async () => {
   });
 });
 
+test('switching to song mode auto-pauses listening, and switching away auto-resumes it', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    startCount: 0,
+    stopCount: 0,
+    async start() { this.startCount += 1; },
+    async stop() { this.stopCount += 1; },
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.setMode('song');
+    await Promise.resolve();
+
+    assert.equal(ctx.state.paused, true, 'entering song mode pauses');
+    assert.equal(driver.stopCount, 1);
+
+    runtime.setMode('speaker');
+    await Promise.resolve();
+
+    assert.equal(ctx.state.paused, false, 'leaving song mode resumes what it auto-paused');
+    assert.equal(driver.startCount, 2);
+  });
+});
+
+test('a manual pause press while in song mode is not overridden when leaving song mode', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    startCount: 0,
+    stopCount: 0,
+    async start() { this.startCount += 1; },
+    async stop() { this.stopCount += 1; },
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.setMode('song');
+    await Promise.resolve();
+    assert.equal(ctx.state.paused, true);
+
+    // The operator's own call: manually resume while still in song mode.
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, false);
+    assert.equal(ctx.state.songAutoPaused, false, 'a manual press clears the auto-pause marker');
+
+    // Leaving song mode must not re-pause on top of the operator's explicit resume.
+    runtime.setMode('speaker');
+    await Promise.resolve();
+    assert.equal(ctx.state.paused, false);
+  });
+});
+
 test('starting to listen begins the live-transcript progress bar sweep for the configured interval', async () => {
   const driver = {
     id: 'browser',
