@@ -247,9 +247,9 @@ test('renderDisplay renders transcript cards and scrolls to the latest item', as
     assert.equal(frames.length, 1);
     frames.shift()(0);
     assert.equal(transcriptViewport.scrollTop, 0);
-    frames.shift()(360);
+    frames.shift()(500);
     assert.equal(transcriptViewport.scrollTop > 0, true);
-    frames.shift()(720);
+    frames.shift()(1000);
 
     assert.equal(transcriptStack.children.length, 2);
     assert.equal(transcriptStack.children[1].dataset.active, 'true');
