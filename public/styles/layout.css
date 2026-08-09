@@ -291,18 +291,34 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   bottom: 0.6rem;
   width: 28px;
   height: 28px;
+  /* base.css's shared `button` rule sets min-height:48px for touch targets, which otherwise wins
+     over the 28px above and stretches this into a pill instead of the circle it's meant to be. */
+  min-height: 28px;
+  padding: 0;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(20, 20, 24, 0.55);
   color: rgba(255, 255, 255, 0.82);
-  font-size: 1.05rem;
-  line-height: 1;
   display: grid;
   place-items: center;
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+
+.transcript-delete-icon {
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask-image: url("../assets/icons/trash.svg");
+  mask-image: url("../assets/icons/trash.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
 
 .transcript-item:hover .transcript-delete,

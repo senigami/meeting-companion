@@ -908,10 +908,15 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
     const deleteBtn = createNode('button');
     deleteBtn.type = 'button';
     deleteBtn.className = 'transcript-delete';
-    deleteBtn.textContent = '×';
     if (typeof deleteBtn.setAttribute === 'function') {
       deleteBtn.setAttribute('aria-label', 'Delete this card');
     }
+    const deleteIcon = createNode('span');
+    deleteIcon.className = 'transcript-delete-icon';
+    if (typeof deleteIcon.setAttribute === 'function') {
+      deleteIcon.setAttribute('aria-hidden', 'true');
+    }
+    deleteBtn.append(deleteIcon);
     article.append(deleteBtn);
   }
 
