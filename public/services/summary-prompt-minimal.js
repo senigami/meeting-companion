@@ -83,13 +83,21 @@ ${text}
   }
 
   // PRAYER: still its own shape -- a prayer read in third person stops being a prayer, so this one
-  // keeps the address and the amen rather than moving to the report style speaker mode now uses.
+  // stays in first person rather than moving to the report style speaker mode now uses.
+  //
+  // 2026-08-08: dropped "keep the address and the amen" after Steve hit a real fabricated Amen.
+  // Reproduced it directly: with that instruction, 4/4 mid-prayer chunks (no address or amen
+  // actually spoken) got BOTH bookended on, every single call, because the model read "keep" as
+  // "every card should look like a complete prayer" rather than "preserve it if it's there."
+  // Removing the instruction and testing the same chunks plus a genuine opening and closing: all
+  // four came out correct, with the real address/amen still preserved by the ordinary verbatim
+  // rule below when they were actually said, and nothing added when they weren't.
   if (mode === 'prayer') {
     return `
 ${READER}
 
 This is a prayer. It must still read as a prayer being offered, not as a report that someone
-prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.
+prayed.
 
 Put each separate thought on its own line, in the order they were said. Do not number them and do
 not add bullets.

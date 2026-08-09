@@ -78,7 +78,8 @@ test('brief prayer mode is still reported, not voiced', () => {
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'A prayer.', mode: 'prayer', maxWords: 10, level: 'brief' });
   assert.match(prompt, /prayer being offered/);
   assert.match(prompt, /third person/i);
-  // condense keeps the address and the amen; brief has no room for either and must not claim to.
+  // Neither level ever asks the model to add an address or amen (2026-08-08: that instruction
+  // fabricated both on every mid-prayer card). This just guards brief specifically never regains it.
   assert.doesNotMatch(prompt, /Keep the address/);
 });
 
