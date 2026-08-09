@@ -101,7 +101,10 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  /* No scroll-behavior here on purpose: scrollTranscriptToBottom in view.js already hand-rolls
+     an eased rAF animation by writing scrollTop every frame. CSS smooth-scroll would have layered
+     its own interpolation on top of every one of those writes, fighting the JS curve and reading
+     as a slow start, a rushed middle, then a hard stop right at the end. */
   padding-block: clamp(1.25rem, 4vw, 4rem);
   padding-inline: var(--display-margin);
   scrollbar-gutter: stable both-edges;
