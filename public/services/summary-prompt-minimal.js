@@ -149,8 +149,8 @@ ${text}
   return `
 ${READER}
 
-This is meeting information: announcements, dates, times, assignments, logistics. Summarize it.
-Third person, facts only, no voice to preserve.
+This is meeting information: announcements, dates, times, assignments, logistics. Summarize it as
+if explaining it to an 8 year old. Third person, facts only, no voice to preserve.
 
 Write one line, target ${cardWords} words, per SEPARATE announcement. Two announcements are
 two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
