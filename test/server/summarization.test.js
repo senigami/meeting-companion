@@ -447,7 +447,7 @@ test('an unrecognised level falls back to condense rather than silently changing
   await summarizeWithSource({
     source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 17, level: 'nonsense', openaiClient: client
   });
-  assert.match(seenSystem, /5 year old/, 'unknown levels must not reach the prompt builder');
+  assert.match(seenSystem, /8 year old/, 'unknown levels must not reach the prompt builder');
 });
 
 test('an information-mode request is forced to condense at the server, even when brief is asked for', async () => {

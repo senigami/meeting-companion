@@ -4,6 +4,20 @@ import assert from 'node:assert/strict';
 import { chooseSummaryLevel, isSummaryLevel, BRIEF_MAX_CARD_WORDS } from '../../../public/services/summary-level.js';
 import { buildMinimalSummarizePrompt } from '../../../public/services/summary-prompt-minimal.js';
 
+// Closes a coverage gap found in adversarial review 2026-08-08: the 12 tests that checked the prompt
+// TEXT for anti-fabrication/verbatim-entity language were deleted alongside the dead buildSummarizePrompt
+// they tested, and nothing replaced them for the prompt actually in use. Every mode must carry both.
+test('every mode\'s live prompt carries the anti-fabrication and verbatim-entity contract', () => {
+  for (const mode of ['speaker', 'prayer', 'information']) {
+    for (const level of ['condense', 'brief']) {
+      const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Anything at all.', mode, level });
+      assert.match(prompt, /Never invent a name, number, date, or detail that was not said/, `${mode}/${level}`);
+      assert.match(prompt, /never paraphrased and never rounded/, `${mode}/${level}`);
+      assert.match(prompt, /Never ASL gloss/, `${mode}/${level}`);
+    }
+  }
+});
+
 test('a reading budget too small for anyone\'s voice selects brief', () => {
   // Measured 2026-08-02: about one word every two seconds. A 20s window is ten words.
   assert.equal(chooseSummaryLevel({ cardWords: 10 }), 'brief');
@@ -56,7 +70,7 @@ test('the condense prompt is third person too now, but still a distinct prompt f
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 17, level: 'condense' });
   assert.match(prompt, /Third person only/);
   assert.doesNotMatch(prompt, /must still read as them talking/);
-  assert.match(prompt, /5 year old/);
+  assert.match(prompt, /8 year old/);
   assert.doesNotMatch(prompt, /single most important/i);
 });
 

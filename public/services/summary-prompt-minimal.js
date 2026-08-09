@@ -10,11 +10,10 @@
 //   information  -> summarize. Facts matter, voice does not.
 //   song         -> status only, which the app already treats as its own thing.
 
-// One card, about this many words. NOT a per-line cap: the live prompt allows up to three lines of
-// 14 words, which is 42 words a call, and the model takes all three nearly every time. Measured
-// against ~90 words of speech per 15s tick that lands at 47%, which is what the whole-talk run
-// actually produced (48.8%). A fixed per-CARD budget compresses properly: measured directly, 90
-// words in gave 17 out (19%) and 46 gave 16 (35%).
+// One card, about this many words -- a target to compress toward, not a hard cap (Steve: he is fine
+// getting 11 or 12 when the content needed it). Measured against ~90 words of speech per 15s tick:
+// a fixed per-CARD budget compresses properly, where the old three-lines-of-14-words shape landed at
+// 47-48.8% and this landed 19-35% depending on input density.
 export const CARD_WORDS = 15;
 
 // Tested 2026-08-08 against real recorded speech: dropping the who-this-is-for backstory and
@@ -31,8 +30,8 @@ Write numbers as digits, not words: 9:00 rather than nine o'clock, 19 rather tha
 rather than four dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are
 faster to read and harder to misread at a distance.
 
-Do not add anything that was not said. Do not say the same thing twice. Return only the text, with
-no preamble.`;
+Never invent a name, number, date, or detail that was not said. Do not say the same thing twice.
+Return only the text, with no preamble.`;
 
 export function buildMinimalSummarizePrompt({
   recentTranscript = '',
@@ -102,17 +101,17 @@ ${text}
 `.trim();
   }
 
-  // SPEAKER: third person, one summary per call. Steve's ruling, 2026-08-08, tested against a real
-  // recorded talk: direct, simple instructions for exactly what is wanted, no narration -- and no
-  // "keep their voice" framing, which is a deliberate reversal of this branch's original shape (see
-  // git history). A word target belongs in the prompt now too: unlike the old shape, this one asks
-  // for a single right-sized line instead of splitting into several for packLinesIntoCards to size,
-  // so there is nothing left downstream to enforce the budget if the prompt doesn't ask for it.
+  // SPEAKER: third person, one card's worth of length per call. Steve's ruling, 2026-08-08, tested
+  // against a real recorded talk: direct, simple instructions for exactly what is wanted, no
+  // narration -- and no "keep their voice" framing, which is a deliberate reversal of this branch's
+  // original shape (see git history). The mandate is fitting on one card at the target length, not
+  // forcing exactly one line out of the model -- if it ever returns more than one, packLinesIntoCards
+  // still packs/sizes them same as any other mode; nothing downstream assumes a single line.
   if (mode === 'speaker') {
     return `
 ${READER}
 
-Summarize the main point using simple words, as if explaining it to a 5 year old. Third person only
+Summarize the main point using simple words, as if explaining it to an 8 year old. Third person only
 -- never write as the speaker or use "I".
 
 Keep facts attached to whoever they are about: if a name is mentioned, that name did it, not the
