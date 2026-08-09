@@ -18,7 +18,7 @@ const MANUAL_META = {
   icon: 'icon-human'
 };
 
-const TRANSCRIPT_SCROLL_DURATION_MS = 720;
+const TRANSCRIPT_SCROLL_DURATION_MS = 1000;
 
 const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
 const DEFAULT_SETTINGS_SECTION = 'timing';
@@ -232,23 +232,54 @@ export function renderDisplay(ctx) {
   const previousScrollTop = ctx.dom.transcriptViewport.scrollTop || 0;
   const reducedMotion = Boolean(ctx.state.prefersReducedMotion);
 
+  const renderIds = renderItems.map((item) => item.id);
+  const previousIds = Array.isArray(ctx.state.transcriptRenderedIds) ? ctx.state.transcriptRenderedIds : [];
+  // A card arriving is an append: the ids already on screen are still the leading run of the new
+  // list, in the same order. Delete, undo, clear, and the display-count cap all break that (an id
+  // drops out of the middle or the front), so this only ever matches the steady-state case below.
+  const previousIsPrefix = previousIds.length <= renderIds.length
+    && previousIds.every((id, index) => id === renderIds[index]);
+
   // Issue #40: the label shows only on a change of speaker, walked forward through the items in
   // display order -- a name repeated on every card is reading load a slow reader pays for nothing.
   // previousSpeaker starts as null (not ''), so a genuinely empty first card's speaker ('') is
   // still correctly treated as "no change from nothing" (no label) rather than "changed from null".
+  // Walked across every item regardless of which ones get a DOM node below, so a brand new card's
+  // speaker label is judged against the real previous card, not just the other new arrivals.
   let previousSpeaker = null;
-  const nodes = renderItems.map((item, index) => {
+  const newNodes = [];
+  renderItems.forEach((item, index) => {
     const speaker = typeof item.speaker === 'string' ? item.speaker.trim() : '';
     // Empty is a valid state and never gets a label, no matter what came before it.
     const showSpeaker = Boolean(speaker) && speaker !== previousSpeaker;
     previousSpeaker = speaker;
-    return createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker });
+    if (previousIsPrefix && index < previousIds.length) return;
+    newNodes.push(createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker }));
   });
-  if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
-    ctx.dom.transcriptStack.replaceChildren(...nodes);
+
+  // Issue #13: rebuilding every card on every arrival tore down and recreated cards that hadn't
+  // changed, replaying each one's slide-in entrance animation at once -- what read as the whole
+  // display jumping. The steady-state case (a new card lands, nothing before it changed) now only
+  // touches the DOM the new card needs: the previously-last card's active flag flips off in place
+  // (a plain attribute write, not a remove/reinsert), and the new card is the only node that plays
+  // transcriptIn. Anything that reorders or drops an existing card still gets a full rebuild.
+  if (previousIsPrefix && previousIds.length > 0) {
+    const existingChildren = ctx.dom.transcriptStack.children;
+    const previousLastNode = existingChildren && existingChildren.length
+      ? existingChildren[existingChildren.length - 1]
+      : null;
+    if (newNodes.length > 0) {
+      if (previousLastNode) setDataAttribute(previousLastNode, 'active', 'false');
+      if (typeof ctx.dom.transcriptStack.append === 'function') {
+        ctx.dom.transcriptStack.append(...newNodes);
+      }
+    }
+  } else if (typeof ctx.dom.transcriptStack.replaceChildren === 'function') {
+    ctx.dom.transcriptStack.replaceChildren(...newNodes);
   } else {
-    ctx.dom.transcriptStack.children = [...nodes];
+    ctx.dom.transcriptStack.children = [...newNodes];
   }
+  ctx.state.transcriptRenderedIds = renderIds;
 
   if (shouldStick) {
     scrollTranscriptToBottom(ctx, { reducedMotion });
@@ -287,7 +318,9 @@ function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
     const now = Number.isFinite(timestamp) ? timestamp : Date.now();
     startedAt ??= now;
     const elapsed = Math.min(1, (now - startedAt) / TRANSCRIPT_SCROLL_DURATION_MS);
-    const eased = 1 - Math.pow(1 - elapsed, 3);
+    const eased = elapsed < 0.5
+      ? 2 * elapsed * elapsed
+      : 1 - Math.pow(-2 * elapsed + 2, 2) / 2;
     viewport.scrollTop = startTop + distance * eased;
 
     if (elapsed < 1) {
@@ -799,8 +832,12 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
 function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
-  const visualMode = isManual ? 'manual' : item.mode || 'speaker';
-  const modeMeta = isManual ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
+  // Song is the one mode meant to be typed, not heard (see runtime.js#setMode) -- a hand-typed hymn
+  // line should read as a song card, not fall back to the generic "Manual" badge every other
+  // hand-typed mode gets to signal "a human wrote this, not the AI."
+  const isManualSong = isManual && item.mode === 'song';
+  const visualMode = isManual && !isManualSong ? 'manual' : item.mode || 'speaker';
+  const modeMeta = isManual && !isManualSong ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
   article.className = `transcript-item transcript-item--${visualMode}${isManual ? ' transcript-item--manual' : ''}${isSample ? ' transcript-item--sample' : ''}`;
   setDataAttribute(article, 'mode', visualMode);
@@ -862,6 +899,27 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   body.textContent = item.text || '';
 
   article.append(meta, body);
+
+  // The sample placeholder isn't a real captured line -- nothing to delete. Every other card gets
+  // a delete button; it stays visually hidden until the card is hovered/focused (see layout.css),
+  // and carries the item id so the delegated handler in start-app.js knows which one to remove.
+  if (!isSample) {
+    setDataAttribute(article, 'itemId', item.id);
+    const deleteBtn = createNode('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'transcript-delete';
+    if (typeof deleteBtn.setAttribute === 'function') {
+      deleteBtn.setAttribute('aria-label', 'Delete this card');
+    }
+    const deleteIcon = createNode('span');
+    deleteIcon.className = 'transcript-delete-icon';
+    if (typeof deleteIcon.setAttribute === 'function') {
+      deleteIcon.setAttribute('aria-hidden', 'true');
+    }
+    deleteBtn.append(deleteIcon);
+    article.append(deleteBtn);
+  }
+
   return article;
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
+import { SENTENCE_END_SILENCE_MS } from '../../../public/controller/runtime.js';
 
 test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
   // The drain is skippable: summarizeCurrentText returns early while summarizeInFlight is set.
@@ -495,6 +496,72 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     assert.equal(driver.lastStartMode, 'information');
     assert.equal(ctx.state.paused, false);
     assert.equal(ctx.state.listening, true);
+  });
+});
+
+test('switching to song mode auto-pauses listening, and switching away auto-resumes it', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    startCount: 0,
+    stopCount: 0,
+    async start() { this.startCount += 1; },
+    async stop() { this.stopCount += 1; },
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.setMode('song');
+    await Promise.resolve();
+
+    assert.equal(ctx.state.paused, true, 'entering song mode pauses');
+    assert.equal(driver.stopCount, 1);
+
+    runtime.setMode('speaker');
+    await Promise.resolve();
+
+    assert.equal(ctx.state.paused, false, 'leaving song mode resumes what it auto-paused');
+    assert.equal(driver.startCount, 2);
+  });
+});
+
+test('a manual pause press while in song mode is not overridden when leaving song mode', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    startCount: 0,
+    stopCount: 0,
+    async start() { this.startCount += 1; },
+    async stop() { this.stopCount += 1; },
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    runtime.setMode('song');
+    await Promise.resolve();
+    assert.equal(ctx.state.paused, true);
+
+    // The operator's own call: manually resume while still in song mode.
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, false);
+    assert.equal(ctx.state.songAutoPaused, false, 'a manual press clears the auto-pause marker');
+
+    // Leaving song mode must not re-pause on top of the operator's explicit resume.
+    runtime.setMode('speaker');
+    await Promise.resolve();
+    assert.equal(ctx.state.paused, false);
   });
 });
 
@@ -3494,7 +3561,7 @@ function createSentenceEndHarness() {
   return { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance, getTime: () => currentTime };
 }
 
-test('sentence-end-on-silence appends a period to the newest chunk after 3s of no recognition events', async () => {
+test('sentence-end-on-silence appends a period to the newest chunk after SENTENCE_END_SILENCE_MS of no recognition events', async () => {
   const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
 
   await withRuntimeHarness({
@@ -3508,18 +3575,19 @@ test('sentence-end-on-silence appends a period to the newest chunk after 3s of n
     runtime.handleTranscriptEvent({ type: 'final', text: 'the young man went away' });
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away');
 
-    // Advance in 500ms steps to 2500ms elapsed -- still short of the 3s threshold.
-    for (let i = 0; i < 5; i += 1) {
+    // Advance in 500ms steps to one step short of the threshold.
+    const stepsShortOfThreshold = SENTENCE_END_SILENCE_MS / 500 - 1;
+    for (let i = 0; i < stepsShortOfThreshold; i += 1) {
       advance(500);
       runNext(500);
     }
     assert.equal(
       ctx.state.transcriptChunks.at(-1).text,
       'the young man went away',
-      'must not punctuate before 3s of silence'
+      'must not punctuate before the threshold'
     );
 
-    // Cross the 3s threshold.
+    // Cross the threshold.
     advance(500);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away.');
@@ -3533,7 +3601,7 @@ test('sentence-end-on-silence appends a period to the newest chunk after 3s of n
   });
 });
 
-test('a partial arriving before the 3s threshold resets the sentence-end clock', async () => {
+test('a partial arriving before the threshold resets the sentence-end clock', async () => {
   const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
 
   await withRuntimeHarness({
@@ -3546,22 +3614,22 @@ test('a partial arriving before the 3s threshold resets the sentence-end clock',
     await runtime.startListening();
     runtime.handleTranscriptEvent({ type: 'final', text: 'we welcome our visitors' });
 
-    // 2.9s of silence -- not enough to end the sentence.
-    advance(2900);
+    // Just under the threshold -- not enough to end the sentence.
+    advance(SENTENCE_END_SILENCE_MS - 100);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors');
 
     // A partial arrives right before the threshold and resets the clock.
     runtime.handleTranscriptEvent({ type: 'partial', text: 'we welcome our visitors and' });
-    advance(2900);
+    advance(SENTENCE_END_SILENCE_MS - 100);
     runNext(500);
     assert.equal(
       ctx.state.transcriptChunks.at(-1).text,
       'we welcome our visitors',
-      'the partial must have reset the 3s clock, not merely delayed it'
+      'the partial must have reset the clock, not merely delayed it'
     );
 
-    // Now the full 3s has actually elapsed since the partial.
+    // Now the full threshold has actually elapsed since the partial.
     advance(200);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors.');
@@ -3582,7 +3650,7 @@ test('sentence-end-on-silence never fires while paused or not listening', async 
     runtime.handleTranscriptEvent({ type: 'final', text: 'a line still mid sentence' });
     await runtime.togglePauseAi();
 
-    advance(5000);
+    advance(SENTENCE_END_SILENCE_MS + 1000);
     // No sentence-end timer should even be scheduled once paused (stopSilenceWatchdog clears it).
     assert.equal(runNext(500), false);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'a line still mid sentence');
@@ -3607,7 +3675,7 @@ test('inferred sentence-end punctuation is recorded as a follow-up record sharin
     assert.equal(spokenRecord.text, 'the offering will be received');
     assert.equal(spokenRecord.inferred, false);
 
-    advance(3000);
+    advance(SENTENCE_END_SILENCE_MS);
     runNext(500);
 
     const chunkRecords = ctx.state.recordingQueue.filter((record) => record.t === 'chunk');
@@ -3798,6 +3866,52 @@ test('barren chunks cannot each buy a provider call (#31)', async () => {
     runtime.handleTranscriptEvent({ type: 'final', text: 'Third barren sentence.' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.ok(calls > afterFirst, 'past the floor the wall is still empty, so trying again is right');
+  });
+});
+
+test('a new speaker gets the same fast path as the meeting\'s first speaker, even mid-meeting (#106)', async () => {
+  // firstCardShown is already true (a card is on the wall from the outgoing speaker), so without
+  // awaitingNewSpeakerArrival the incoming speaker's first sentence would wait out whatever is left
+  // of the old interval. The loop itself is never touched, this only reopens the #31 arrival gate.
+  const calls = [];
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A card.' }; }
+    }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai', firstCardShown: true }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('speaker');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'The new speaker begins their remarks.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, 'the new speaker\'s first complete sentence must not wait for the interval');
+
+    // A second chunk from the same speaker goes back to waiting on the interval.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'They continue with a second sentence.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls.length, 1, 'only the first sentence after a speaker change gets the fast path');
+  });
+});
+
+test('pressing Start Listening opens the fast path; an internal force-resume does not (#106)', async () => {
+  const driver = {
+    id: 'browser', label: 'Browser', isLive: true,
+    async start() {}, async stop() {}, setMode() {}
+  };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    assert.equal(ctx.state.awaitingNewSpeakerArrival, true, 'a real Start press opens the fast path');
+
+    ctx.state.awaitingNewSpeakerArrival = false;
+    await runtime.startListening({ force: true });
+    assert.equal(ctx.state.awaitingNewSpeakerArrival, false, 'an internal force-resume is not a new speaker');
   });
 });
 

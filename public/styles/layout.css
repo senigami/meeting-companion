@@ -101,7 +101,10 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  /* No scroll-behavior here on purpose: scrollTranscriptToBottom in view.js already hand-rolls
+     an eased rAF animation by writing scrollTop every frame. CSS smooth-scroll would have layered
+     its own interpolation on top of every one of those writes, fighting the JS curve and reading
+     as a slow start, a rushed middle, then a hard stop right at the end. */
   padding-block: clamp(1.25rem, 4vw, 4rem);
   padding-inline: var(--display-margin);
   scrollbar-gutter: stable both-edges;
@@ -277,6 +280,63 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .transcript-item--sample .transcript-text {
   font-style: italic;
+}
+
+/* Hidden until the operator is actually pointed at this card -- a delete button visible on every
+   card at all times would be one more thing competing with the transcript for attention on a
+   display this dense. :focus-within (not just :hover) keeps it reachable by keyboard. */
+.transcript-delete {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  width: 28px;
+  height: 28px;
+  /* base.css's shared `button` rule sets min-height:48px for touch targets, which otherwise wins
+     over the 28px above and stretches this into a pill instead of the circle it's meant to be. */
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(20, 20, 24, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+
+.transcript-delete-icon {
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask-image: url("../assets/icons/trash.svg");
+  mask-image: url("../assets/icons/trash.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.transcript-item:hover .transcript-delete,
+.transcript-item:focus-within .transcript-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.transcript-delete:hover {
+  background: rgba(214, 74, 74, 0.78);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.transcript-delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  outline: 2px solid rgba(160, 200, 255, 0.9);
+  outline-offset: 2px;
 }
 
 .transcript-meta {
