@@ -1,36 +1,24 @@
-// The prompt BOTH summarization paths use. (It began as an experiment beside the original
-// summary-prompt.js; the Claude path moved onto it at #47, so the asymmetry that comment used to
-// describe is gone and summary-prompt.js's buildSummarizePrompt now reaches no provider, see #90.)
+// The one prompt both OpenAI and Claude summarize through (server/summarization.js). Per-mode job,
+// chosen by mode:
 //
-// Steve's rule, and the thing to get right here: these are TWO different jobs, chosen by mode.
-//
-//   speaker, prayer  -> CONDENSE. Shorten what was said and leave it in their voice. A talk stays a
-//                       talk, a prayer stays a prayer. Do not retell it, do not report on it.
-//   information      -> SUMMARIZE. Announcements, dates, logistics. Facts matter, voice does not,
-//                       and third person is correct here.
-//   song             -> status only, which the app already treats as its own thing.
-//
-// The live prompt (summary-prompt.js) does one job for all modes and tells the model how to lay the
-// result out: three lines, one idea per line, lead with the topic, write the core message rather
-// than the opening. Measured over a 1082 word talk that produced more cards than there were
-// utterances, repeated itself, and drifted between "the speaker" and "I".
-//
-// A first version of this file condensed everything regardless of mode. It read far better but
-// attributed other people's facts to the speaker ("I was retired then, after thirty-one years
-// driving a delivery truck" was Harold, not the speaker), which is a confident falsehood on a wall
-// read by someone who cannot hear the room. Hence the attribution rule below.
+//   speaker      -> third-person summary of the main point (2026-08-08 ruling: this used to keep
+//                   the speaker's own voice; a first version that did attributed other people's
+//                   facts to the speaker -- "I was retired then, after thirty-one years driving a
+//                   delivery truck" was Harold's story, not the speaker's -- hence the attribution
+//                   rule below).
+//   prayer       -> still read as a prayer being offered, not reported on.
+//   information  -> summarize. Facts matter, voice does not.
+//   song         -> status only, which the app already treats as its own thing.
 
-// One card, about this many words. NOT a per-line cap: the live prompt allows up to three lines of
-// 14 words, which is 42 words a call, and the model takes all three nearly every time. Measured
-// against ~90 words of speech per 15s tick that lands at 47%, which is what the whole-talk run
-// actually produced (48.8%). A fixed per-CARD budget compresses properly: measured directly, 90
-// words in gave 17 out (19%) and 46 gave 16 (35%).
+// One card, about this many words -- a target to compress toward, not a hard cap (Steve: he is fine
+// getting 11 or 12 when the content needed it). Measured against ~90 words of speech per 15s tick:
+// a fixed per-CARD budget compresses properly, where the old three-lines-of-14-words shape landed at
+// 47-48.8% and this landed 19-35% depending on input density.
 export const CARD_WORDS = 15;
 
-const READER = `You are preparing text for a large display read by one person who is Deaf and has low
-vision. American Sign Language is their first language and English is their second, so write clean,
-simple English. Never ASL gloss or ASL word order. They read slowly, so every word has to earn its
-place.`;
+// Tested 2026-08-08 against real recorded speech: dropping the who-this-is-for backstory and
+// keeping only the two directives changed nothing observable in the output.
+const READER = `Write clean, simple English. Never ASL gloss or ASL word order.`;
 
 const VERBATIM = `Keep these exactly as spoken, never paraphrased and never rounded: names, dates,
 times, numbers, hymn numbers, and scripture references.
@@ -42,8 +30,8 @@ Write numbers as digits, not words: 9:00 rather than nine o'clock, 19 rather tha
 rather than four dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are
 faster to read and harder to misread at a distance.
 
-Do not add anything that was not said. Do not say the same thing twice. Return only the text, with
-no preamble.`;
+Never invent a name, number, date, or detail that was not said. Do not say the same thing twice.
+Return only the text, with no preamble.`;
 
 export function buildMinimalSummarizePrompt({
   recentTranscript = '',
@@ -77,16 +65,11 @@ ${READER}
 
 ${subject}
 
-Write ONE line of no more than ${cardWords} words. One line only.
-
-The reader gets about one word every two seconds, so this line is all they will manage before the
-next one replaces it. Do not try to cover everything that was said. Pick the single most important
-thing -- the one piece somebody would need to follow what is happening -- and write only that.
+Write ONE line, target ${cardWords} words. Pick the single most important thing and write only that.
 
 Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
 
-Do not spend words on who is talking. "The speaker", "someone", "a member" and the like tell the
-reader nothing they cannot already see, and at this length they cost a fifth of the card. Lead with
+Do not spend words on who is talking. Never say "the speaker", "someone", or "a member". Lead with
 the thing itself. Name a person only when a name was actually said and the point depends on it.
 
 Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
@@ -99,37 +82,52 @@ ${text}
 `.trim();
   }
 
-  // CONDENSE: the speaker's own words, made shorter. Their voice is the point.
+  // PRAYER: still its own shape -- a prayer read in third person stops being a prayer, so this one
+  // stays in first person rather than moving to the report style speaker mode now uses.
   //
-  // Note what this branch does NOT ask for: a number of lines. Measured 2026-08-02 against a real
-  // 62-word testimony, "no more than 3 lines" returned 8 -- and 3x15, 3x17 and 2x20 all produced
-  // byte-identical output, so the constraint was not being read at all. The model splits by thought
-  // reliably and cannot count its own lines, so we ask only for the split and let
-  // packLinesIntoCards own the word budget. cardWords is still passed in and still matters; it is
-  // just enforced in code now rather than requested in prose.
-  if (mode === 'speaker' || mode === 'prayer') {
-    const shape = mode === 'prayer'
-      ? `This is a prayer. It must still read as a prayer being offered, not as a report that someone
-prayed. Keep the address ("Heavenly Father", "Dear Lord") and the amen.`
-      : `This is somebody speaking to the congregation. It must still read as them talking.`;
-
+  // 2026-08-08: dropped "keep the address and the amen" after Steve hit a real fabricated Amen.
+  // Reproduced it directly: with that instruction, 4/4 mid-prayer chunks (no address or amen
+  // actually spoken) got BOTH bookended on, every single call, because the model read "keep" as
+  // "every card should look like a complete prayer" rather than "preserve it if it's there."
+  // Removing the instruction and testing the same chunks plus a genuine opening and closing: all
+  // four came out correct, with the real address/amen still preserved by the ordinary verbatim
+  // rule below when they were actually said, and nothing added when they weren't.
+  if (mode === 'prayer') {
     return `
 ${READER}
 
-${shape}
+This is a prayer. It must still read as a prayer being offered, not as a report that someone
+prayed.
 
 Put each separate thought on its own line, in the order they were said. Do not number them and do
-not add bullets. Do not worry about how many lines there are or how long each one is -- something
-after you packs them into cards, and it can only do that if the thoughts arrive separated.
-
-Shortening is the whole job: do not retell it, do not explain it, and never describe the speaker
-from outside ("the speaker said", "he explained", "she shared"). Cut words, keep theirs.
-
-Keep every fact attached to whoever it was about. If they say "I lost my job", write "I lost my
-job". If they say "Harold retired after thirty-one years", that is Harold, not the speaker. Never
-move somebody else's actions, feelings or history onto the person talking.
+not add bullets.
 
 ${VERBATIM}
+
+Text:
+${text}
+`.trim();
+  }
+
+  // SPEAKER: third person, one card's worth of length per call. Steve's ruling, 2026-08-08, tested
+  // against a real recorded talk: direct, simple instructions for exactly what is wanted, no
+  // narration -- and no "keep their voice" framing, which is a deliberate reversal of this branch's
+  // original shape (see git history). The mandate is fitting on one card at the target length, not
+  // forcing exactly one line out of the model -- if it ever returns more than one, packLinesIntoCards
+  // still packs/sizes them same as any other mode; nothing downstream assumes a single line.
+  if (mode === 'speaker') {
+    return `
+${READER}
+
+Summarize the main point using simple words, as if explaining it to an 8 year old. Third person only
+-- never write as the speaker or use "I".
+
+Keep facts attached to whoever they are about: if a name is mentioned, that name did it, not the
+speaker.
+
+${VERBATIM}
+
+Your target is about ${cardWords} words.
 
 Text:
 ${text}
@@ -151,11 +149,10 @@ ${text}
   return `
 ${READER}
 
-This is meeting information: announcements, dates, times, assignments, logistics. Summarize it. The
-wording does not matter, the facts do. Third person is correct here, and there is no need to keep
-anybody's voice.
+This is meeting information: announcements, dates, times, assignments, logistics. Summarize it as
+if explaining it to an 8 year old. Third person, facts only, no voice to preserve.
 
-Write one line of no more than ${cardWords} words per SEPARATE announcement. Two announcements are
+Write one line, target ${cardWords} words, per SEPARATE announcement. Two announcements are
 two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
 bee Saturday"), never with a clause about it ("If you are able to help...").
 

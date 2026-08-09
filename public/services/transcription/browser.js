@@ -13,7 +13,8 @@ export function createBrowserTranscriptionDriver({
   onStatus = () => {},
   language = 'en-US',
   setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout
+  clearTimeoutFn = clearTimeout,
+  nowFn = Date.now
 } = {}) {
   let recognition = null;
   let listening = false;
@@ -30,6 +31,38 @@ export function createBrowserTranscriptionDriver({
   // quickly once the underlying condition clears.
   const RESTART_BASE_DELAY_MS = 500;
   const RESTART_MAX_DELAY_MS = 30000;
+
+  // #37. The Web Speech API takes whatever microphone the browser hands it, and the app's picker
+  // does not reach it. On Steve's machine Chrome opened the built-in mic instead of the interface
+  // he had chosen, that device measured -Infinity dBFS, and recognition timed out with no-speech,
+  // restarted and repeated for hours while the rail said "Listening". Two no-speech timeouts with
+  // no sound EVER heard is not a quiet room, it is a device delivering nothing, and the rail has to
+  // stop claiming otherwise (INV-10). One is deliberately not enough: a genuine pause before anyone
+  // speaks produces exactly one.
+  const SILENT_DEVICE_NO_SPEECH_STREAK = 2;
+  // #94 (Cato, gating #93): two no-speech timeouts land back to back at roughly 10-16s, well ahead
+  // of runtime.js's SILENCE_WATCHDOG_MS (45s), which deliberately waits that long because a false
+  // alarm during an ordinary quiet moment (a pause before the meeting starts, a long prayer) is its
+  // own harm. This driver must not beat that deliberated wait with a more specific-sounding claim,
+  // so it carries the same floor -- keep the two in sync if either changes.
+  const SILENT_DEVICE_FLOOR_MS = 45000;
+  let heardSound = false;
+  let noSpeechStreak = 0;
+  let reportedSilentDevice = false;
+  let listeningStartedAt = 0;
+
+  function noteAudioHeard() {
+    heardSound = true;
+    noSpeechStreak = 0;
+    if (!reportedSilentDevice) return;
+    reportedSilentDevice = false;
+    // Deliberately levelless. Asserting 'listening' from here withdrew the claim and took a live
+    // 'problem' off the rail with it, because a non-persistent level clears the persistent note
+    // whatever caused it (Cato, gating #93). A driver cannot make that call: it does not know what
+    // the rail is currently showing. Clearing the silence level belongs to noteTranscriptActivity
+    // in runtime.js, which already guards on railStatusLevel being the level it is clearing.
+    onStatus('Browser transcription is hearing audio.');
+  }
 
   function clearRestartTimer() {
     if (restartTimer !== null) {
@@ -93,12 +126,32 @@ export function createBrowserTranscriptionDriver({
       }
 
       restartFailureCount = 0;
+      noteAudioHeard();
       if (finalText.trim()) emit('final', finalText, { source: 'browser' });
       if (interimText.trim()) emit('partial', interimText, { source: 'browser' });
     };
 
+    recognition.onsoundstart = () => {
+      noteAudioHeard();
+    };
+    recognition.onspeechstart = () => {
+      noteAudioHeard();
+    };
+
     recognition.onerror = (event) => {
       const error = String(event?.error || 'unknown error');
+      if (error.toLowerCase() === 'no-speech') {
+        noSpeechStreak += 1;
+        const heardNothingLongEnough = nowFn() - listeningStartedAt >= SILENT_DEVICE_FLOOR_MS;
+        if (!heardSound && noSpeechStreak >= SILENT_DEVICE_NO_SPEECH_STREAK && heardNothingLongEnough && !reportedSilentDevice) {
+          reportedSilentDevice = true;
+          onStatus(
+            'No audio at all from the browser\'s microphone. It may be listening to a different device than the one chosen in the picker -- worth checking.',
+            { level: 'silence' }
+          );
+          return;
+        }
+      }
       if (isFatalSpeechRecognitionError(error)) {
         listening = false;
         started = false;
@@ -130,6 +183,12 @@ export function createBrowserTranscriptionDriver({
       clearRestartTimer();
       listening = true;
       restartFailureCount = 0;
+      // A fresh start is a fresh question about the device: whatever the last session heard says
+      // nothing about the one the browser is about to open.
+      heardSound = false;
+      noSpeechStreak = 0;
+      reportedSilentDevice = false;
+      listeningStartedAt = nowFn();
       if (!started) {
         rec.start();
         started = true;

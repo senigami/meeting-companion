@@ -4,6 +4,20 @@ import assert from 'node:assert/strict';
 import { chooseSummaryLevel, isSummaryLevel, BRIEF_MAX_CARD_WORDS } from '../../../public/services/summary-level.js';
 import { buildMinimalSummarizePrompt } from '../../../public/services/summary-prompt-minimal.js';
 
+// Closes a coverage gap found in adversarial review 2026-08-08: the 12 tests that checked the prompt
+// TEXT for anti-fabrication/verbatim-entity language were deleted alongside the dead buildSummarizePrompt
+// they tested, and nothing replaced them for the prompt actually in use. Every mode must carry both.
+test('every mode\'s live prompt carries the anti-fabrication and verbatim-entity contract', () => {
+  for (const mode of ['speaker', 'prayer', 'information']) {
+    for (const level of ['condense', 'brief']) {
+      const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Anything at all.', mode, level });
+      assert.match(prompt, /Never invent a name, number, date, or detail that was not said/, `${mode}/${level}`);
+      assert.match(prompt, /never paraphrased and never rounded/, `${mode}/${level}`);
+      assert.match(prompt, /Never ASL gloss/, `${mode}/${level}`);
+    }
+  }
+});
+
 test('a reading budget too small for anyone\'s voice selects brief', () => {
   // Measured 2026-08-02: about one word every two seconds. A 20s window is ten words.
   assert.equal(chooseSummaryLevel({ cardWords: 10 }), 'brief');
@@ -36,7 +50,7 @@ test('only the two known levels are accepted', () => {
 
 test('the brief prompt asks for one line, third person, and the single most important thing', () => {
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 10, level: 'brief' });
-  assert.match(prompt, /no more than 10 words/);
+  assert.match(prompt, /target 10 words/);
   assert.match(prompt, /ONE line/);
   assert.match(prompt, /third person/i);
   assert.match(prompt, /most important/i);
@@ -48,17 +62,24 @@ test('the brief prompt asks for one line, third person, and the single most impo
   assert.match(prompt, /Do not spend words on who is talking/);
 });
 
-test('the condense prompt still keeps the speaker\'s voice, so the level is a choice and not a migration', () => {
+test('the condense prompt is third person too now, but still a distinct prompt from brief', () => {
+  // Steve, 2026-08-08, tested against a real recording: condense speaker mode drops the
+  // speaker's-voice framing and goes third person, same as brief. That is a deliberate reversal of
+  // this test's old name, not a regression -- what still matters is that condense and brief remain
+  // two distinct prompts rather than one silently collapsing into the other.
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 17, level: 'condense' });
-  assert.match(prompt, /must still read as them talking/);
-  assert.doesNotMatch(prompt, /third person/i);
+  assert.match(prompt, /Third person only/);
+  assert.doesNotMatch(prompt, /must still read as them talking/);
+  assert.match(prompt, /8 year old/);
+  assert.doesNotMatch(prompt, /single most important/i);
 });
 
 test('brief prayer mode is still reported, not voiced', () => {
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'A prayer.', mode: 'prayer', maxWords: 10, level: 'brief' });
   assert.match(prompt, /prayer being offered/);
   assert.match(prompt, /third person/i);
-  // condense keeps the address and the amen; brief has no room for either and must not claim to.
+  // Neither level ever asks the model to add an address or amen (2026-08-08: that instruction
+  // fabricated both on every mid-prayer card). This just guards brief specifically never regains it.
   assert.doesNotMatch(prompt, /Keep the address/);
 });
 

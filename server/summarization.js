@@ -131,8 +131,8 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLine
   }
 
   // buildMinimalSummarizeMessages is the conversational-turns prompt proven in
-  // scripts/simulate-meeting.js: real user/assistant turns instead of prior context pasted into
-  // one message. Both providers have been on it since #47.
+  // scripts/simulate-meeting.js (real user/assistant turns instead of prior context pasted into
+  // one message). The Claude path below also uses it (#47) -- both providers share one prompt now.
   const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
   const completion = await client.chat.completions.create({
     model: DEFAULT_OPENAI_MODEL,

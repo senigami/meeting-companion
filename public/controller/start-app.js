@@ -354,6 +354,16 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.undo.addEventListener('click', runtime.undoLine);
   ctx.dom.clear.addEventListener('click', runtime.clearLines);
   ctx.dom.clear.addEventListener('blur', runtime.cancelClearArm);
+  // Delegated: cards are replaced wholesale on every render (view.js#renderDisplay), so a listener
+  // on each button would be thrown away and re-attached every tick. One listener on the stack,
+  // keyed by the item id view.js stamps onto the card, survives that churn.
+  ctx.dom.transcriptStack?.addEventListener('click', (event) => {
+    const deleteBtn = event.target.closest?.('.transcript-delete');
+    if (!deleteBtn) return;
+    const card = deleteBtn.closest('.transcript-item');
+    const id = card?.dataset?.itemId;
+    if (id) runtime.removeItem(id);
+  });
   const fullscreenButton = ctx.dom.fullscreen || $('fullscreen');
   const syncFullscreenButton = () => {
     const active = Boolean(document.fullscreenElement);

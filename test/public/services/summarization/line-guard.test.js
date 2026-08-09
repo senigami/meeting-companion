@@ -46,9 +46,9 @@ for (const [name, create] of [['openai', createOpenAISummarizer], ['claude', cre
 }
 
 test('the two constants are deliberately different numbers and must not be merged', () => {
-  // MAX_LINES_PER_CALL is the CONTRACT of buildSummarizePrompt, which genuinely asks for three lines.
-  // RUNAWAY_LINE_GUARD is a fault bound on a prompt that asks for one thought per line. Collapsing
-  // them would either re-break #49 or silently change what the older prompt promises.
+  // MAX_LINES_PER_CALL is cleanModelLines's own default cap (3). RUNAWAY_LINE_GUARD is the fault
+  // bound both providers actually pass, on a prompt that asks for one thought per line. Collapsing
+  // them would re-break #49.
   assert.equal(MAX_LINES_PER_CALL, 3);
   // The VALUE, not just "greater than the other one". Cato measured that with only the relational
   // assertion, changing RUNAWAY_LINE_GUARD from 12 to 5 left all 637 tests passing -- so Ansel's

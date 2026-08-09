@@ -135,20 +135,25 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // instead of running the rest of the service showing a calm, wrong "Listening."
 const SILENCE_WATCHDOG_MS = 45000;
 
-// Steve's ruling (2026-07-30): a period should be inserted after 3 seconds of no audio. Chrome's
-// Web Speech API frequently never punctuates an utterance at all, so without this,
+// Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
+// event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,
 // partitionBucket's own punctuation rule holds the newest chunk hostage for the full
 // BUCKET_SETTLE_MS (20s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
 // chunk arrives and appears to start a fresh sentence while the unpunctuated tail from before it
-// is still sitting unsent. Exported (not a buried literal) because Ansel may revise the number
-// after measuring real pause lengths.
+// is still sitting unsent. "No audio" is not observable on the Chrome path (it exposes no levels
+// for its own internal mic), so the trigger is "no new recognition event of any kind, partial or
+// final" -- Chrome emits partials continuously while it hears speech, so absence of events is a
+// sound proxy for silence there.
 //
-// The substitution Steve cleared: "no audio" is not observable on this path (Chrome exposes no
-// levels for its own internal mic), so the trigger is "3 seconds with no new recognition event of
-// any kind, partial or final" -- Chrome emits partials continuously while it hears speech, so
-// absence of events is a sound proxy for silence here. Real audio-level silence detection stays
-// out of scope for this path; the OpenAI path, which owns its own capture, can do better later.
-export const SENTENCE_END_SILENCE_MS = 3000;
+// 2026-08-09: raised from 3000 to 6000 after this same timer misfired on the VAD/OpenAI path. That
+// path's own chunk boundary (redemptionMs: 2500 in transcription/openai.js) already fires on a
+// natural mid-sentence breath, so the timer's clock was starting from a chunk that was never the
+// end of the sentence -- a ~2.5s pause to speak plus ~3s more of nothing (about 5.5s total) was
+// enough to fabricate a period mid-thought. One shared threshold, not a per-source one, per Steve:
+// 6s costs Chrome a little extra latency on a real sentence end, but on the VAD path it means
+// roughly 8.5s of genuine silence (2.5s redemption + 6s here) before a period gets inferred,
+// comfortably past a normal thinking pause.
+export const SENTENCE_END_SILENCE_MS = 6000;
 
 // Poll cadence for the sentence-end check above -- deliberately finer than
 // SILENCE_CHECK_INTERVAL_MS's 5s, since a 3s trigger polled only every 5s would frequently fire
@@ -292,7 +297,8 @@ export function createRuntime(ctx, deps = {}) {
   // chunk explicitly (see runSummarizeCurrentText's sendSpeaker), the same precedent `mode` already
   // follows for a backlogged card.
   // Whether a newly captured chunk should be summarized immediately rather than waiting for the
-  // interval (#31). Three conditions, and the second two are why the first is not enough on its own.
+  // interval (#31, generalized by #106). Three conditions, and the second two are why the first is
+  // not enough on its own.
   //
   // Found by Cato before this shipped: gating on firstCardShown ALONE bypassed the summarize backoff
   // completely. effectiveIntervalSeconds is how a failing provider gets backed off, and it is consumed
@@ -302,8 +308,17 @@ export function createRuntime(ctx, deps = {}) {
   //
   // The elapsed floor covers the healthy version of the same thing: pre-meeting chatter that keeps
   // returning "no new useful line" never sets the flag, so every barren chunk bought its own call.
+  //
+  // #106: the same empty-wall problem #31 solved once at meeting start also happens on every speaker
+  // change, since startLoop's interval is untouched by a mode change and keeps its own schedule.
+  // awaitingNewSpeakerArrival opens this same gate again without touching firstCardShown's own
+  // meaning (whether the WALL is empty) -- a speaker change does not clear the wall, it just means
+  // the newest person deserves the same fast turnaround the very first speaker got. Deliberately NOT
+  // a stop-the-loop-and-restart-it design: an earlier attempt at that for #31 forced the progress bar
+  // to either lie about its sweep or flicker, caught by four tests at the time. This stays additive,
+  // same as #31 -- the interval loop never notices any of this and remains the backstop.
   function shouldSummarizeOnArrival() {
-    if (ctx.state.firstCardShown) return false;
+    if (ctx.state.firstCardShown && !ctx.state.awaitingNewSpeakerArrival) return false;
     // Already backing off a failing provider: the interval is the backstop, let it be the backstop.
     if (ctx.state.effectiveIntervalSeconds) return false;
     const since = nowFn() - (ctx.state.lastArrivalSummarizeAt || 0);
@@ -357,6 +372,19 @@ export function createRuntime(ctx, deps = {}) {
       updateStatus(ctx, text);
       flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
     }
+  }
+
+  // One card, by id, from the per-card delete button -- distinct from undoLine (always the last
+  // card) and clearLines (everything, arm-confirmed). No undo of its own: the operator just clicked
+  // a button on the exact card they meant to remove, so there is nothing to confirm.
+  function removeItem(id) {
+    const index = ctx.state.transcriptItems.findIndex((item) => item.id === id);
+    if (index === -1) return;
+    const [removed] = ctx.state.transcriptItems.splice(index, 1);
+    renderDisplay(ctx);
+    const text = `Removed: "${truncateForStatus(removed.text)}"`;
+    updateStatus(ctx, text);
+    flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
   }
 
   function armClear() {
@@ -661,6 +689,9 @@ export function createRuntime(ctx, deps = {}) {
         // run or does nothing.
         if (shouldSummarizeOnArrival()) {
           ctx.state.lastArrivalSummarizeAt = nowFn();
+          // Consumed here, not inside the predicate: a call skipped by the backoff guard above must
+          // leave this open so the NEXT chunk still gets the fast path once the provider recovers.
+          ctx.state.awaitingNewSpeakerArrival = false;
           void summarizeCurrentText();
         }
       }
@@ -1338,7 +1369,84 @@ export function createRuntime(ctx, deps = {}) {
     return promise;
   }
 
+  // #54. A bucket-draining tick (text undefined) drains at most one complete mode run per
+  // interval, and runs now break on a speaker change (#51), so a second speaker landing in the
+  // same tick used to wait a full BUCKET_TICK_MS behind the first. Here we keep draining complete
+  // runs out of the SAME tick instead of waiting for the next one -- but only when the previous
+  // drain actually SUCCEEDED (unpaused, no error): a failing provider must still fail exactly once
+  // per tick, or a loop that keeps retrying it inflates summarizeFailureCount and trips Marlow's
+  // escalation threshold early during exactly the outage backlog this loop exists to drain safely.
+  // Hard-capped independently of that success gate, because an outage backlog sitting in the bucket
+  // while the provider recovers is precisely the case where "keep draining while runs remain" would
+  // otherwise turn into an unbounded burst of calls the moment the provider comes back. Hitting the
+  // cap is counted in summarizeDrainCapHits and passed to updateStatus, but that call alone does NOT
+  // put it in front of the operator -- updateStatus with no level only writes #status, which lives
+  // inside the closed settings dialog. Whether this needs a rail-visible surface is Marlow's call,
+  // not mine; summarizeDrainCapHits exists so a test (or Marlow's surface) can observe the cap was
+  // hit without needing one.
+  // A caller-supplied `text` (used only by tests) is a single explicit call, never a bucket drain,
+  // so it never loops.
+  const MAX_DRAIN_RUNS_PER_TICK = 5;
+
+  // Returns true when the bucket has another complete run worth draining, OR when peeking at it
+  // threw (e.g. takeOldestModeRun's over-BUCKET_MAX_CHARS guard at transcript-bucket.js:109) --
+  // a peek that swallowed that throw and returned false would keep the while loop's body from ever
+  // running, which means drainOnce's OWN try/catch (the thing that actually counts the failure and
+  // reports "Could not prepare the transcript") would never see it either. So a fault here must read
+  // as "yes, go drain" rather than "no work to do": the throw is deliberately NOT handled in this
+  // function, just let through so the caller enters drainOnce, which re-runs the exact same
+  // partitionBucket/takeOldestModeRun call and hits its existing INV-10 reporting path.
+  function hasCompleteModeRun(settleMs) {
+    const { consumable } = partitionBucket(ctx.state.transcriptChunks, { settleMs });
+    const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode, defaultSpeaker: ctx.state.speakerName });
+    return Boolean(run.chunks?.length);
+  }
+
+  // Peeks for more work without ever swallowing a bucket fault: a throw means "there is real,
+  // unprocessed work here (it just can't be safely measured)", so the drain loop must still enter
+  // the body and let drainOnce's own try/catch see the same throw and report/count it -- exactly
+  // the property this wrapper exists to preserve after #54 (see hasCompleteModeRun above).
+  function mustKeepDraining(settleMs) {
+    try {
+      return hasCompleteModeRun(settleMs);
+    } catch (_error) {
+      return true;
+    }
+  }
+
   async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS } = {}) {
+    if (text) {
+      await drainOnce(text, settleMs);
+      return;
+    }
+    let runs = 0;
+    let ok = true;
+    while (ok && !ctx.state.paused && runs < MAX_DRAIN_RUNS_PER_TICK && mustKeepDraining(settleMs)) {
+      runs += 1;
+      ok = await drainOnce(undefined, settleMs);
+    }
+    // The cap-hit check below is purely informational (whether a real backlog remains after the
+    // cap), so a fault here is treated as "no cap message" rather than forced true -- the fault
+    // itself was already counted/reported by drainOnce on whichever iteration hit it, and will be
+    // again next tick since drainOnce never removes the offending chunk (INV-11).
+    let stillPending = false;
+    try {
+      stillPending = ok && !ctx.state.paused && runs >= MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs);
+    } catch (_error) {
+      stillPending = false;
+    }
+    if (stillPending) {
+      ctx.state.summarizeDrainCapHits = (ctx.state.summarizeDrainCapHits || 0) + 1;
+      updateStatus(ctx, 'Backlog is longer than expected; catching up over the next few ticks.');
+    }
+  }
+
+  // The actual single-run body, unchanged from before #54 except for its return value: `true`
+  // means "consumed successfully while unpaused", the one condition under which it is safe for
+  // the loop above to immediately ask for another run; everything else (paused, bucket fault,
+  // provider failure, or a deduped no-op that never reached the network) returns `false` and ends
+  // the tick's drain right there, exactly as a single un-looped call would have.
+  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS) {
     resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
@@ -1382,10 +1490,10 @@ export function createRuntime(ctx, deps = {}) {
           `Could not prepare the transcript: ${error?.message || error}`,
           ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
         );
-        return;
+        return false;
       }
     }
-    if (!recent || recent === ctx.state.lastSentText) return;
+    if (!recent || recent === ctx.state.lastSentText) return false;
 
     ctx.state.summarizeInFlight = true;
     updateStatus(ctx, 'Summarizing...');
@@ -1447,7 +1555,7 @@ export function createRuntime(ctx, deps = {}) {
 
       resetSummarizeBackoff();
 
-      if (ctx.state.paused) return;
+      if (ctx.state.paused) return false;
       // The bucket only drains on success while unpaused -- a failed or pause-interrupted request
       // re-sends the same sentences next tick (INV-11).
       ctx.state.lastSentText = recent;
@@ -1471,8 +1579,10 @@ export function createRuntime(ctx, deps = {}) {
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
         ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line }].slice(-6);
+        return true;
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
+        return true;
       }
     } catch (error) {
       queueRecord(() => buildSummaryRecord({
@@ -1496,6 +1606,7 @@ export function createRuntime(ctx, deps = {}) {
         `Could not summarize: ${error.message}`,
         ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
       );
+      return false;
     } finally {
       ctx.state.summarizeInFlight = false;
       // Every exit path -- success, failure, or the early `if (ctx.state.paused) return;` above --
@@ -1521,6 +1632,12 @@ export function createRuntime(ctx, deps = {}) {
   // mode-change-only reset would never fire, and the buttons are already under his hand.
   function setMode(mode) {
     const changed = ctx.state.mode !== mode;
+    // Song is typed, not heard (#106): listening through a hymn feeds sung audio into a prompt built
+    // for speech, and the app has no way to tell "the hymn ended" from silence. Auto-pause on entry,
+    // auto-resume on exit -- but only ours to touch: a manual Pause press clears songAutoPaused, so
+    // an operator's own call is never overridden by this switching back.
+    const enteringSong = mode === 'song' && ctx.state.mode !== 'song';
+    const leavingAutoPausedSong = ctx.state.mode === 'song' && mode !== 'song' && ctx.state.songAutoPaused;
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
@@ -1530,7 +1647,16 @@ export function createRuntime(ctx, deps = {}) {
     // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
     // context before the history is dropped.
     void startNewSpeaker();
-    const message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
+
+    let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
+    if (enteringSong && ctx.state.listening && !ctx.state.paused) {
+      ctx.state.songAutoPaused = true;
+      void pauseAi();
+      message = 'Song mode. Microphone paused -- type the hymn.';
+    } else if (leavingAutoPausedSong) {
+      ctx.state.songAutoPaused = false;
+      void resumeAi();
+    }
     updateStatus(ctx, message);
     // updateStatus with no level writes only to #status, which lives inside the settings dialog --
     // unreadable during a meeting, when the panel is closed and this button is the one the operator
@@ -1778,6 +1904,9 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
+      // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
+      // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
+      if (!force) ctx.state.awaitingNewSpeakerArrival = true;
       startLoop();
       // Replay is not a live source, so the rail must never say "Listening" for it: the driver
       // states its own level (manual while replaying, problem when the recording could not be
@@ -1832,23 +1961,45 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  async function togglePauseAi() {
-    ctx.state.paused = !ctx.state.paused;
+  async function pauseAi() {
+    ctx.state.paused = true;
     updatePauseButton(ctx);
+    stopSilenceWatchdog();
+    // Two different questions, and they must not share an answer. `wasListening` decides whether
+    // there is a driver to stop (control flow); only a genuinely live source may be described as
+    // a stopped microphone (wording). Sourcing the sentence from state.listening claimed "microphone
+    // stopped" during a replay, where there is no microphone -- the same lie as the recovery sites
+    // above. pauseActiveTranscription() stops the driver without discarding it, so the helper still
+    // answers correctly after the await.
+    const wasListening = ctx.state.listening;
+    const wasLiveCapture = activeTranscriptionStatusLevel() === 'listening';
+    if (wasListening) {
+      await pauseActiveTranscription();
+    }
+    return wasLiveCapture;
+  }
 
-    if (ctx.state.paused) {
-      stopSilenceWatchdog();
-      // Two different questions, and they must not share an answer. `wasListening` decides whether
-      // there is a driver to stop (control flow); only a genuinely live source may be described as
-      // a stopped microphone (wording). Sourcing the sentence from state.listening claimed "microphone
-      // stopped" during a replay, where there is no microphone -- the same lie as the recovery sites
-      // above. pauseActiveTranscription() stops the driver without discarding it, so the helper still
-      // answers correctly after the await.
-      const wasListening = ctx.state.listening;
-      const wasLiveCapture = activeTranscriptionStatusLevel() === 'listening';
-      if (wasListening) {
-        await pauseActiveTranscription();
-      }
+  async function resumeAi() {
+    ctx.state.paused = false;
+    updatePauseButton(ctx);
+    if (ctx.state.listening) {
+      await startListening({ force: true });
+      // Same honesty rule as startListening: there is no microphone behind replay, so resuming it
+      // must not announce one. startListening() has already let the driver state its own level.
+      // undefined (not false) when listening but not live -- silent, same as the original code's
+      // fall-through: a replay resuming must not claim a microphone it doesn't have, but it also
+      // never claimed to be "stopped" either.
+      return activeTranscriptionStatusLevel() === 'listening' ? true : undefined;
+    }
+    return false;
+  }
+
+  async function togglePauseAi() {
+    // A manual press always wins going forward: whatever auto-pause put us here (song mode included)
+    // stops being this function's business the moment the operator makes their own call.
+    ctx.state.songAutoPaused = false;
+    if (!ctx.state.paused) {
+      const wasLiveCapture = await pauseAi();
       updateStatus(
         ctx,
         wasLiveCapture
@@ -1859,14 +2010,10 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
 
-    if (ctx.state.listening) {
-      await startListening({ force: true });
-      // Same honesty rule as startListening: there is no microphone behind replay, so resuming it
-      // must not announce one. startListening() has already let the driver state its own level.
-      if (activeTranscriptionStatusLevel() === 'listening') {
-        updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
-      }
-    } else {
+    const resumedLive = await resumeAi();
+    if (resumedLive) {
+      updateStatus(ctx, 'AI resumed — microphone listening again.', { level: 'listening' });
+    } else if (resumedLive === false) {
       updateStatus(ctx, 'AI resumed. Microphone is still stopped.', { level: 'manual' });
     }
   }
@@ -2149,6 +2296,9 @@ export function createRuntime(ctx, deps = {}) {
     await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentText = '';
+    // #106: the new speaker's first complete sentence deserves the same #31 fast path the very
+    // first speaker of the meeting gets, not a wait on whatever is left of the old interval.
+    ctx.state.awaitingNewSpeakerArrival = true;
   }
 
   return {
@@ -2193,6 +2343,7 @@ export function createRuntime(ctx, deps = {}) {
     summarizeCurrentText,
     togglePauseAi,
     undoLine,
+    removeItem,
     updatePauseButton: () => updatePauseButton(ctx),
     toggleSettingsOpen: () => {
       const next = !(ctx.state.settingsOpen ?? ctx.state.panelOpen);
