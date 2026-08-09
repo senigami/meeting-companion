@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
+import { SENTENCE_END_SILENCE_MS } from '../../../public/controller/runtime.js';
 
 test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
   // The drain is skippable: summarizeCurrentText returns early while summarizeInFlight is set.
@@ -3560,7 +3561,7 @@ function createSentenceEndHarness() {
   return { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance, getTime: () => currentTime };
 }
 
-test('sentence-end-on-silence appends a period to the newest chunk after 3s of no recognition events', async () => {
+test('sentence-end-on-silence appends a period to the newest chunk after SENTENCE_END_SILENCE_MS of no recognition events', async () => {
   const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
 
   await withRuntimeHarness({
@@ -3574,18 +3575,19 @@ test('sentence-end-on-silence appends a period to the newest chunk after 3s of n
     runtime.handleTranscriptEvent({ type: 'final', text: 'the young man went away' });
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away');
 
-    // Advance in 500ms steps to 2500ms elapsed -- still short of the 3s threshold.
-    for (let i = 0; i < 5; i += 1) {
+    // Advance in 500ms steps to one step short of the threshold.
+    const stepsShortOfThreshold = SENTENCE_END_SILENCE_MS / 500 - 1;
+    for (let i = 0; i < stepsShortOfThreshold; i += 1) {
       advance(500);
       runNext(500);
     }
     assert.equal(
       ctx.state.transcriptChunks.at(-1).text,
       'the young man went away',
-      'must not punctuate before 3s of silence'
+      'must not punctuate before the threshold'
     );
 
-    // Cross the 3s threshold.
+    // Cross the threshold.
     advance(500);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'the young man went away.');
@@ -3599,7 +3601,7 @@ test('sentence-end-on-silence appends a period to the newest chunk after 3s of n
   });
 });
 
-test('a partial arriving before the 3s threshold resets the sentence-end clock', async () => {
+test('a partial arriving before the threshold resets the sentence-end clock', async () => {
   const { driver, nowFn, setTimeoutFn, clearTimeoutFn, runNext, advance } = createSentenceEndHarness();
 
   await withRuntimeHarness({
@@ -3612,22 +3614,22 @@ test('a partial arriving before the 3s threshold resets the sentence-end clock',
     await runtime.startListening();
     runtime.handleTranscriptEvent({ type: 'final', text: 'we welcome our visitors' });
 
-    // 2.9s of silence -- not enough to end the sentence.
-    advance(2900);
+    // Just under the threshold -- not enough to end the sentence.
+    advance(SENTENCE_END_SILENCE_MS - 100);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors');
 
     // A partial arrives right before the threshold and resets the clock.
     runtime.handleTranscriptEvent({ type: 'partial', text: 'we welcome our visitors and' });
-    advance(2900);
+    advance(SENTENCE_END_SILENCE_MS - 100);
     runNext(500);
     assert.equal(
       ctx.state.transcriptChunks.at(-1).text,
       'we welcome our visitors',
-      'the partial must have reset the 3s clock, not merely delayed it'
+      'the partial must have reset the clock, not merely delayed it'
     );
 
-    // Now the full 3s has actually elapsed since the partial.
+    // Now the full threshold has actually elapsed since the partial.
     advance(200);
     runNext(500);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'we welcome our visitors.');
@@ -3648,7 +3650,7 @@ test('sentence-end-on-silence never fires while paused or not listening', async 
     runtime.handleTranscriptEvent({ type: 'final', text: 'a line still mid sentence' });
     await runtime.togglePauseAi();
 
-    advance(5000);
+    advance(SENTENCE_END_SILENCE_MS + 1000);
     // No sentence-end timer should even be scheduled once paused (stopSilenceWatchdog clears it).
     assert.equal(runNext(500), false);
     assert.equal(ctx.state.transcriptChunks.at(-1).text, 'a line still mid sentence');
@@ -3673,7 +3675,7 @@ test('inferred sentence-end punctuation is recorded as a follow-up record sharin
     assert.equal(spokenRecord.text, 'the offering will be received');
     assert.equal(spokenRecord.inferred, false);
 
-    advance(3000);
+    advance(SENTENCE_END_SILENCE_MS);
     runNext(500);
 
     const chunkRecords = ctx.state.recordingQueue.filter((record) => record.t === 'chunk');

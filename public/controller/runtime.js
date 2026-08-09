@@ -135,20 +135,25 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // instead of running the rest of the service showing a calm, wrong "Listening."
 const SILENCE_WATCHDOG_MS = 45000;
 
-// Steve's ruling (2026-07-30): a period should be inserted after 3 seconds of no audio. Chrome's
-// Web Speech API frequently never punctuates an utterance at all, so without this,
+// Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
+// event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,
 // partitionBucket's own punctuation rule holds the newest chunk hostage for the full
 // BUCKET_SETTLE_MS (20s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
 // chunk arrives and appears to start a fresh sentence while the unpunctuated tail from before it
-// is still sitting unsent. Exported (not a buried literal) because Ansel may revise the number
-// after measuring real pause lengths.
+// is still sitting unsent. "No audio" is not observable on the Chrome path (it exposes no levels
+// for its own internal mic), so the trigger is "no new recognition event of any kind, partial or
+// final" -- Chrome emits partials continuously while it hears speech, so absence of events is a
+// sound proxy for silence there.
 //
-// The substitution Steve cleared: "no audio" is not observable on this path (Chrome exposes no
-// levels for its own internal mic), so the trigger is "3 seconds with no new recognition event of
-// any kind, partial or final" -- Chrome emits partials continuously while it hears speech, so
-// absence of events is a sound proxy for silence here. Real audio-level silence detection stays
-// out of scope for this path; the OpenAI path, which owns its own capture, can do better later.
-export const SENTENCE_END_SILENCE_MS = 3000;
+// 2026-08-09: raised from 3000 to 6000 after this same timer misfired on the VAD/OpenAI path. That
+// path's own chunk boundary (redemptionMs: 2500 in transcription/openai.js) already fires on a
+// natural mid-sentence breath, so the timer's clock was starting from a chunk that was never the
+// end of the sentence -- a ~2.5s pause to speak plus ~3s more of nothing (about 5.5s total) was
+// enough to fabricate a period mid-thought. One shared threshold, not a per-source one, per Steve:
+// 6s costs Chrome a little extra latency on a real sentence end, but on the VAD path it means
+// roughly 8.5s of genuine silence (2.5s redemption + 6s here) before a period gets inferred,
+// comfortably past a normal thinking pause.
+export const SENTENCE_END_SILENCE_MS = 6000;
 
 // Poll cadence for the sentence-end check above -- deliberately finer than
 // SILENCE_CHECK_INTERVAL_MS's 5s, since a 3s trigger polled only every 5s would frequently fire
