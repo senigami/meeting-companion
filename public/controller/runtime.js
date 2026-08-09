@@ -1369,7 +1369,84 @@ export function createRuntime(ctx, deps = {}) {
     return promise;
   }
 
+  // #54. A bucket-draining tick (text undefined) drains at most one complete mode run per
+  // interval, and runs now break on a speaker change (#51), so a second speaker landing in the
+  // same tick used to wait a full BUCKET_TICK_MS behind the first. Here we keep draining complete
+  // runs out of the SAME tick instead of waiting for the next one -- but only when the previous
+  // drain actually SUCCEEDED (unpaused, no error): a failing provider must still fail exactly once
+  // per tick, or a loop that keeps retrying it inflates summarizeFailureCount and trips Marlow's
+  // escalation threshold early during exactly the outage backlog this loop exists to drain safely.
+  // Hard-capped independently of that success gate, because an outage backlog sitting in the bucket
+  // while the provider recovers is precisely the case where "keep draining while runs remain" would
+  // otherwise turn into an unbounded burst of calls the moment the provider comes back. Hitting the
+  // cap is counted in summarizeDrainCapHits and passed to updateStatus, but that call alone does NOT
+  // put it in front of the operator -- updateStatus with no level only writes #status, which lives
+  // inside the closed settings dialog. Whether this needs a rail-visible surface is Marlow's call,
+  // not mine; summarizeDrainCapHits exists so a test (or Marlow's surface) can observe the cap was
+  // hit without needing one.
+  // A caller-supplied `text` (used only by tests) is a single explicit call, never a bucket drain,
+  // so it never loops.
+  const MAX_DRAIN_RUNS_PER_TICK = 5;
+
+  // Returns true when the bucket has another complete run worth draining, OR when peeking at it
+  // threw (e.g. takeOldestModeRun's over-BUCKET_MAX_CHARS guard at transcript-bucket.js:109) --
+  // a peek that swallowed that throw and returned false would keep the while loop's body from ever
+  // running, which means drainOnce's OWN try/catch (the thing that actually counts the failure and
+  // reports "Could not prepare the transcript") would never see it either. So a fault here must read
+  // as "yes, go drain" rather than "no work to do": the throw is deliberately NOT handled in this
+  // function, just let through so the caller enters drainOnce, which re-runs the exact same
+  // partitionBucket/takeOldestModeRun call and hits its existing INV-10 reporting path.
+  function hasCompleteModeRun(settleMs) {
+    const { consumable } = partitionBucket(ctx.state.transcriptChunks, { settleMs });
+    const run = takeOldestModeRun(consumable, { defaultMode: ctx.state.mode, defaultSpeaker: ctx.state.speakerName });
+    return Boolean(run.chunks?.length);
+  }
+
+  // Peeks for more work without ever swallowing a bucket fault: a throw means "there is real,
+  // unprocessed work here (it just can't be safely measured)", so the drain loop must still enter
+  // the body and let drainOnce's own try/catch see the same throw and report/count it -- exactly
+  // the property this wrapper exists to preserve after #54 (see hasCompleteModeRun above).
+  function mustKeepDraining(settleMs) {
+    try {
+      return hasCompleteModeRun(settleMs);
+    } catch (_error) {
+      return true;
+    }
+  }
+
   async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS } = {}) {
+    if (text) {
+      await drainOnce(text, settleMs);
+      return;
+    }
+    let runs = 0;
+    let ok = true;
+    while (ok && !ctx.state.paused && runs < MAX_DRAIN_RUNS_PER_TICK && mustKeepDraining(settleMs)) {
+      runs += 1;
+      ok = await drainOnce(undefined, settleMs);
+    }
+    // The cap-hit check below is purely informational (whether a real backlog remains after the
+    // cap), so a fault here is treated as "no cap message" rather than forced true -- the fault
+    // itself was already counted/reported by drainOnce on whichever iteration hit it, and will be
+    // again next tick since drainOnce never removes the offending chunk (INV-11).
+    let stillPending = false;
+    try {
+      stillPending = ok && !ctx.state.paused && runs >= MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs);
+    } catch (_error) {
+      stillPending = false;
+    }
+    if (stillPending) {
+      ctx.state.summarizeDrainCapHits = (ctx.state.summarizeDrainCapHits || 0) + 1;
+      updateStatus(ctx, 'Backlog is longer than expected; catching up over the next few ticks.');
+    }
+  }
+
+  // The actual single-run body, unchanged from before #54 except for its return value: `true`
+  // means "consumed successfully while unpaused", the one condition under which it is safe for
+  // the loop above to immediately ask for another run; everything else (paused, bucket fault,
+  // provider failure, or a deduped no-op that never reached the network) returns `false` and ends
+  // the tick's drain right there, exactly as a single un-looped call would have.
+  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS) {
     resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
@@ -1413,10 +1490,10 @@ export function createRuntime(ctx, deps = {}) {
           `Could not prepare the transcript: ${error?.message || error}`,
           ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
         );
-        return;
+        return false;
       }
     }
-    if (!recent || recent === ctx.state.lastSentText) return;
+    if (!recent || recent === ctx.state.lastSentText) return false;
 
     // The one-slot rolling-window memory: the previously sent block, held separately from the
     // bucket's own lifetime so it can be handed to the summarizer as distinct labelled context
@@ -1489,7 +1566,7 @@ export function createRuntime(ctx, deps = {}) {
 
       resetSummarizeBackoff();
 
-      if (ctx.state.paused) return;
+      if (ctx.state.paused) return false;
       // The bucket only drains, and the previous-block slot only advances, on success while
       // unpaused -- a failed or pause-interrupted request re-sends the same sentences next tick
       // and does not shift the rolling window forward under it (INV-11).
@@ -1515,8 +1592,10 @@ export function createRuntime(ctx, deps = {}) {
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
         ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line }].slice(-6);
+        return true;
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
+        return true;
       }
     } catch (error) {
       queueRecord(() => buildSummaryRecord({
@@ -1540,6 +1619,7 @@ export function createRuntime(ctx, deps = {}) {
         `Could not summarize: ${error.message}`,
         ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : undefined
       );
+      return false;
     } finally {
       ctx.state.summarizeInFlight = false;
       // Every exit path -- success, failure, or the early `if (ctx.state.paused) return;` above --
