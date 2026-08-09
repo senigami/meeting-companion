@@ -3869,6 +3869,52 @@ test('barren chunks cannot each buy a provider call (#31)', async () => {
   });
 });
 
+test('a new speaker gets the same fast path as the meeting\'s first speaker, even mid-meeting (#106)', async () => {
+  // firstCardShown is already true (a card is on the wall from the outgoing speaker), so without
+  // awaitingNewSpeakerArrival the incoming speaker's first sentence would wait out whatever is left
+  // of the old interval. The loop itself is never touched, this only reopens the #31 arrival gate.
+  const calls = [];
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A card.' }; }
+    }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai', firstCardShown: true }
+  }, async ({ ctx, runtime }) => {
+    runtime.setMode('speaker');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'The new speaker begins their remarks.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, 'the new speaker\'s first complete sentence must not wait for the interval');
+
+    // A second chunk from the same speaker goes back to waiting on the interval.
+    runtime.handleTranscriptEvent({ type: 'final', text: 'They continue with a second sentence.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls.length, 1, 'only the first sentence after a speaker change gets the fast path');
+  });
+});
+
+test('pressing Start Listening opens the fast path; an internal force-resume does not (#106)', async () => {
+  const driver = {
+    id: 'browser', label: 'Browser', isLive: true,
+    async start() {}, async stop() {}, setMode() {}
+  };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    assert.equal(ctx.state.awaitingNewSpeakerArrival, true, 'a real Start press opens the fast path');
+
+    ctx.state.awaitingNewSpeakerArrival = false;
+    await runtime.startListening({ force: true });
+    assert.equal(ctx.state.awaitingNewSpeakerArrival, false, 'an internal force-resume is not a new speaker');
+  });
+});
+
 test('#56: an interval too short for the measured reader is not reachable once their profile is applied', async () => {
   // At 30 wpm a 10-word card takes 20 seconds to read, so every position below 20s on the slider
   // derives a budget under the floor. Ansel's point: that configuration should not be reachable,

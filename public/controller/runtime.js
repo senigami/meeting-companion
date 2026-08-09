@@ -297,7 +297,8 @@ export function createRuntime(ctx, deps = {}) {
   // chunk explicitly (see runSummarizeCurrentText's sendSpeaker), the same precedent `mode` already
   // follows for a backlogged card.
   // Whether a newly captured chunk should be summarized immediately rather than waiting for the
-  // interval (#31). Three conditions, and the second two are why the first is not enough on its own.
+  // interval (#31, generalized by #106). Three conditions, and the second two are why the first is
+  // not enough on its own.
   //
   // Found by Cato before this shipped: gating on firstCardShown ALONE bypassed the summarize backoff
   // completely. effectiveIntervalSeconds is how a failing provider gets backed off, and it is consumed
@@ -307,8 +308,17 @@ export function createRuntime(ctx, deps = {}) {
   //
   // The elapsed floor covers the healthy version of the same thing: pre-meeting chatter that keeps
   // returning "no new useful line" never sets the flag, so every barren chunk bought its own call.
+  //
+  // #106: the same empty-wall problem #31 solved once at meeting start also happens on every speaker
+  // change, since startLoop's interval is untouched by a mode change and keeps its own schedule.
+  // awaitingNewSpeakerArrival opens this same gate again without touching firstCardShown's own
+  // meaning (whether the WALL is empty) -- a speaker change does not clear the wall, it just means
+  // the newest person deserves the same fast turnaround the very first speaker got. Deliberately NOT
+  // a stop-the-loop-and-restart-it design: an earlier attempt at that for #31 forced the progress bar
+  // to either lie about its sweep or flicker, caught by four tests at the time. This stays additive,
+  // same as #31 -- the interval loop never notices any of this and remains the backstop.
   function shouldSummarizeOnArrival() {
-    if (ctx.state.firstCardShown) return false;
+    if (ctx.state.firstCardShown && !ctx.state.awaitingNewSpeakerArrival) return false;
     // Already backing off a failing provider: the interval is the backstop, let it be the backstop.
     if (ctx.state.effectiveIntervalSeconds) return false;
     const since = nowFn() - (ctx.state.lastArrivalSummarizeAt || 0);
@@ -679,6 +689,9 @@ export function createRuntime(ctx, deps = {}) {
         // run or does nothing.
         if (shouldSummarizeOnArrival()) {
           ctx.state.lastArrivalSummarizeAt = nowFn();
+          // Consumed here, not inside the predicate: a call skipped by the backoff guard above must
+          // leave this open so the NEXT chunk still gets the fast path once the provider recovers.
+          ctx.state.awaitingNewSpeakerArrival = false;
           void summarizeCurrentText();
         }
       }
@@ -1824,6 +1837,9 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
+      // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
+      // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
+      if (!force) ctx.state.awaitingNewSpeakerArrival = true;
       startLoop();
       // Replay is not a live source, so the rail must never say "Listening" for it: the driver
       // states its own level (manual while replaying, problem when the recording could not be
@@ -2214,6 +2230,9 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.summaryHistory = [];
     ctx.state.lastSentBlock = null;
     ctx.state.lastSentText = '';
+    // #106: the new speaker's first complete sentence deserves the same #31 fast path the very
+    // first speaker of the meeting gets, not a wait on whatever is left of the old interval.
+    ctx.state.awaitingNewSpeakerArrival = true;
   }
 
   return {
