@@ -78,6 +78,66 @@ test('applying a reading-pace profile is a full bookmark: pace, font size, AND i
   });
 });
 
+test('dragging Words per card sets a fast manual override, clearing any applied profile first', async () => {
+  await withRuntimeHarness({
+    elementOverrides: {
+      summaryMaxWordsInput: createElement({ value: '0' }),
+      summaryMaxWordsValue: createElement({ textContent: '' })
+    },
+    stateOverrides: { summaryIntervalSeconds: 20 }
+  }, async ({ ctx, runtime }) => {
+    const profile = {
+      recordedAt: '2026-08-02T00:00:00.000Z',
+      cards: [
+        { words: 5, ms: 10000 }, // 30 wpm
+        { words: 10, ms: 20000 } // 30 wpm
+      ]
+    };
+    runtime.applyReadingPaceProfile('ansel', profile);
+    assert.ok(ctx.state.readingPaceProfile, 'sanity: a profile is actually applied first');
+
+    runtime.setSummaryMaxWordsOverride(17);
+
+    assert.equal(ctx.state.summaryMaxWords, 17, 'the override lands exactly, not snapped or re-derived');
+    assert.equal(ctx.state.readingPaceProfile, null,
+      'a manual number and a measured profile could disagree, so applying the override clears the profile');
+    assert.equal(ctx.state.readingPaceProfileName, '', 'the remembered profile pointer clears too');
+
+    // A later interval nudge must not silently overwrite the manual number -- that would be the
+    // same disagreement #44 removed, just with the roles reversed.
+    runtime.setSummaryInterval(10);
+    assert.equal(ctx.state.summaryMaxWords, 17, 'a manual override survives an interval change');
+  });
+});
+
+test('reselecting a profile always wins back over a manual override', async () => {
+  await withRuntimeHarness({
+    elementOverrides: {
+      summaryMaxWordsInput: createElement({ value: '0' }),
+      summaryMaxWordsValue: createElement({ textContent: '' })
+    },
+    stateOverrides: { summaryIntervalSeconds: 20 }
+  }, async ({ ctx, runtime }) => {
+    runtime.setSummaryMaxWordsOverride(11);
+    assert.equal(ctx.state.summaryMaxWords, 11);
+
+    const profile = {
+      recordedAt: '2026-08-02T00:00:00.000Z',
+      cards: [
+        { words: 5, ms: 10000 }, // 30 wpm
+        { words: 10, ms: 20000 } // 30 wpm
+      ]
+    };
+    runtime.applyReadingPaceProfile('ansel', profile);
+
+    const recommendedWords = recommendWordsPerCard(30, READING_PACE_COMFORTABLE_SECONDS).words;
+    const expectedInterval = recommendSummaryIntervalSeconds(30, recommendedWords).seconds;
+    assert.equal(ctx.state.summaryIntervalSeconds, expectedInterval, "the profile's own interval wins");
+    assert.equal(ctx.state.summaryMaxWords, readingBudget(30, expectedInterval).words,
+      'and its own derived words, not the stale override');
+  });
+});
+
 test('a profile with no usable cards clears cleanly back to the default pace, rather than crashing', async () => {
   await withRuntimeHarness({
     elementOverrides: {

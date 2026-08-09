@@ -248,13 +248,15 @@
                   <label for="summaryMaxWords">Words per card</label>
                   <output id="summaryMaxWordsValue" for="summaryMaxWords"></output>
                 </div>
-                <!-- Read-only (issue #44): words per card is now DERIVED from the reader's measured
-                     pace (or the app's default, with no profile applied) times the update interval
-                     above, not a second independent dial that could disagree with the measurement.
-                     Kept visible and disabled, never removed -- Ansel needs a number to point at
-                     when asking why a card only had six words. -->
-                <input id="summaryMaxWords" class="sliderInput" type="range" min="0" max="2" step="1" disabled aria-readonly="true" tabindex="-1" />
-                <div class="field-note">Derived from the <a href="#readingPaceProfileField">reading pace</a> and the update interval above -- not set directly.</div>
+                <!-- Words per card is DERIVED by default (issue #44): the reader's measured pace (or
+                     the app's default, with no profile applied) times the update interval above.
+                     2026-08-09: dragging this directly is a fast mid-meeting override -- it clears
+                     any applied profile first (setSummaryMaxWordsOverride, runtime.js), so it can
+                     never disagree with a reader's measured pace. Reselecting a profile restores its
+                     own number. Range matches MAX_WORDS_MIN/MAX_WORDS_MAX (summary-prompt.js), the
+                     same bound the server clamps a summarize call to. -->
+                <input id="summaryMaxWords" class="sliderInput" type="range" min="6" max="24" step="1" />
+                <div class="field-note">Derived from the <a href="#readingPaceProfileField">reading pace</a> and the update interval above. Drag to override for this meeting -- reselecting a profile restores its own number.</div>
               </div>
               <div class="range-field" id="readingPaceProfileField">
                 <div class="range-head">
@@ -266,7 +268,7 @@
                 <select id="readingPaceProfileSelect">
                   <option value="">No profile (assumed pace)</option>
                 </select>
-                <div class="field-note">Measured separately, ahead of time. No profile is required.</div>
+                <div class="field-note">Measured separately, ahead of time. No profile is required. <a href="reading-pace.html" target="_blank" rel="noopener">Run the reading speed test</a>.</div>
               </div>
             </div>
           </section>

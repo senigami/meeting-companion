@@ -1,5 +1,5 @@
 import {
-  summaryMaxWordsSliderIndexFromWords,
+  clampSummaryMaxWordsOverride,
   sliderPositionFromFontSize
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
@@ -701,8 +701,10 @@ function pluraliseWords(count) {
 
 export function updateSummaryMaxWordsControl(ctx) {
   if (!ctx.dom.summaryMaxWordsInput || !ctx.dom.summaryMaxWordsValue) return;
-  const index = summaryMaxWordsSliderIndexFromWords(ctx.state.summaryMaxWords);
-  ctx.dom.summaryMaxWordsInput.value = String(index);
+  // The thumb position clamps into the slider's own range even when the true derived number sits
+  // outside it (e.g. a below-floor pace deriving 3 words) -- the text below still shows the honest
+  // true figure, this is only where the handle can physically sit.
+  ctx.dom.summaryMaxWordsInput.value = String(clampSummaryMaxWordsOverride(ctx.state.summaryMaxWords));
   // The TRUE budget, not the clamped one, whenever the two differ. At 30 wpm every interval from 2s
   // to 15s clamped up to the same 11 and was displayed as "11 words", so the number on screen was
   // false across the entire usable range of the control that produces it -- and the operator pushing

@@ -16,11 +16,14 @@ import {
   AUDIO_SETTINGS_KEYS,
   clampDisplayMargin,
   clampFontSize,
-  clampSummaryIntervalSeconds
+  clampSummaryIntervalSeconds,
+  clampSummaryMaxWordsOverride
 } from '../services/view-settings.js';
 import {
   DEFAULT_MEDIAN_WPM,
+  MARGINAL_CARD_WORDS_CEILING,
   READING_PACE_COMFORTABLE_SECONDS,
+  USABLE_CARD_WORDS_FLOOR,
   medianWpmFromProfile,
   readingBudget,
   recommendSummaryIntervalSeconds,
@@ -1760,7 +1763,13 @@ export function createRuntime(ctx, deps = {}) {
   // it disagreed. Called whenever either input changes -- the interval (setSummaryInterval below) or
   // the applied profile (applyReadingPaceProfile) -- so ctx.state.summaryMaxWords can never go stale
   // against either.
+  //
+  // 2026-08-09: Steve needs a fast mid-meeting override, without re-running the whole reading-pace
+  // measurement. setSummaryMaxWordsOverride (below) sets summaryMaxWordsManual, and this function
+  // then does nothing until a real profile is applied again -- the override can never disagree with
+  // a profile because choosing it always drops back to no profile first (see that function).
   function recomputeSummaryMaxWords() {
+    if (ctx.state.summaryMaxWordsManual) return;
     // The whole budget is stored, not just the clamped word count, so the view never recomputes it.
     // A first version had the view derive its own copy from state and it read one interval behind --
     // it ran before summaryIntervalSeconds was committed, so the screen said "8 words, too short" at
@@ -1775,6 +1784,36 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.readingBudget = budget;
     ctx.state.summaryMaxWords = budget.words;
     updateSummaryMaxWordsControl(ctx);
+  }
+
+  // The fast override itself: sets an exact word count directly, bypassing the pace/interval
+  // arithmetic entirely. Clears any applied profile FIRST -- a manual number and a reader's measured
+  // pace could otherwise silently disagree, which is exactly the failure #44 removed, so this never
+  // lets the two coexist. Reselecting the profile afterward (applyReadingPaceProfile) always wins
+  // back over this, restoring its own pace, interval, and word count together.
+  function setSummaryMaxWordsOverride(words) {
+    // Checked against readingPaceProfile itself, not readingPaceProfileName -- a caller can apply a
+    // profile object directly without ever setting the remembered name (applyLastReadingPaceProfile
+    // sets the name first, but applyReadingPaceProfile alone does not), and this must still catch it.
+    // setReadingPaceProfileName('') is not reused here: it no-ops when the name is already '', which
+    // would silently skip clearing a profile applied that other way.
+    if (ctx.state.readingPaceProfile) {
+      ctx.state.readingPaceProfileName = '';
+      localStorage.setItem(STORAGE.readingPaceProfileName, '');
+      applyReadingPaceProfile(null, null);
+      populateReadingPaceProfileOptions();
+    }
+    const clamped = clampSummaryMaxWordsOverride(words, ctx.state.summaryMaxWords);
+    ctx.state.summaryMaxWordsManual = true;
+    ctx.state.summaryMaxWords = clamped;
+    ctx.state.readingBudget = {
+      rawWords: clamped,
+      words: clamped,
+      belowFloor: clamped < USABLE_CARD_WORDS_FLOOR,
+      marginal: clamped >= USABLE_CARD_WORDS_FLOOR && clamped < MARGINAL_CARD_WORDS_CEILING
+    };
+    updateSummaryMaxWordsControl(ctx);
+    updateStatus(ctx, `Words per card set to ${clamped}.`);
   }
 
   function setSummaryInterval(nextInterval) {
@@ -1808,6 +1847,10 @@ export function createRuntime(ctx, deps = {}) {
   // existing profiles carry only recordedAt/fontSizePx/cards, and recomputing means an old profile
   // saved before this existed still gets a real interval instead of nothing.
   function applyReadingPaceProfile(name, profile) {
+    // Any explicit profile selection -- a real one or "No profile" -- always wins over a stale
+    // manual override (2026-08-09): the whole point of reselecting is landing back on that choice's
+    // own numbers, not a value left over from before it was picked.
+    ctx.state.summaryMaxWordsManual = false;
     const medianWpm = medianWpmFromProfile(profile);
     if (medianWpm == null) {
       ctx.state.readingPaceProfile = null;
@@ -2370,6 +2413,7 @@ export function createRuntime(ctx, deps = {}) {
       return setSettingsOpen(ctx, open, options);
     },
     setSummaryInterval,
+    setSummaryMaxWordsOverride,
     applyReadingPaceProfile,
     applyLastReadingPaceProfile,
     refreshReadingPaceProfileList,

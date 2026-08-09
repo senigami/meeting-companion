@@ -6,11 +6,6 @@ function readHtml() {
   return readFile(new URL('../../public/reading-pace.html', import.meta.url), 'utf8');
 }
 
-test('reading-pace page is not linked from the main app UI', async () => {
-  const indexHtml = await readFile(new URL('../../public/index.html', import.meta.url), 'utf8');
-  assert.doesNotMatch(indexHtml, /reading-pace/);
-});
-
 test('reading-pace page has an intro screen with a START button and no timer/score language', async () => {
   const html = await readHtml();
 

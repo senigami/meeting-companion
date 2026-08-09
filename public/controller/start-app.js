@@ -108,6 +108,10 @@ export function startApp() {
       // No card on the wall yet, so the first complete chunk summarizes on arrival (#31).
       firstCardShown: false,
       readingPaceProfile: null,
+      // Set only by dragging Words per card directly (runtime.js's setSummaryMaxWordsOverride) --
+      // recomputeSummaryMaxWords skips re-deriving while this is true, and applying any profile
+      // selection (including "No profile") always clears it back.
+      summaryMaxWordsManual: false,
       readingPaceProfileName: localStorage.getItem(STORAGE.readingPaceProfileName) || '',
       displayMarginGuidesVisible: false,
       displayMarginAdjusting: false,
@@ -477,10 +481,14 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(e.target.value);
   });
-  // summaryMaxWordsInput has no 'input' listener (issue #44): words per card is derived from the
-  // reading pace and the interval above, not an independent dial. The slider stays in the DOM,
-  // disabled, purely so updateSummaryMaxWordsControl (view.js) has somewhere to render the derived
-  // number Ansel needs visible.
+  // 2026-08-09: re-enabled as a fast manual override for mid-meeting adjustment, without redoing the
+  // whole reading-pace measurement (see setSummaryMaxWordsOverride in runtime.js for how this stays
+  // consistent with #44 -- it clears any applied profile first, so the override can never disagree
+  // with one). The slider's value IS the word count now (6-24, one at a time), not an index into a
+  // small option set -- Steve wanted every value in that range reachable for a live adjustment.
+  ctx.dom.summaryMaxWordsInput.addEventListener('input', (e) => {
+    runtime.setSummaryMaxWordsOverride(e.target.value);
+  });
   ctx.dom.readingPaceProfileSelect?.addEventListener('change', (e) => {
     runtime.setReadingPaceProfileName(e.target.value);
   });
@@ -498,8 +506,9 @@ function bindViewerControls(ctx, runtime) {
     }
   });
 
-  bindDragFade(ctx.dom.summaryIntervalInput, ctx.dom.summaryIntervalField);
-  bindDragFade(ctx.dom.summaryMaxWordsInput, ctx.dom.summaryMaxWordsField);
+  // 2026-08-09: the fade-out-the-other-fields effect stays for the Display options drawer (fontSize,
+  // displayMargin above), but not here -- Steve wants Update interval and Words per card visible
+  // side by side while dragging either, since adjusting one against the other is the whole point.
 }
 
 function bindModeAndSourceButtons(ctx, runtime) {

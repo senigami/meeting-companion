@@ -409,16 +409,19 @@ test('live transcript box is natively resizable on desktop and locked down on mo
 // is a claim about the allowed values; if it disagrees with the code's clamp, one of them is a lie.
 test('the timing sliders span exactly the range their own constants allow', async () => {
   const html = await readFile(new URL('../../public/index.html', import.meta.url), 'utf8');
-  const { SUMMARY_INTERVAL_MIN_SECONDS, SUMMARY_INTERVAL_MAX_SECONDS, summaryMaxWordsOptions } =
+  const { SUMMARY_INTERVAL_MIN_SECONDS, SUMMARY_INTERVAL_MAX_SECONDS } =
     await import('../../public/services/view-settings.js');
+  const { MAX_WORDS_MIN, MAX_WORDS_MAX } = await import('../../public/services/summary-prompt.js');
 
   const interval = html.match(/<input id="summaryInterval"[^>]*>/)[0];
   assert.match(interval, new RegExp(`min="${SUMMARY_INTERVAL_MIN_SECONDS}"`), 'interval min must match the constant');
   assert.match(interval, new RegExp(`max="${SUMMARY_INTERVAL_MAX_SECONDS}"`), 'interval max must match the constant');
 
-  // The words slider is an index into the options array, not a word count.
+  // The words slider's value IS the word count now (2026-08-09, a fast manual override), not an
+  // index into a small option set -- it must span exactly what the server will actually honour.
   const words = html.match(/<input id="summaryMaxWords"[^>]*>/)[0];
-  assert.match(words, new RegExp(`max="${summaryMaxWordsOptions.length - 1}"`), 'words slider indexes the option set');
+  assert.match(words, new RegExp(`min="${MAX_WORDS_MIN}"`), 'words min must match the server-side clamp');
+  assert.match(words, new RegExp(`max="${MAX_WORDS_MAX}"`), 'words max must match the server-side clamp');
 });
 
 // Issue #52. The speaker label had no font-size of its own, so it inherited .transcript-meta's

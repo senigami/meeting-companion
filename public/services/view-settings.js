@@ -1,3 +1,5 @@
+import { MAX_WORDS_MIN, MAX_WORDS_MAX } from './summary-prompt.js';
+
 export const FONT_SIZE_MIN = 24;
 export const FONT_SIZE_MAX = 144;
 // The font-size <input> itself moves on this fine-grained linear position
@@ -84,6 +86,15 @@ export function summaryMaxWordsSliderIndexFromWords(value, fallback = 14) {
   const words = clampSummaryMaxWords(value, fallback);
   const index = summaryMaxWordsOptions.indexOf(words);
   return index === -1 ? 0 : index;
+}
+
+// The manual mid-meeting override (2026-08-09) needs single-digit granularity, not the three-option
+// snap above -- reading load is a perceptual judgement with a few sensible AUTO-recommended answers,
+// but an operator adjusting live wants every value in between reachable. Bounded to MAX_WORDS_MIN/MAX
+// (summary-prompt.js), the same range the server silently clamps a summarize call to -- anything the
+// slider could show outside it would be a number the app cannot actually honour.
+export function clampSummaryMaxWordsOverride(value, fallback = MAX_WORDS_MIN) {
+  return Math.round(clampNumber(value, MAX_WORDS_MIN, MAX_WORDS_MAX, fallback));
 }
 
 // summaryMaxWordsFromSliderIndex (slider index -> word count) was deleted with #44. Words per card
