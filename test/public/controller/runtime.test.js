@@ -4149,8 +4149,10 @@ test('#56: an interval too short for the measured reader is not reachable once t
       ]
     });
 
-    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'the interval is raised to the shortest one this reader can use');
-    assert.equal(elements.summaryIntervalInput.min, '20', 'and the slider cannot be dragged back below it');
+    // 2026-08-09: a profile is a full bookmark now, so this lands on the profile's OWN recommended
+    // interval (22s at 30 wpm), not merely raised to the 20s floor -- 22 also happens to clear it.
+    assert.equal(ctx.state.summaryIntervalSeconds, 22, "the interval is set to this reader's recommended pace");
+    assert.equal(elements.summaryIntervalInput.min, '20', 'and the slider cannot be dragged back below the floor');
 
     runtime.setSummaryInterval(4);
     assert.equal(ctx.state.summaryIntervalSeconds, 20, 'a value arriving from anywhere else is held at the floor too');
@@ -4168,11 +4170,13 @@ test('#56: the slider and the floor cannot drift apart when the interval itself 
   };
 
   await withRuntimeHarness({
-    stateOverrides: { summaryIntervalSeconds: 25 }
+    // 22s is this profile's own recommended interval (30 wpm) -- already sitting there, so applying
+    // it takes the setSummaryInterval no-op path (next === current) and only updateSummaryIntervalControl
+    // runs, which is the exact path #97 found stale.
+    stateOverrides: { summaryIntervalSeconds: 22 }
   }, async ({ ctx, elements, runtime }) => {
-    // Already above the floor, so nothing raises the value and nothing else re-renders the control.
     runtime.applyReadingPaceProfile('steve', SLOW_PROFILE);
-    assert.equal(ctx.state.summaryIntervalSeconds, 25, 'an interval that already works is left alone');
+    assert.equal(ctx.state.summaryIntervalSeconds, 22, 'an interval that already matches the recommendation is left alone');
     assert.equal(elements.summaryIntervalInput.min, '20', 'and the unusable range is still taken away');
 
     // Clearing the profile gives the range back. Without this the operator is locked above 20s with

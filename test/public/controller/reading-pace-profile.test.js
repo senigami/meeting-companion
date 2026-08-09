@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { chooseSummaryLevel } from '../../../public/services/summary-level.js';
-import { DEFAULT_MEDIAN_WPM, readingBudget } from '../../../public/services/reading-pace.js';
+import {
+  DEFAULT_MEDIAN_WPM,
+  READING_PACE_COMFORTABLE_SECONDS,
+  readingBudget,
+  recommendSummaryIntervalSeconds,
+  recommendWordsPerCard
+} from '../../../public/services/reading-pace.js';
 
 // Issue #44: words-per-card stops being an independent slider and becomes DERIVED from a measured
 // (or assumed) pace times the update interval. These tests exercise that wiring through the runtime,
@@ -33,7 +39,7 @@ test('with no profile applied, the derived budget uses the app default pace and 
   });
 });
 
-test('applying a reading-pace profile switches the derived budget to the measured pace, at whatever interval is already set', async () => {
+test('applying a reading-pace profile is a full bookmark: pace, font size, AND its recommended interval', async () => {
   await withRuntimeHarness({
     elementOverrides: {
       summaryMaxWordsInput: createElement({ value: '0' }),
@@ -59,12 +65,16 @@ test('applying a reading-pace profile switches the derived budget to the measure
     // Applying the profile restores the font size it was measured at -- a pace measured at one type
     // size does not transfer to a display at another.
     assert.equal(ctx.state.fontSize, 96);
-    // Derived: 30 wpm at a 20s interval, exactly the app's own arithmetic, not a second copy of it.
+    // Steve, 2026-08-09: a profile is a bookmark of settings, not just a pace number -- selecting one
+    // sets the interval to what THIS profile's measured pace actually recommends, even overriding a
+    // 20s interval already sitting there from a prior nudge or a different profile.
+    const recommendedWords = recommendWordsPerCard(30, READING_PACE_COMFORTABLE_SECONDS).words;
+    const expectedInterval = recommendSummaryIntervalSeconds(30, recommendedWords).seconds;
+    assert.equal(ctx.state.summaryIntervalSeconds, expectedInterval);
+    // Derived: 30 wpm at THAT interval, exactly the app's own arithmetic, not a second copy of it.
     // readingBudget's true figure, NOT recommendWordsPerCard's snapped option. Ansel blocked the
     // snap reaching the prompt: it inflated a below-floor budget into a healthy-looking one.
-    assert.equal(ctx.state.summaryMaxWords, readingBudget(30, 20).words);
-    // The interval itself is untouched -- it stays the operator's own control.
-    assert.equal(ctx.state.summaryIntervalSeconds, 20);
+    assert.equal(ctx.state.summaryMaxWords, readingBudget(30, expectedInterval).words);
   });
 });
 

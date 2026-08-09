@@ -20,8 +20,11 @@ import {
 } from '../services/view-settings.js';
 import {
   DEFAULT_MEDIAN_WPM,
+  READING_PACE_COMFORTABLE_SECONDS,
   medianWpmFromProfile,
   readingBudget,
+  recommendSummaryIntervalSeconds,
+  recommendWordsPerCard,
   usableIntervalFloor
 } from '../services/reading-pace.js';
 import {
@@ -1793,15 +1796,17 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  // Applies a saved reader profile (or clears it, when profile is null/unusable): the derived words
-  // budget switches to the profile's measured pace, and the font size it was measured at is restored
-  // too -- a pace measured at one type size does not transfer to a display at another (the same
-  // reasoning public/reading-pace.js records the measurement font size for).
+  // Applies a saved reader profile (or clears it, when profile is null/unusable) as a full bookmark
+  // of settings, not just a pace number: the font size it was measured at, and the update interval
+  // its measured pace actually recommends, both get restored along with it. Steve, 2026-08-09: a
+  // profile that only restored pace left the interval wherever it happened to be, so picking a
+  // profile after nudging the slider silently landed on a mix of "this reader's measured pace" and
+  // "whatever was last dragged" with no way back to the profile's own numbers short of re-measuring.
   //
-  // It leaves summaryIntervalSeconds alone in every case but one, added with #56: a slower profile
-  // can move the usable floor above the interval already set, and leaving it there would keep the
-  // exact configuration that card exists to make unreachable. The operator is told when that
-  // happens, because it is their control being moved.
+  // The interval is recomputed from medianWpm via the same recommendSummaryIntervalSeconds arithmetic
+  // the results screen already shows (public/reading-pace.js), not a value stored on the profile --
+  // existing profiles carry only recordedAt/fontSizePx/cards, and recomputing means an old profile
+  // saved before this existed still gets a real interval instead of nothing.
   function applyReadingPaceProfile(name, profile) {
     const medianWpm = medianWpmFromProfile(profile);
     if (medianWpm == null) {
@@ -1828,15 +1833,16 @@ export function createRuntime(ctx, deps = {}) {
       setFontSize(profile.fontSizePx);
       updateStatus(ctx, `Text size set to ${ctx.state.fontSize}px, the size this reading pace was measured at (was ${previous}px).`);
     }
-    const floor = usableIntervalFloor(ctx);
-    if (ctx.state.summaryIntervalSeconds < floor) {
+    const recommendedWords = recommendWordsPerCard(medianWpm, READING_PACE_COMFORTABLE_SECONDS).words;
+    const recommendedInterval = recommendSummaryIntervalSeconds(medianWpm, recommendedWords).seconds;
+    if (recommendedInterval !== ctx.state.summaryIntervalSeconds) {
       const previousInterval = ctx.state.summaryIntervalSeconds;
-      setSummaryInterval(floor);
-      updateStatus(ctx, `Update interval raised to ${ctx.state.summaryIntervalSeconds}s, the shortest this reader can read a full card in (was ${previousInterval}s).`);
+      setSummaryInterval(recommendedInterval);
+      updateStatus(ctx, `Update interval set to ${ctx.state.summaryIntervalSeconds}s, recommended for this reader's measured pace (was ${previousInterval}s).`);
     } else {
-      // An interval already above the floor means setSummaryInterval never runs, and it is the only
-      // other thing that re-renders the control. Without this the slider keeps offering the whole
-      // unusable range and only snaps back once dragged, which is the labelling this card replaces.
+      // setSummaryInterval never runs when the recommendation matches what's already set, and it is
+      // the only other thing that re-renders the control -- without this a slower profile's raised
+      // floor never reaches the slider's own min/max.
       updateSummaryIntervalControl(ctx);
     }
     recomputeSummaryMaxWords();
