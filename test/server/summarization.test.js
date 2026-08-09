@@ -6,27 +6,34 @@ import { RUNAWAY_LINE_GUARD } from '../../public/services/summary-prompt.js';
 import { readingBudget } from '../../public/services/reading-pace.js';
 import { SUMMARY_INTERVAL_MAX_SECONDS } from '../../public/services/view-settings.js';
 
+// summarizeWithSource now calls packages/ai-provider's callProvider for both providers, which talks
+// HTTP (via fetchImpl) rather than an injected SDK client -- see issue #9. This mocks the OpenAI
+// chat-completions endpoint the same shape the `openai` SDK actually calls, so `handler` sees the
+// same { messages, max_tokens, ... } request body these tests asserted against before the move.
+function openaiFetch(handler) {
+  return async (url, options) => {
+    const body = JSON.parse(options.body);
+    const result = await handler(body);
+    return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+}
+
 // Both providers send a real message array (buildMinimalSummarizeMessages) -- see
 // server/summarization.js's comment.
 test('OpenAI summarize with no history sends a system message plus one user turn', async () => {
   let sentMessages = null;
-  const openaiClient = {
-    chat: {
-      completions: {
-        create: async ({ messages }) => {
-          sentMessages = messages;
-          return { choices: [{ message: { content: 'A short line.' } }] };
-        }
-      }
-    }
-  };
+  const fetchImpl = openaiFetch(({ messages }) => {
+    sentMessages = messages;
+    return { choices: [{ message: { content: 'A short line.' } }] };
+  });
 
   await summarizeWithSource({
     source: 'openai',
     mode: 'speaker',
     recentTranscript: 'The new sentence.',
     visibleLines: [],
-    openaiClient
+    openaiApiKey: 'test-key',
+    fetchImpl
   });
 
   assert.equal(sentMessages.length, 2);
@@ -37,16 +44,10 @@ test('OpenAI summarize with no history sends a system message plus one user turn
 
 test('OpenAI summarize with two history entries sends system, user/assistant pairs, then the new turn', async () => {
   let sentMessages = null;
-  const openaiClient = {
-    chat: {
-      completions: {
-        create: async ({ messages }) => {
-          sentMessages = messages;
-          return { choices: [{ message: { content: 'A short line.' } }] };
-        }
-      }
-    }
-  };
+  const fetchImpl = openaiFetch(({ messages }) => {
+    sentMessages = messages;
+    return { choices: [{ message: { content: 'A short line.' } }] };
+  });
 
   const history = [
     { spoken: 'First earlier chunk.', shown: 'First card.' },
@@ -59,7 +60,8 @@ test('OpenAI summarize with two history entries sends system, user/assistant pai
     recentTranscript: 'The newest chunk.',
     visibleLines: [],
     history,
-    openaiClient
+    openaiApiKey: 'test-key',
+    fetchImpl
   });
 
   assert.equal(sentMessages.length, 6);
@@ -121,15 +123,13 @@ test('server preserves line order across providers and rejoins multiple ideas wi
   });
   assert.equal(claudeResult.line, multiLine);
 
-  const openaiClient = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: multiLine } }] }) } }
-  };
   const openaiResult = await summarizeWithSource({
     source: 'openai',
     mode: 'information',
     recentTranscript: 'irrelevant transcript text.',
     visibleLines: [],
-    openaiClient
+    openaiApiKey: 'test-key',
+    fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: multiLine } }] }))
   });
   assert.equal(openaiResult.line, multiLine);
 });
@@ -175,9 +175,12 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
   // boundary and this test checks the words that actually reach the model.
   async function wordsInPromptFor(maxWords, source) {
     let seen = null;
-    const openaiClient = {
-      chat: { completions: { create: async ({ messages }) => { seen = messages[0].content; return { choices: [{ message: { content: 'x' } }] }; } } }
-    };
+    const fetchImpl = source === 'openai'
+      ? openaiFetch(({ messages }) => { seen = messages[0].content; return { choices: [{ message: { content: 'x' } }] }; })
+      : async (url, options) => {
+        seen = JSON.parse(options.body).system;
+        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
+      };
     await summarizeWithSource({
       source,
       mode: 'speaker',
@@ -187,12 +190,9 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
       level: 'brief',
       recentTranscript: 'A neighbor was forgiven.',
       maxWords,
-      openaiClient,
+      openaiApiKey: 'test-key',
       anthropicApiKey: 'test-key',
-      fetchImpl: async (url, options) => {
-        seen = JSON.parse(options.body).system;
-        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
-      }
+      fetchImpl
     });
     const match = seen.match(/target (\d+) words/);
     return match ? Number(match[1]) : null;
@@ -256,18 +256,12 @@ test('prior context reaches Claude as conversation turns, the same way it reache
 // shortenToLimit (public/services/text.js) identically.
 async function lineFor(source, modelText) {
   if (source === 'openai') {
-    const client = {
-      chat: {
-        completions: {
-          create: async () => ({ choices: [{ message: { content: modelText } }] })
-        }
-      }
-    };
     const result = await summarizeWithSource({
       source: 'openai',
       recentTranscript: 'irrelevant transcript text.',
       visibleLines: [],
-      openaiClient: client
+      openaiApiKey: 'test-key',
+      fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: modelText } }] }))
     });
     return result.line;
   }
@@ -391,15 +385,13 @@ test('the words-per-card setting bounds the cards actually produced, so the slid
     'I enjoy going to the temple.',
     "I'm grateful to be at church today."
   ].join('\n');
-  const client = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: modelReply } }] }) } }
-  };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: modelReply } }] }));
 
   const narrow = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 8, openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 8, openaiApiKey: 'test-key', fetchImpl
   });
   const wide = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 20, openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 20, openaiApiKey: 'test-key', fetchImpl
   });
 
   const cards = (result) => result.line.split('\n').filter(Boolean);
@@ -416,33 +408,27 @@ test('the words-per-card setting bounds the cards actually produced, so the slid
 test('brief returns exactly one card, never packed and never a second line', async () => {
   // The level IS the reading budget. A second card doubles what the reader was promised, and at one
   // word every two seconds that is the difference between finishing and not.
-  const client = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }) } }
-  };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }));
   const result = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 10, level: 'brief', openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
   assert.equal(result.line, 'First thing.', 'only the first line survives brief');
   assert.ok(!result.line.includes('\n'));
 });
 
 test('condense still produces several packed cards, so brief did not replace it', async () => {
-  const client = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }) } }
-  };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }));
   const result = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 5, level: 'condense', openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 5, level: 'condense', openaiApiKey: 'test-key', fetchImpl
   });
   assert.ok(result.line.split('\n').length > 1, 'condense keeps multiple cards');
 });
 
 test('an unrecognised level falls back to condense rather than silently changing the contract', async () => {
   let seenSystem = null;
-  const client = {
-    chat: { completions: { create: async ({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; } } }
-  };
+  const fetchImpl = openaiFetch(({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; });
   await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 17, level: 'nonsense', openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 17, level: 'nonsense', openaiApiKey: 'test-key', fetchImpl
   });
   assert.match(seenSystem, /8 year old/, 'unknown levels must not reach the prompt builder');
 });
@@ -450,11 +436,9 @@ test('an unrecognised level falls back to condense rather than silently changing
 test('an information-mode request is forced to condense at the server, even when brief is asked for', async () => {
   // Defence at the point of use: this is where an untrusted request body arrives, and a brief
   // announcement round loses facts silently instead of failing.
-  const client = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'Closing hymn is 301.\nSister Ellsworth offers the benediction.' } }] }) } }
-  };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'Closing hymn is 301.\nSister Ellsworth offers the benediction.' } }] }));
   const result = await summarizeWithSource({
-    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, level: 'brief', openaiClient: client
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
   const cards = result.line.split('\n').filter(Boolean);
   assert.equal(cards.length, 2, 'both announcements must survive');
@@ -463,11 +447,9 @@ test('an information-mode request is forced to condense at the server, even when
 });
 
 test('a speaker-mode brief request is still honoured, so the server guard is narrow', async () => {
-  const client = {
-    chat: { completions: { create: async () => ({ choices: [{ message: { content: 'One.\nTwo.' } }] }) } }
-  };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'One.\nTwo.' } }] }));
   const result = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 10, level: 'brief', openaiClient: client
+    source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
   assert.equal(result.line, 'One.');
 });
@@ -484,10 +466,10 @@ test('a fourth announcement in one tick survives, instead of being dropped witho
     'Youth activity moved to Thursday.',
     'Ward council meets at 6:30.'
   ].join('\n');
-  const client = { chat: { completions: { create: async () => ({ choices: [{ message: { content: reply } }] }) } } };
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: reply } }] }));
 
   const result = await summarizeWithSource({
-    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiClient: client
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiApiKey: 'test-key', fetchImpl
   });
   const cards = result.line.split('\n').filter(Boolean);
   assert.equal(cards.length, 5, 'every announcement must survive; the release queue paces them, not a cap');
@@ -504,11 +486,9 @@ test('the information prompt no longer names a line count, since the model ignor
   // configurations produced byte-identical output. A runaway guard belongs in code, not in prose the
   // model does not follow -- and stating it in both places is what made the cap look agreed.
   let seenSystem = null;
-  const client = {
-    chat: { completions: { create: async ({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; } } }
-  };
+  const fetchImpl = openaiFetch(({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; });
   await summarizeWithSource({
-    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiClient: client
+    source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiApiKey: 'test-key', fetchImpl
   });
   assert.doesNotMatch(seenSystem, /three lines in total/);
   assert.match(seenSystem, /per SEPARATE announcement/, 'the per-announcement rule must survive');
@@ -527,9 +507,17 @@ test('both providers run the same prompt, levels and line guard (#47)', async ()
       mode: 'information',
       recentTranscript: 'Announcements.',
       maxWords: 10,
-      openaiClient: { chat: { completions: { create: async () => ({ choices: [{ message: { content: FOUR } }] }) } } },
+      openaiApiKey: 'test-key',
       anthropicApiKey: 'test-key',
-      fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: FOUR }] }) })
+      // One fetchImpl serving both providers, branching on URL -- the same shape a real fetch
+      // would see, since Claude's adapter posts to Anthropic and OpenAI's SDK client posts to
+      // api.openai.com regardless of which `source` this call is testing.
+      fetchImpl: async (url) => {
+        if (String(url).includes('anthropic')) {
+          return { ok: true, json: async () => ({ content: [{ type: 'text', text: FOUR }] }) };
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: FOUR } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
     });
   }
 
@@ -599,11 +587,15 @@ test('the token allowance can always hold the text we actually asked for', async
       level,
       maxWords,
       recentTranscript: 'Some speech.',
-      openaiClient: { chat: { completions: { create: async (params) => { seen = params.max_tokens; return { choices: [{ message: { content: 'x' } }] }; } } } },
+      openaiApiKey: 'test-key',
       anthropicApiKey: 'test-key',
       fetchImpl: async (url, options) => {
+        if (String(url).includes('anthropic')) {
+          seen = JSON.parse(options.body).max_tokens;
+          return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
+        }
         seen = JSON.parse(options.body).max_tokens;
-        return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'x' }] }) };
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'x' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
     });
     return seen;
@@ -635,8 +627,53 @@ test('the old flat allowance would not have fitted a full reply, which is why th
     level: 'condense',
     maxWords: 24,
     recentTranscript: 'Some speech.',
-    openaiClient: { chat: { completions: { create: async (params) => { seen = params.max_tokens; return { choices: [{ message: { content: 'x' } }] }; } } } }
+    openaiApiKey: 'test-key',
+    fetchImpl: openaiFetch((body) => { seen = body.max_tokens; return { choices: [{ message: { content: 'x' } }] }; })
   });
   assert.ok(seen > OLD_FLAT_ALLOWANCE,
     `the derived allowance (${seen}) must exceed the old flat ${OLD_FLAT_ALLOWANCE} where the old one was too small`);
+});
+
+test('passing the retired openaiClient throws rather than being silently ignored', async () => {
+  // The guard added when the OpenAI adapter moved into packages/ai-provider (#9). Without a test,
+  // the guard is one refactor from being deleted as dead code, and its absence looks exactly like
+  // success: the call returns a summary built with the WRONG key, or none at all.
+  await assert.rejects(
+    () => summarizeWithSource({
+      source: 'openai',
+      recentTranscript: 'Some speech.',
+      openaiClient: { chat: { completions: { create: async () => ({ choices: [{ message: { content: 'x' } }] }) } } },
+      openaiApiKey: 'test-key',
+      fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: 'x' } }] }))
+    }),
+    /openaiClient is no longer accepted/
+  );
+});
+
+// A 200 carrying no usable text is "the model had nothing to say", not a failure. Both branches
+// behaved this way before the provider adapters moved into packages/ai-provider (#9); the package
+// classifies it as malformed-response, and mapping that back to an empty reply here is what keeps
+// #9 an extraction rather than a behaviour change. Whether silence is the RIGHT answer is issue #103.
+test('OpenAI: a 200 with null content returns an empty line rather than raising an error', async () => {
+  const result = await summarizeWithSource({
+    source: 'openai',
+    recentTranscript: 'Some speech.',
+    visibleLines: [],
+    openaiApiKey: 'test-key',
+    fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: null, refusal: 'no' } }] }))
+  });
+
+  assert.deepEqual(result.line, '');
+});
+
+test('Claude: a 200 with no content array returns an empty line rather than raising an error', async () => {
+  const result = await summarizeWithSource({
+    source: 'claude',
+    recentTranscript: 'Some speech.',
+    visibleLines: [],
+    anthropicApiKey: 'test-key',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ content: 'not an array' }) })
+  });
+
+  assert.deepEqual(result.line, '');
 });

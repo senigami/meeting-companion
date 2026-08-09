@@ -22,17 +22,31 @@ const MAIN_FILE = fileURLToPath(import.meta.url);
 const APP_COMMIT = resolveAppCommit(dirname(MAIN_FILE));
 
 export function createApp({
-  openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null,
   createOpenAIClientFn = (apiKey) => new OpenAI({ apiKey }),
   openaiModel = DEFAULT_OPENAI_MODEL,
+  // ONE input for "does this server have an OpenAI key", for every question that asks it. Summarization
+  // needs a key string (packages/ai-provider, issue #9); transcription and /api/provider/test need a
+  // real SDK client (audio.transcriptions.create, models.list). Both now come from this string
+  // through resolveOpenAIApiKey, so /api/config cannot report ready while summarization reports the
+  // key is not set. A separately-injected client used to make exactly that pair constructible.
+  openaiApiKey = process.env.OPENAI_API_KEY || '',
   anthropicApiKey = process.env.ANTHROPIC_API_KEY || '',
   anthropicModel = DEFAULT_ANTHROPIC_MODEL,
   fetchImpl = fetch,
   listAvailableSourcesFn = listAvailableSources,
   providerKeyStore = createProviderKeyStore(),
   sessionRecorder = createSessionRecorder(),
-  readingPaceStore = createReadingPaceStore()
+  readingPaceStore = createReadingPaceStore(),
+  openaiClient
 } = {}) {
+  // Retired with the key consolidation above. Injecting a pre-built client is how the two sources of
+  // truth got out of step, and a parameter that is quietly ignored is worse than one that is gone:
+  // the server would come up looking configured and never summarize. Fake a client with
+  // createOpenAIClientFn instead, which is the seam that already existed for it.
+  if (openaiClient !== undefined) {
+    throw new Error('createApp: openaiClient is no longer accepted; pass openaiApiKey (a string), and createOpenAIClientFn to substitute the SDK client.');
+  }
+
   const app = express();
 
   // 16 kHz mono int16 PCM, base64-encoded, is 42,667 bytes per second of audio -- so a 1mb limit
@@ -44,11 +58,11 @@ export function createApp({
 
   app.get('/api/config', (req, res) => {
     res.json({
-      hasOpenAIKey: Boolean(resolveOpenAIClient({ openaiClient, createOpenAIClientFn, providerKeyStore })),
+      hasOpenAIKey: Boolean(resolveOpenAIClient({ openaiApiKey, createOpenAIClientFn, providerKeyStore })),
       hasAnthropicKey: Boolean(resolveAnthropicKey({ anthropicApiKey, providerKeyStore })),
-      model: resolveOpenAIClient({ openaiClient, createOpenAIClientFn, providerKeyStore }) ? openaiModel : null,
+      model: resolveOpenAIClient({ openaiApiKey, createOpenAIClientFn, providerKeyStore }) ? openaiModel : null,
       sources: listAvailableSourcesFn(),
-      providerKeys: describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore }),
+      providerKeys: describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore }),
       appCommit: APP_COMMIT
     });
   });
@@ -68,7 +82,7 @@ export function createApp({
     res.json({
       ok: true,
       provider,
-      providerKeys: describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore })
+      providerKeys: describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore })
     });
   });
 
@@ -82,7 +96,7 @@ export function createApp({
     res.json({
       ok: true,
       provider,
-      providerKeys: describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore })
+      providerKeys: describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore })
     });
   });
 
@@ -91,7 +105,7 @@ export function createApp({
       // No `mode`: transcription returns the words that were said, and everything about what kind
       // of meeting this is belongs to summarization. See issues #27 and #29.
       const { apiKey = '', audioBase64 = '', mimeType = 'audio/webm', filename = 'meeting-companion.webm' } = req.body || {};
-      const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore });
+      const client = resolveOpenAIClient({ apiKey, openaiApiKey, createOpenAIClientFn, providerKeyStore });
       if (!client) {
         return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
       }
@@ -140,7 +154,9 @@ export function createApp({
         maxWords,
         level,
         history: sanitizeSummaryHistory(history),
-        openaiClient: resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore }),
+        openaiApiKey: source === 'openai'
+          ? resolveOpenAIApiKey({ apiKey, openaiApiKey, providerKeyStore })
+          : openaiApiKey,
         anthropicApiKey: source === 'claude'
           ? resolveAnthropicKey({ apiKey, anthropicApiKey, providerKeyStore })
           : anthropicApiKey,
@@ -160,7 +176,7 @@ export function createApp({
     try {
       const { provider = '', apiKey = '' } = req.body || {};
       if (provider === 'openai') {
-        const client = resolveOpenAIClient({ apiKey, openaiClient, createOpenAIClientFn, providerKeyStore });
+        const client = resolveOpenAIClient({ apiKey, openaiApiKey, createOpenAIClientFn, providerKeyStore });
         if (!client) {
           return res.status(400).json({ error: 'OPENAI_API_KEY is not set.' });
         }
@@ -193,7 +209,7 @@ export function createApp({
       // place an in-memory-only provider key (INV-12) was never supposed to come to rest.
       console.error(safeErrorDetail(error));
       const keySource = req.body?.provider === 'openai'
-        ? describeOpenAIKeySource({ apiKey: req.body?.apiKey, providerKeyStore, openaiClient })
+        ? describeOpenAIKeySource({ apiKey: req.body?.apiKey, providerKeyStore, openaiApiKey })
         : '';
       res.status(500).json({
         error: keySource ? `Provider test failed using ${keySource}.` : 'Provider test failed.'
@@ -384,10 +400,10 @@ function createProviderKeyStore(initial = {}) {
   };
 }
 
-function describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore }) {
+function describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore }) {
   return {
     openai: getProviderKeyState({
-      serverReady: Boolean(openaiClient || normalizeText(providerKeyStore.get('openai'))),
+      serverReady: Boolean(normalizeText(openaiApiKey) || normalizeText(providerKeyStore.get('openai'))),
       localKey: providerKeyStore.get('openai')
     }),
     claude: getProviderKeyState({
@@ -397,28 +413,33 @@ function describeProviderKeys({ openaiClient, anthropicApiKey, providerKeyStore 
   };
 }
 
-function resolveOpenAIClient({ apiKey = '', openaiClient, createOpenAIClientFn, providerKeyStore }) {
-  const clean = normalizeText(apiKey || providerKeyStore?.get?.('openai') || '');
-  if (clean) {
-    return createOpenAIClientFn(clean);
-  }
-
-  return openaiClient;
+// The SDK client and the key string are the same answer in two shapes, so they are built from one
+// resolution. Returns null when there is no key at all, which is what every caller already tested for.
+function resolveOpenAIClient({ apiKey = '', openaiApiKey = '', createOpenAIClientFn, providerKeyStore }) {
+  const clean = resolveOpenAIApiKey({ apiKey, openaiApiKey, providerKeyStore });
+  return clean ? createOpenAIClientFn(clean) : null;
 }
 
 // Which key a request actually used, for error messages only. A failing provider test that just says
 // "failed" sends the operator hunting through a key they may not even be sending: a key typed into the
 // panel silently outranks a working server key, so the same message covers two opposite situations.
 // Naming the SOURCE is safe -- it is one of three fixed words and never touches key material (INV-12).
-function describeOpenAIKeySource({ apiKey = '', providerKeyStore, openaiClient }) {
+function describeOpenAIKeySource({ apiKey = '', providerKeyStore, openaiApiKey = '' }) {
   if (normalizeText(apiKey)) return 'the key entered in the browser';
   if (normalizeText(providerKeyStore?.get?.('openai') || '')) return 'the key saved earlier this session';
-  if (openaiClient) return "the server's own key";
+  if (normalizeText(openaiApiKey)) return "the server's own key";
   return 'no key at all';
 }
 
 function resolveAnthropicKey({ apiKey = '', anthropicApiKey = '', providerKeyStore }) {
   return normalizeText(apiKey || providerKeyStore?.get?.('claude') || anthropicApiKey);
+}
+
+// The single source of truth for the OpenAI key: request key > saved local key > server default.
+// resolveOpenAIClient wraps this rather than repeating it, so there is no second place the precedence
+// could drift. Unchanged from what resolveOpenAIClient did before the ai-provider extraction.
+function resolveOpenAIApiKey({ apiKey = '', openaiApiKey = '', providerKeyStore }) {
+  return normalizeText(apiKey || providerKeyStore?.get?.('openai') || openaiApiKey);
 }
 
 // Untrusted client input: history must be an array of { spoken, shown } string pairs, dropping
