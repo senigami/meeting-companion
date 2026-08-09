@@ -112,6 +112,21 @@ test('api config reports provider availability and source metadata', async () =>
   assert.deepEqual(data.sources.transcription, [{ id: 'browser', label: 'Browser', description: 'Browser' }]);
 });
 
+test('api config reports the app commit the recording header needs (issue #4), matching git independently', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const app = createApp();
+
+  const response = await invoke(app, { method: 'GET', url: '/api/config' });
+  const data = JSON.parse(response.body);
+
+  // Recomputed here from git itself, not from the server's own helper: a dirty working tree must be
+  // reported as such (issue #4), because a bare commit recorded off uncommitted edits claims a
+  // provenance the recording does not have and would replay as "matches".
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim();
+  assert.equal(data.appCommit, dirty ? `${head}-dirty` : head);
+});
+
 test('malformed json returns a json error response', async () => {
   const app = createApp();
 
