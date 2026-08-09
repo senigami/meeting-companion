@@ -273,7 +273,7 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function commitItems(items) {
-    ctx.state.transcriptItems = appendTranscriptItems(ctx.state.transcriptItems, items);
+    setTranscriptItems(appendTranscriptItems(ctx.state.transcriptItems, items));
     renderDisplay(ctx);
     showRecentTranscript();
   }
@@ -355,17 +355,28 @@ export function createRuntime(ctx, deps = {}) {
     return true;
   }
 
+  // Any assignment that can leave transcriptItems empty routes through here, rather than resetting
+  // firstCardShown at each call site. Ansel's framing, which holds regardless of how it is solved:
+  // this is not about the first line of a meeting, it is about any moment the card area is blank
+  // while speech is being heard (#31, #77 — undo emptying the wall one card at a time missed this
+  // when the reset lived only in clearLines).
+  function setTranscriptItems(items) {
+    ctx.state.transcriptItems = items;
+    if (!items.length) ctx.state.firstCardShown = false;
+  }
+
   function undoLine() {
     if (!ctx.state.transcriptItems.length && ctx.state.lastClearedItems) {
       const restored = ctx.state.lastClearedItems;
-      ctx.state.transcriptItems = restored;
+      setTranscriptItems(restored);
       ctx.state.lastClearedItems = null;
       renderDisplay(ctx);
       const lineWord = restored.length === 1 ? 'line' : 'lines';
       flashRailNote(ctx, `Restored ${restored.length} ${lineWord}.`, { setTimeoutFn, clearTimeoutFn });
       return;
     }
-    const [removed] = ctx.state.transcriptItems.splice(-1, 1);
+    const removed = ctx.state.transcriptItems[ctx.state.transcriptItems.length - 1];
+    setTranscriptItems(ctx.state.transcriptItems.slice(0, -1));
     renderDisplay(ctx);
     if (removed) {
       const text = `Removed: "${truncateForStatus(removed.text)}"`;
@@ -422,14 +433,10 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
     ctx.state.lastClearedItems = outgoing;
-    ctx.state.transcriptItems = [];
+    setTranscriptItems([]);
     // Anything still queued belongs to what was just cleared. Without this it would arrive a few
     // seconds later on a screen the operator deliberately emptied.
     cardReleaseQueue.clear();
-    // The wall is empty again, so the first-card problem is live again (#31). Ansel's framing, which
-    // holds regardless of how it is solved: this is not about the first line of a meeting, it is about
-    // any moment the card area is blank while speech is being heard.
-    ctx.state.firstCardShown = false;
     ctx.state.summaryHistory = [];
     renderDisplay(ctx);
     const lineWord = outgoing.length === 1 ? 'line' : 'lines';

@@ -3909,16 +3909,66 @@ test('the first card does not wait out an interval, and later ones do (#31)', as
   });
 });
 
-test('clearing the wall makes the first-card path live again (#31)', async () => {
+test('clearing the wall makes the first-card path live again (#31, #77)', async () => {
   // Ansel's framing, which holds however this is solved: the empty-screen problem is not the first
-  // line of a meeting, it is any moment the card area is blank while speech is being heard.
+  // line of a meeting, it is any moment the card area is blank while speech is being heard. Asserting
+  // the flag directly would survive it being renamed into meaninglessness (#77) -- assert the
+  // behavior the flag exists to gate: a chunk arriving at a blank wall must summarize on arrival,
+  // not wait out the interval.
+  const calls = [];
   await withRuntimeHarness({
-    stateOverrides: { firstCardShown: true, transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }] }
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A fresh card.' }; }
+    }),
+    stateOverrides: {
+      firstCardShown: true,
+      summaryIntervalSeconds: 20,
+      openAiReady: true,
+      summarizationSource: 'openai',
+      transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }]
+    }
   }, async ({ ctx, runtime }) => {
     runtime.clearLines(); // arms
     runtime.clearLines(); // confirms
     assert.equal(ctx.state.transcriptItems.length, 0);
-    assert.equal(ctx.state.firstCardShown, false, 'an empty wall means the next chunk should not wait on a clock');
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Speech into the empty wall.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, 'a chunk arriving at a cleared wall must summarize on arrival, not wait out the interval');
+  });
+});
+
+test('undoing the last card makes the first-card path live again (#77)', async () => {
+  // #31 fixed the clear path only; undoLine can also empty transcriptItems one card at a time
+  // (removing the last remaining card) without going through clearLines, so it left the reader on a
+  // blank wall waiting out a full interval.
+  const calls = [];
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A fresh card.' }; }
+    }),
+    stateOverrides: {
+      firstCardShown: true,
+      summaryIntervalSeconds: 20,
+      openAiReady: true,
+      summarizationSource: 'openai',
+      transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.undoLine();
+    assert.equal(ctx.state.transcriptItems.length, 0, 'sanity: undo removed the only card');
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Speech into the empty wall.' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.state.summarizeCallPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, 'a chunk arriving after undo emptied the wall must summarize on arrival, not wait out the interval');
   });
 });
 
