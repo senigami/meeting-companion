@@ -43,7 +43,14 @@ test('the count survives the whole path, server through driver to the recording'
     mode: 'information',
     recentTranscript: 'Announcements.',
     maxWords: 10,
-    openaiClient: { chat: { completions: { create: async () => ({ choices: [{ message: { content: tooMany } }] }) } } }
+    openaiApiKey: 'test-key',
+    fetchImpl: async (url, options) => {
+      JSON.parse(options.body); // the request the openai SDK actually sends
+      return new Response(JSON.stringify({ choices: [{ message: { content: tooMany } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
   });
   assert.equal(fromServer.discardedByCap, 4, 'the server must say how many it threw away');
 

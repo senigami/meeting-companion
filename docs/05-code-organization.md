@@ -26,7 +26,8 @@ The source tree is organized by responsibility, not by build artifact. The clien
 | `public/services/transcript-bucket.js` | Partitions and trims the live transcript preview into sentence-complete "consumable" text vs. an in-progress tail, so the rail preview only drains finished sentences. |
 | `public/services/fetch-timeout.js` | Wraps `fetch` with an `AbortController`-based timeout for the transcribe/summarize/provider-test call sites. |
 | `public/services/summarization/claude.js` | Claude summarization client wrapper. |
-| `server/summarization.js` | Server-side provider switch for OpenAI and Claude summarization. |
+| `server/summarization.js` | Server-side provider switch for OpenAI and Claude summarization. Owns the prompt, the reply budget and the post-processing; calls `packages/ai-provider` for the network. |
+| `packages/ai-provider/` | Portable provider adapters (issue #9). Deliberately NOT part of the app: a directory another repo copies. It takes an already-resolved key and a message array and returns text or a typed failure. Key resolution, prompts and reading-load maths stay in this app on purpose. |
 | `summarizer.js` | Compatibility re-export for the summarizer helpers. |
 | `test/` | Separate test tree that mirrors source paths. |
 
@@ -54,6 +55,7 @@ Mirror the source tree under `test/`:
 | Source | Test path |
 | --- | --- |
 | `summarizer.js` | No dedicated test; it is a trivial re-export covered indirectly through `test/public/services/summary-prompt.test.js`. |
+| `packages/ai-provider/` | `packages/ai-provider/test/call-provider.test.js`, kept beside the source rather than under `test/` so a repo copying the directory gets the tests with it. |
 | `public/app.js` | `test/public/app-bootstrap.test.js` |
 | `public/controller/start-app.js` | `test/public/app-bootstrap.test.js` |
 | `public/controller/runtime.js` | `test/public/app-bootstrap.test.js` |

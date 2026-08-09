@@ -3,12 +3,10 @@ import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.j
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { packLinesIntoCards } from '../public/services/card-packing.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
-import { readResponseJson, responseErrorMessage } from '../public/services/response.js';
+import { responseErrorMessage } from '../public/services/response.js';
 import { shortenToLimit } from '../public/services/text.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './model-config.js';
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_VERSION = '2023-06-01';
+import { callProvider, ProviderError, PROVIDER_ERROR_TYPES } from '../packages/ai-provider/index.js';
 
 // A displayed line must never exceed this, but it must also never be reached by cutting inside a
 // word or bolting on an ellipsis -- see shortenToLimit (public/services/text.js) for why. Same
@@ -81,11 +79,21 @@ export async function summarizeWithSource({
   maxWords = SUMMARY_MAX_WORDS,
   level = 'condense',
   history = [],
-  openaiClient = null,
+  openaiApiKey = process.env.OPENAI_API_KEY || '',
   anthropicApiKey = process.env.ANTHROPIC_API_KEY || '',
   anthropicModel = DEFAULT_ANTHROPIC_MODEL,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  openaiClient
 } = {}) {
+  // openaiClient was retired when the OpenAI adapter moved into packages/ai-provider (issue #9),
+  // which takes a key string, not an SDK client -- see the caller, not this function, for how a
+  // client-based default gets resolved to one. An unrecognised parameter silently doing nothing is
+  // exactly the #58/#63 failure shape one layer up (a call that reports success while quietly not
+  // doing what the caller asked), so this fails loudly instead of ignoring it.
+  if (openaiClient !== undefined) {
+    throw new Error('summarizeWithSource: openaiClient is no longer accepted; pass openaiApiKey (a string) and fetchImpl instead.');
+  }
+
   const text = String(recentTranscript).trim();
   if (!text) return { line: '' };
   const words = boundWords(maxWords);
@@ -93,7 +101,8 @@ export async function summarizeWithSource({
   switch (source || 'openai') {
     case 'openai':
       return summarizeWithOpenAI({
-        client: openaiClient,
+        apiKey: openaiApiKey,
+        fetchImpl,
         mode,
         recentTranscript: text,
         visibleLines,
@@ -125,8 +134,8 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLines, maxWords, level = 'condense', history = [] }) {
-  if (!client) {
+async function summarizeWithOpenAI({ apiKey, fetchImpl, mode, recentTranscript, visibleLines, maxWords, level = 'condense', history = [] }) {
+  if (!apiKey) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
 
@@ -134,14 +143,38 @@ async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLine
   // scripts/simulate-meeting.js (real user/assistant turns instead of prior context pasted into
   // one message). The Claude path below also uses it (#47) -- both providers share one prompt now.
   const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
-  const completion = await client.chat.completions.create({
-    model: DEFAULT_OPENAI_MODEL,
-    temperature: 0.2,
-    max_tokens: replyTokenBudget({ level, maxWords }),
-    messages
-  });
+  // The request/response adapter (building the call, parsing the reply text, classifying failure)
+  // lives in packages/ai-provider -- see issue #9. Everything above and below this call is
+  // calibrated to THIS app's reading-load model and stays here.
+  let rawText;
+  try {
+    ({ text: rawText } = await callProvider({
+      provider: 'openai',
+      apiKey,
+      messages,
+      maxTokens: replyTokenBudget({ level, maxWords }),
+      model: DEFAULT_OPENAI_MODEL,
+      fetchImpl
+    }));
+  } catch (error) {
+    rawText = emptyReplyOrRethrow(error);
+  }
 
-  return finishReply(completion.choices?.[0]?.message?.content || '', visibleLines, { mode, maxWords, level });
+  return finishReply(rawText, visibleLines, { mode, maxWords, level });
+}
+
+// A 200 whose body carries no usable text (OpenAI returning `content: null` on a refusal, Claude
+// returning no content array) is treated as the model having nothing to say: empty reply, no error.
+// That is what both branches did before the provider adapters moved into packages/ai-provider
+// (#9), and #9 is an extraction -- the package now names this failure `malformed-response`, which is
+// the right vocabulary for a general caller, but adopting it here would change what an operator sees
+// on a path the card never asked to change. Whether it SHOULD stay silent is a real question, asked
+// separately; it is not this refactor's to answer.
+function emptyReplyOrRethrow(error) {
+  if (error instanceof ProviderError && error.type === PROVIDER_ERROR_TYPES.MALFORMED_RESPONSE) {
+    return '';
+  }
+  throw error;
 }
 
 // The post-processing both providers share. It was inline in the OpenAI branch, and bringing Claude to
@@ -226,35 +259,39 @@ async function summarizeWithClaude({
   // the fourth announcement long after #49 was fixed for OpenAI, and switching provider mid-meeting
   // moved the behaviour under the operator with nothing saying so.
   //
-  // buildMinimalSummarizeMessages returns [system, ...history turns, user]. Anthropic takes the system
-  // prompt as its own top-level field rather than as a message, so it is split off here; the
-  // remaining user/assistant turns map across unchanged.
+  // buildMinimalSummarizeMessages returns [system, ...history turns, user]. Splitting the system
+  // message into Anthropic's top-level `system` field is now the package's job (packages/ai-provider,
+  // issue #9) -- one canonical messages array goes in for both providers.
   const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
-  const [systemMessage, ...turns] = messages;
-  const response = await fetchImpl(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'anthropic-version': ANTHROPIC_API_VERSION,
-      'x-api-key': anthropicApiKey
-    },
-    body: JSON.stringify({
-      model: anthropicModel,
-      max_tokens: replyTokenBudget({ level, maxWords }),
-      temperature: 0.2,
-      system: systemMessage.content,
-      messages: turns.map((turn) => ({ role: turn.role, content: turn.content }))
-    })
-  });
 
-  const data = await readResponseJson(response);
-  if (!response.ok) {
-    throw new Error(responseErrorMessage(data.error?.message ? { error: data.error.message } : data, 'Summarization failed.'));
+  let rawText;
+  try {
+    ({ text: rawText } = await callProvider({
+      provider: 'claude',
+      apiKey: anthropicApiKey,
+      messages,
+      maxTokens: replyTokenBudget({ level, maxWords }),
+      model: anthropicModel,
+      fetchImpl
+    }));
+  } catch (error) {
+    // A 200 with no usable content was an empty reply before the extraction, not a failure -- see
+    // emptyReplyOrRethrow. Checked BEFORE the enrichment below, which would otherwise turn it into
+    // an operator-facing error the old code never raised.
+    if (error instanceof ProviderError && error.type === PROVIDER_ERROR_TYPES.MALFORMED_RESPONSE) {
+      return finishReply(emptyReplyOrRethrow(error), visibleLines, { mode, maxWords, level });
+    }
+
+    // Preserves the pre-existing Claude behaviour exactly: turn the provider's own error text into
+    // an operator-actionable message via responseErrorMessage (public/services/response.js), which
+    // is app UI judgment and deliberately did not move into the package.
+    if (error instanceof ProviderError) {
+      const detail = error.detail || '';
+      throw new Error(responseErrorMessage(detail ? { error: detail } : {}, 'Summarization failed.'));
+    }
+    throw error;
   }
 
-  const output = Array.isArray(data.content)
-    ? data.content.filter((chunk) => chunk?.type === 'text').map((chunk) => chunk.text || '').join('\n')
-    : '';
   // Identical post-processing to the OpenAI path, through the same function so the two cannot drift.
-  return finishReply(output, visibleLines, { mode, maxWords, level });
+  return finishReply(rawText, visibleLines, { mode, maxWords, level });
 }
