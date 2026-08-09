@@ -356,6 +356,11 @@ export function setSettingsSection(ctx, section) {
     const isActive = button.dataset?.settingsNav === next;
     button.setAttribute('aria-current', String(isActive));
     button.classList?.toggle?.('active', isActive);
+    // The Alerts tab itself, not just its panel, disappears when there is nothing to show -- an
+    // always-visible tab that opens on an empty section reads as a control that doesn't work.
+    if (button.dataset?.settingsNav === 'alerts') {
+      button.hidden = !hasAlerts;
+    }
   });
 }
 
@@ -765,6 +770,19 @@ export function syncSettingsPanel(ctx) {
   if (ctx.dom.apiWarning) {
     ctx.dom.apiWarning.hidden = !hasAlerts;
     ctx.dom.apiWarning.textContent = hasAlerts ? alerts.map((alert) => alert.message).join(' ') : '';
+  }
+
+  // This runs on every alert-relevant state change, not just on opening Settings or clicking a nav
+  // tab -- an alert can appear or clear while the dialog is already open on a different tab, so the
+  // Alerts tab's own visibility has to be kept live here too, not only in setSettingsSection.
+  const alertsNavButton = (ctx.dom.settingsNavButtons || []).find((button) => button.dataset?.settingsNav === 'alerts');
+  if (alertsNavButton) {
+    alertsNavButton.hidden = !hasAlerts;
+  }
+  // An alert clearing while its tab is the active one would otherwise leave the operator on a
+  // hidden tab looking at a blank panel -- fall back to the same default landing section instead.
+  if (!hasAlerts && ctx.state.settingsSection === 'alerts') {
+    setSettingsSection(ctx, DEFAULT_SETTINGS_SECTION);
   }
 
   updateSourceButtons(ctx);

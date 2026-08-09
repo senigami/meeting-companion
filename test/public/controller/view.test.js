@@ -561,6 +561,24 @@ test('setSettingsSection reveals the alerts section when selected while alerts a
   assert.equal(alertsNode.hidden, false);
 });
 
+test('setSettingsSection hides the Alerts tab itself when there is nothing to show', () => {
+  const ctx = createSettingsCtx({ openAiReady: true, anthropicReady: true });
+
+  setSettingsSection(ctx, 'timing');
+
+  const alertsNav = ctx.dom.settingsNavButtons.find((node) => node.dataset.settingsNav === 'alerts');
+  assert.equal(alertsNav.hidden, true, 'an always-visible tab that opens on an empty section reads as broken');
+});
+
+test('setSettingsSection shows the Alerts tab when an alert is active', () => {
+  const ctx = createSettingsCtx({ openAiReady: false, anthropicReady: true });
+
+  setSettingsSection(ctx, 'alerts');
+
+  const alertsNav = ctx.dom.settingsNavButtons.find((node) => node.dataset.settingsNav === 'alerts');
+  assert.equal(alertsNav.hidden, false);
+});
+
 test('setSettingsOpen defaults to the Alerts section when opening with an active alert', () => {
   const ctx = createSettingsCtx({ openAiReady: false, anthropicReady: true });
   ctx.dom.settingsPanel = createNode('dialog');
