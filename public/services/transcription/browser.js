@@ -13,7 +13,8 @@ export function createBrowserTranscriptionDriver({
   onStatus = () => {},
   language = 'en-US',
   setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout
+  clearTimeoutFn = clearTimeout,
+  nowFn = Date.now
 } = {}) {
   let recognition = null;
   let listening = false;
@@ -39,9 +40,16 @@ export function createBrowserTranscriptionDriver({
   // stop claiming otherwise (INV-10). One is deliberately not enough: a genuine pause before anyone
   // speaks produces exactly one.
   const SILENT_DEVICE_NO_SPEECH_STREAK = 2;
+  // #94 (Cato, gating #93): two no-speech timeouts land back to back at roughly 10-16s, well ahead
+  // of runtime.js's SILENCE_WATCHDOG_MS (45s), which deliberately waits that long because a false
+  // alarm during an ordinary quiet moment (a pause before the meeting starts, a long prayer) is its
+  // own harm. This driver must not beat that deliberated wait with a more specific-sounding claim,
+  // so it carries the same floor -- keep the two in sync if either changes.
+  const SILENT_DEVICE_FLOOR_MS = 45000;
   let heardSound = false;
   let noSpeechStreak = 0;
   let reportedSilentDevice = false;
+  let listeningStartedAt = 0;
 
   function noteAudioHeard() {
     heardSound = true;
@@ -134,10 +142,11 @@ export function createBrowserTranscriptionDriver({
       const error = String(event?.error || 'unknown error');
       if (error.toLowerCase() === 'no-speech') {
         noSpeechStreak += 1;
-        if (!heardSound && noSpeechStreak >= SILENT_DEVICE_NO_SPEECH_STREAK && !reportedSilentDevice) {
+        const heardNothingLongEnough = nowFn() - listeningStartedAt >= SILENT_DEVICE_FLOOR_MS;
+        if (!heardSound && noSpeechStreak >= SILENT_DEVICE_NO_SPEECH_STREAK && heardNothingLongEnough && !reportedSilentDevice) {
           reportedSilentDevice = true;
           onStatus(
-            'No audio at all from the browser\'s microphone. It picks its own device and ignores the picker in Settings, so check which one the browser is using.',
+            'No audio at all from the browser\'s microphone. It may be listening to a different device than the one chosen in the picker -- worth checking.',
             { level: 'silence' }
           );
           return;
@@ -179,6 +188,7 @@ export function createBrowserTranscriptionDriver({
       heardSound = false;
       noSpeechStreak = 0;
       reportedSilentDevice = false;
+      listeningStartedAt = nowFn();
       if (!started) {
         rec.start();
         started = true;
