@@ -218,14 +218,11 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
   }
 });
 
-// previousBlock reaches NO prompt any more, and these two tests used to be the only thing asserting
-// otherwise. They covered the Claude path only, which was its last consumer: buildMinimalSummarizeMessages
-// (the OpenAI path since #43, and now Claude too since #47) carries prior context as real
-// user/assistant turns in `history` instead of pasting a described block into one message.
-//
-// So the parameter is now accepted, threaded through two functions, and used nowhere. Filed rather
-// than deleted here, because removing it touches the route, both client drivers and the runtime, and
-// that is not a provider-parity change.
+// previousBlock is gone from the route, both drivers and both provider functions (#66).
+// buildMinimalSummarizeMessages (the OpenAI path since #43, and Claude too since #47) carries prior
+// context as real user/assistant turns in `history` instead of pasting a described block into one
+// message. It is still passed in below on purpose: an ignored extra key must stay ignored, and the
+// assertions at the bottom prove none of it reaches the model.
 test('prior context reaches Claude as conversation turns, the same way it reaches OpenAI', async () => {
   let request = null;
   await summarizeWithSource({

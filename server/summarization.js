@@ -77,7 +77,6 @@ export async function summarizeWithSource({
   source = 'openai',
   mode = 'speaker',
   recentTranscript = '',
-  previousBlock = '',
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS,
   level = 'condense',
@@ -97,7 +96,6 @@ export async function summarizeWithSource({
         client: openaiClient,
         mode,
         recentTranscript: text,
-        previousBlock,
         visibleLines,
         maxWords: words,
         // The requested level is honoured -- the client derives it from the reading budget and this
@@ -115,7 +113,6 @@ export async function summarizeWithSource({
         fetchImpl,
         mode,
         recentTranscript: text,
-        previousBlock,
         visibleLines,
         maxWords: words,
         // Same information-mode guard as the OpenAI branch, for the same reason: brief keeps one
@@ -128,7 +125,7 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ client, mode, recentTranscript, previousBlock, visibleLines, maxWords, level = 'condense', history = [] }) {
+async function summarizeWithOpenAI({ client, mode, recentTranscript, visibleLines, maxWords, level = 'condense', history = [] }) {
   if (!client) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
@@ -211,7 +208,6 @@ async function summarizeWithClaude({
   fetchImpl,
   mode,
   recentTranscript,
-  previousBlock,
   visibleLines,
   maxWords,
   level = 'condense',

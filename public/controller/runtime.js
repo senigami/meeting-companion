@@ -1495,19 +1495,6 @@ export function createRuntime(ctx, deps = {}) {
     }
     if (!recent || recent === ctx.state.lastSentText) return false;
 
-    // The one-slot rolling-window memory: the previously sent block, held separately from the
-    // bucket's own lifetime so it can be handed to the summarizer as distinct labelled context
-    // (see .agent/rolling-window-brief.md). Two SEPARATE fields, not a concatenation -- the prompt
-    // seat renders "previous, for context only" and "new, summarize this" under distinct labels,
-    // and our dedupe only rejects an exact line match, so a concatenated blob would let the model
-    // re-summarize old content in different words and sail past that dedupe as a "new" card.
-    // Omitted entirely on a mode change: carrying prayer text as context into an information
-    // summary invites exactly the cross-mode confusion the mode-run split just fixed.
-    const previousBlock =
-      ctx.state.lastSentBlock && ctx.state.lastSentBlock.mode === sendMode
-        ? ctx.state.lastSentBlock.text
-        : '';
-
     ctx.state.summarizeInFlight = true;
     updateStatus(ctx, 'Summarizing...');
     // Dim rather than remove: these chunks are still in the bucket (INV-11 only drains it on
@@ -1524,7 +1511,6 @@ export function createRuntime(ctx, deps = {}) {
       const result = await driver.summarize({
         mode: sendMode,
         recentTranscript: recent,
-        previousBlock,
         // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
         // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
         // announcements the oldest card was already outside it and the model could restate it,
@@ -1553,7 +1539,10 @@ export function createRuntime(ctx, deps = {}) {
         at: nowFn(),
         mode: sendMode,
         consumedIds: (consumedChunks || []).map((chunk) => chunk.at),
-        hadPreviousBlock: Boolean(previousBlock),
+        // previousBlock itself no longer reaches any prompt (#66); this is the closest true
+        // statement left about whether the call carried prior context, since summaryHistory is
+        // what actually reaches the model now.
+        hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: result.line || '',
         provider: ctx.state.summarizationSource,
@@ -1567,11 +1556,9 @@ export function createRuntime(ctx, deps = {}) {
       resetSummarizeBackoff();
 
       if (ctx.state.paused) return false;
-      // The bucket only drains, and the previous-block slot only advances, on success while
-      // unpaused -- a failed or pause-interrupted request re-sends the same sentences next tick
-      // and does not shift the rolling window forward under it (INV-11).
+      // The bucket only drains on success while unpaused -- a failed or pause-interrupted request
+      // re-sends the same sentences next tick (INV-11).
       ctx.state.lastSentText = recent;
-      ctx.state.lastSentBlock = { text: recent, mode: sendMode };
       if (consumedChunks?.length) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
         showRecentTranscript();
@@ -1602,7 +1589,7 @@ export function createRuntime(ctx, deps = {}) {
         at: nowFn(),
         mode: sendMode,
         consumedIds: (consumedChunks || []).map((chunk) => chunk.at),
-        hadPreviousBlock: Boolean(previousBlock),
+        hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: '',
         provider: ctx.state.summarizationSource,
@@ -2308,7 +2295,6 @@ export function createRuntime(ctx, deps = {}) {
     }
     await summarizeCurrentText(undefined, { settleMs: 0 });
     ctx.state.summaryHistory = [];
-    ctx.state.lastSentBlock = null;
     ctx.state.lastSentText = '';
     // #106: the new speaker's first complete sentence deserves the same #31 fast path the very
     // first speaker of the meeting gets, not a wait on whatever is left of the old interval.
