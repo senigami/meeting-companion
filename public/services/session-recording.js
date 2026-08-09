@@ -27,6 +27,30 @@ export function createRecordingSessionId(at = Date.now()) {
 // `speaker` (issue #40): the operator-typed name active when this chunk was captured, so a replay
 // of the recording reproduces the same speaker labels the operator actually saw, not whatever name
 // happens to be in the field when the recording is replayed back through the pipeline.
+// One header record, written once and first per session file (issue #4 / ADR-0004). It exists so a
+// file that outlives the prompt/build it was recorded under can be recognised as stale by READING
+// it, rather than by remembering which meeting used which commit. Metadata only, never the prompt
+// text itself, never any transcript, never any part of a key (INV-8/INV-12) -- a hash of the prompt
+// is the whole point: it changes when the prompt changes without ever carrying its words.
+export function buildHeaderRecord({
+  at = Date.now(),
+  appCommit = 'unknown',
+  promptHash = 'unknown',
+  maxWords = null,
+  provider = '',
+  intervalSeconds = null
+} = {}) {
+  return {
+    t: 'header',
+    at: new Date(at).toISOString(),
+    appCommit: appCommit || 'unknown',
+    promptHash: promptHash || 'unknown',
+    maxWords: typeof maxWords === 'number' ? maxWords : null,
+    provider: provider || '',
+    intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : null
+  };
+}
+
 export function buildChunkRecord({ at, mode, text, speaker = null, inferred = false }) {
   return {
     t: 'chunk',

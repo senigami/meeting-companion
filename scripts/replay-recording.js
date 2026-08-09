@@ -11,6 +11,36 @@
 // Usage: node scripts/replay-recording.js recordings/<session-id>.ndjson [--json]
 
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+
+import { resolveAppCommit } from '../server/app-commit.js';
+
+// Resolved against THIS script's own directory, not process.cwd(): the script is routinely run by
+// absolute path from somewhere else, and asking git about whatever directory the operator happens
+// to be standing in would compare the recording against a different repository (or none) and print
+// a confident, wrong staleness warning.
+const REPO_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+
+function printHeader(header) {
+  if (!header) {
+    // Explicit, not silent: an old recording with no header must say so rather than being read as
+    // "matched" or quietly skipped -- issue #4's own requirement that old recordings still replay.
+    console.log('No header record (recorded before this field existed) -- commit/prompt/settings unknown.\n');
+    return;
+  }
+
+  console.log(`header: commit=${header.appCommit} promptHash=${header.promptHash} maxWords=${header.maxWords} provider=${header.provider} intervalSeconds=${header.intervalSeconds}`);
+
+  const currentCommit = resolveAppCommit(REPO_DIR);
+  if (header.appCommit === 'unknown' || currentCommit === 'unknown') {
+    console.log(`(commit comparison skipped: recorded=${header.appCommit}, current=${currentCommit})\n`);
+  } else if (header.appCommit !== currentCommit) {
+    console.log(`WARNING: this recording was made under commit ${header.appCommit}, but the current checkout is at ${currentCommit}. The prompt or pipeline may have changed since -- treat this recording as possibly stale.\n`);
+  } else {
+    console.log('(recorded commit matches the current checkout)\n');
+  }
+}
 
 async function main() {
   const [, , filePath, ...flags] = process.argv;
@@ -27,6 +57,9 @@ async function main() {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+
+  const header = records.find((record) => record.t === 'header') || null;
+  if (!asJson) printHeader(header);
 
   const chunksById = new Map();
   for (const record of records) {
@@ -53,7 +86,7 @@ async function main() {
     }));
 
   if (asJson) {
-    console.log(JSON.stringify(pairs, null, 2));
+    console.log(JSON.stringify({ header, pairs }, null, 2));
     return;
   }
 

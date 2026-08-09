@@ -65,7 +65,8 @@ import {
   isProviderConfigured,
   isSourceConfigured
 } from './provider-availability.js';
-import { buildChunkRecord, buildSummaryRecord } from '../services/session-recording.js';
+import { buildChunkRecord, buildSummaryRecord, buildHeaderRecord } from '../services/session-recording.js';
+import { computeSummaryPromptHash } from '../services/summary-prompt-minimal.js';
 import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
 const STORAGE = {
@@ -1295,6 +1296,14 @@ export function createRuntime(ctx, deps = {}) {
     localStorage.setItem(STORAGE.recordingEnabled, String(ctx.state.recordingEnabled));
     if (!ctx.state.recordingEnabled) {
       // Nothing queued while off should later leak out the moment it's re-enabled.
+      //
+      // If the session's header record is still sitting unflushed in that queue, dropping it here
+      // would leave the file with no header at all once recording resumes -- the exact "cannot tell
+      // what produced this recording by reading it" gap issue #4 exists to close. So un-arm the flag
+      // and let the next record re-queue it. A header that already reached the file is not in the
+      // queue, so it stays written exactly once.
+      const queued = Array.isArray(ctx.state.recordingQueue) ? ctx.state.recordingQueue : [];
+      if (queued.some((record) => record?.t === 'header')) ctx.state.recordingHeaderQueued = false;
       ctx.state.recordingQueue = [];
     } else {
       // A fresh "on" is worth trusting again until proven otherwise -- the next flush will correct
@@ -1319,9 +1328,27 @@ export function createRuntime(ctx, deps = {}) {
   // the "Problem" escalation for a provider that genuinely is failing. Either one turns a debugging
   // instrument into an INV-10 lie -- a status surface that is wrong about what is broken -- so the
   // recorder swallows its own faults here and stays silent about them.
+  // Issue #4: the header record is what lets a survived-too-long recording be recognised as stale
+  // by reading the file, instead of by remembering which meeting used which prompt/commit. Written
+  // once, and first -- before any chunk or summary record ever reaches the queue -- by piggybacking
+  // on the very first queueRecord call of the session rather than a separate call site, so there is
+  // exactly one place that can get the ordering wrong.
+  function ensureRecordingHeaderQueued() {
+    if (ctx.state.recordingHeaderQueued) return;
+    ctx.state.recordingQueue.push(buildHeaderRecord({
+      appCommit: ctx.state.appCommit,
+      promptHash: computeSummaryPromptHash(),
+      maxWords: ctx.state.summaryMaxWords,
+      provider: ctx.state.summarizationSource,
+      intervalSeconds: ctx.state.summaryIntervalSeconds
+    }));
+    ctx.state.recordingHeaderQueued = true;
+  }
+
   function queueRecord(build) {
     if (!ctx.state.recordingEnabled) return;
     try {
+      ensureRecordingHeaderQueued();
       ctx.state.recordingQueue.push(build());
     } catch (_error) {
       // Deliberately silent: a recorder that cannot even shape a record has nothing useful to say to
@@ -2245,6 +2272,10 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function applyProviderConfig(data = {}) {
+    // Issue #4: the only place the app learns the commit it is actually running -- the browser has
+    // no git. 'unknown' (start-app.js's initial state) survives untouched if this field is ever
+    // absent, which is the honest answer, not an empty string or a guess.
+    if (data.appCommit) ctx.state.appCommit = data.appCommit;
     ctx.state.providerKeys = data.providerKeys || ctx.state.providerKeys || {};
     ctx.state.serverOpenAiReady = Boolean(data.hasOpenAIKey);
     ctx.state.serverAnthropicReady = Boolean(data.hasAnthropicKey);

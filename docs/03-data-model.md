@@ -75,7 +75,19 @@ Only recent chunks are used to build the summary input. Old chunks are pruned op
 `server/session-recorder.js` appends one line of JSON per record to `recordings/<sessionId>.ndjson`
 (gitignored, never in the repo). This is a debugging/tuning instrument, not a durable business
 record: it has no viewer, is not human-facing, and audio is never written to it (ADR-0003 still
-governs audio). Two record shapes share the file, correlated by chunk `id`:
+governs audio). Three record shapes share the file. The header appears once, first; the other two
+are correlated by chunk `id`:
+
+```json
+{ "t": "header", "at": "2026-08-07T12:00:00.000Z", "appCommit": "a1b2c3d4...", "promptHash": "4b55c527", "maxWords": 15, "provider": "openai", "intervalSeconds": 20 }
+```
+
+The header exists so a recording that outlives the prompt it was made under can be recognised as
+stale by reading it, rather than by remembering which meeting used which build (issue #4, and the
+staleness reasoning in ADR-0004 itself). It is metadata only: `promptHash` is a hash of the prompt
+rules text, never the prompt, and no field carries transcript or key material. `appCommit` carries a
+`-dirty` suffix when the tree had uncommitted changes, and is the literal string `unknown` when there
+is no git to ask, so replay can tell "we do not know" from "it matched".
 
 ```json
 { "t": "chunk", "at": "2026-07-29T12:00:00.000Z", "id": "1710000000000", "mode": "speaker", "speaker": "Brother Ashcroft", "text": "..." }
