@@ -194,6 +194,13 @@ dialog.settingsOverlay[hidden] {
   font-weight: 500;
 }
 
+/* The unconditional `display: block` above beats the browser's own `[hidden] { display: none }`,
+   since an author rule always wins over the UA default at equal specificity -- so the Alerts tab's
+   `.hidden = true` (view.js) did nothing visually until this existed. */
+.settingsNavItem[hidden] {
+  display: none;
+}
+
 .settingsNavItem[aria-current='true'] {
   background: var(--chrome-bg-control);
   color: var(--chrome-accent);
