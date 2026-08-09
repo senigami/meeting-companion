@@ -706,6 +706,15 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
   color: var(--muted);
 }
 
+.field-note a {
+  color: var(--chrome-accent, #7ab7ff);
+}
+
+.field-note a:hover,
+.field-note a:focus-visible {
+  text-decoration-thickness: 2px;
+}
+
 .shortcuts {
   margin: 0;
   color: var(--muted);
