@@ -318,7 +318,9 @@ function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
     const now = Number.isFinite(timestamp) ? timestamp : Date.now();
     startedAt ??= now;
     const elapsed = Math.min(1, (now - startedAt) / TRANSCRIPT_SCROLL_DURATION_MS);
-    const eased = 1 - Math.pow(1 - elapsed, 3);
+    const eased = elapsed < 0.5
+      ? 4 * elapsed * elapsed * elapsed
+      : 1 - Math.pow(-2 * elapsed + 2, 3) / 2;
     viewport.scrollTop = startTop + distance * eased;
 
     if (elapsed < 1) {
