@@ -33,6 +33,62 @@ faster to read and harder to misread at a distance.
 Never invent a name, number, date, or detail that was not said. Do not say the same thing twice.
 Return only the text, with no preamble.`;
 
+// 2026-08-09: a real session showed the model settling into "Sandy White said..." as the opening of
+// every card for one speaker, burning three of a ten-word budget on the same phrase every time --
+// the conversation history below fed its own prior cards back as an example and it repeated the
+// pattern on every following one. A first version of this rule named the "<name> said" pattern
+// directly and told the model not to open with it; Steve's objection, and a real failure mode: a
+// speaker recounting a story ("Harold said he was retired then...") legitimately needs "said" in the
+// middle of a sentence, and an instruction naming the word risked being read as strip it out of
+// everything, corrupting exactly the kind of quoted speech this app must keep faithful. So this stays
+// deliberately general and says nothing about wording: it constrains what NEW information a card may
+// add, not how a sentence may be phrased, which leaves normal reported speech untouched.
+const NO_REPEAT = `Do not repeat information from a previous card. Do not put anything in a card that
+was not in the source text.`;
+
+// 2026-08-09, later same day: Steve's own leaner prompt, retested directly against today's real
+// problem chunks (Sandy White's repetition streak, the multi-announcement splitting, a
+// constructed misattribution case) alongside the fuller VERBATIM/NO_REPEAT prompt above. Same
+// input, same model: this produced tighter word counts (7-13w vs 14-24w for the same chunks) and
+// held up on every retest -- no repetition, no misattribution, no invented numbers or names in that
+// retest, even with NO_REPEAT and VERBATIM's digit-formatting explanation absent. Used for speaker
+// and information's condense level below; brief and prayer are untested against this and stay on
+// the fuller prompt above until they are.
+const SIMPLE_RULES = (cardWords) => `Summarize the main point of this text using simple words, as
+if explaining it to an 8 year old.
+
+Your target output is about ${cardWords} words.
+
+Replace idioms, figures of speech and long words with plain everyday words. Say what was meant, not
+the picture they used to say it.
+
+Favor the shortest amount of characters possible, digits for numbers, time, or amounts. John
+14:26-27 rather than the fourteenth chapter of John.`;
+
+const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
+
+// Kept even though the 2026-08-09 retest above did not manage to trigger a fabrication either way
+// with or without it: the retest was two constructed chunks, not the adversarial sweep that found
+// this gap the first time (2026-08-08 review: 12 tests protecting this exact contract were deleted
+// alongside dead code, and nothing replaced them -- see summary-level.test.js). A small retest
+// disproving a failure mode is not the same evidence as a review built to find one, so this line
+// stays on every mode rather than being dropped on the strength of a sample that never tried to
+// break it.
+const ANTI_FABRICATION = `Keep names, dates, times, numbers, hymn numbers, and scripture references exactly as spoken, never paraphrased and never rounded.
+Never invent a name, number, date, or detail that was not said.`;
+
+// Reverted 2026-08-09 to the wording tested and confirmed working earlier the same day, after a
+// same-day edit ("never name the speaker at all") misread Steve's intent and was never what he
+// asked for -- naming the speaker is not forbidden. The actual rule, from his own example: if the
+// source text says "Harold said...", the summary can say "Harold said...". If later chunks about
+// the same person don't restate a name and the point does not depend on it, don't add one. If
+// naming becomes important again (the point depends on knowing whose story it is), it is fine to
+// use it again. This one line covers both the speaker's own name and anyone else's, without
+// special-casing either -- attach a name only when the source actually said it AND the point needs it.
+const NAME_ATTACHMENT = `Keep facts attached to whoever they are about: if a name is mentioned, that
+name did it, not the speaker. Name a person only when a name was actually said and the point
+depends on it.`;
+
 export function buildMinimalSummarizePrompt({
   recentTranscript = '',
   mode = 'speaker',
@@ -65,7 +121,8 @@ ${READER}
 
 ${subject}
 
-Write ONE line, target ${cardWords} words. Pick the single most important thing and write only that.
+Write ONE line, target ${cardWords} words. Focus on the main topic being communicated. If more than
+one thing fits naturally in that length, that is fine -- the point is one card, not exactly one fact.
 
 Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
 
@@ -74,6 +131,8 @@ the thing itself. Name a person only when a name was actually said and the point
 
 Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
 instead. Return nothing only when the text holds no words at all, or repeats a line already shown.
+
+${NO_REPEAT}
 
 ${VERBATIM}
 
@@ -109,25 +168,23 @@ ${text}
 `.trim();
   }
 
-  // SPEAKER: third person, one card's worth of length per call. Steve's ruling, 2026-08-08, tested
-  // against a real recorded talk: direct, simple instructions for exactly what is wanted, no
-  // narration -- and no "keep their voice" framing, which is a deliberate reversal of this branch's
-  // original shape (see git history). The mandate is fitting on one card at the target length, not
+  // SPEAKER: third person, one card's worth of length per call. Steve's leaner prompt (see
+  // SIMPLE_RULES above), 2026-08-09 -- the fuller VERBATIM/NO_REPEAT version above had drifted word
+  // counts to 14-24 on a 10-word target on real speech, without anyone noticing until today; this
+  // held 7-13 on the same chunks. The mandate is fitting on one card at the target length, not
   // forcing exactly one line out of the model -- if it ever returns more than one, packLinesIntoCards
   // still packs/sizes them same as any other mode; nothing downstream assumes a single line.
   if (mode === 'speaker') {
     return `
 ${READER}
 
-Summarize the main point using simple words, as if explaining it to an 8 year old. Third person only
--- never write as the speaker or use "I".
+${SIMPLE_RULES(cardWords)}
 
-Keep facts attached to whoever they are about: if a name is mentioned, that name did it, not the
-speaker.
+${THIRD_PERSON}
 
-${VERBATIM}
+${NAME_ATTACHMENT}
 
-Your target is about ${cardWords} words.
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -136,27 +193,30 @@ ${text}
 
   // SUMMARIZE: announcements and logistics. Facts survive, wording does not.
   //
-  // Note what this no longer says: a total number of lines. It used to cap at three, and
-  // cleanModelLines capped at three too, so the two agreed and nothing looked wrong -- while a fourth
-  // announcement in one tick was discarded with no error, no telemetry and wasShortened false (#49).
-  // A cap that matches the prompt rather than the speech is the whole shape of that bug.
-  //
-  // Ansel's ruling, 2026-08-04: the 3 was only ever burst control for a display that rendered a
-  // whole result at once, and that display is gone -- the release queue hands over one card every few
-  // seconds however many lines a call returns, so the queue is what protects him from a burst, not
-  // the cap. A runaway guard belongs in code (maxLines, now 12 to match the speaker path), never in
-  // the model's instructions.
+  // 2026-08-09 reversal, Steve's call: this used to ask for one line PER SEPARATE announcement (a
+  // 2026-08-04 ruling that a fourth announcement in one tick was being silently dropped, #49) --
+  // but that traded one problem for a worse one. One summarize call could then hand back several
+  // cards at once, which is exactly what a reader following along card by card cannot absorb: he
+  // wants one call, one card. What #49 actually needed was for a real fourth announcement to survive
+  // somewhere, not for it to arrive on the same tick as the other three -- and the release queue
+  // already paces cards out one at a time regardless of how many a call returns, so a second
+  // announcement that does not fit this card's word budget is simply left for the model to pick up on
+  // its own next call against the fresh transcript, the same way speaker mode leaves the rest of a
+  // long sentence for next time.
   return `
 ${READER}
 
-This is meeting information: announcements, dates, times, assignments, logistics. Summarize it as
-if explaining it to an 8 year old. Third person, facts only, no voice to preserve.
+${SIMPLE_RULES(cardWords)}
 
-Write one line, target ${cardWords} words, per SEPARATE announcement. Two announcements are
-two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
-bee Saturday"), never with a clause about it ("If you are able to help...").
+${THIRD_PERSON}
 
-${VERBATIM}
+Pull out the most important information. If more than one announcement fits naturally in that
+length, that is fine -- the point is one card, not exactly one fact. Lead with the thing itself
+("Working bee Saturday"), never with a clause about it ("If you are able to help...").
+
+${NAME_ATTACHMENT}
+
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -167,15 +227,22 @@ ${text}
 // ---------------------------------------------------------------------------
 // Steve's question, 2026-08-01: are we sending prior context the right way?
 //
-// No. Everything above builds ONE user message with the previous block and the already-shown lines
-// pasted in as prose sections. The model is handed a description of a conversation rather than a
-// conversation. That makes "do not repeat what is already shown" a request it can ignore, which is
-// exactly where issue #25 keeps failing.
-//
-// This builds real turns instead: the rules as a system message, then each earlier block as a user
-// turn with the card we actually displayed as the assistant turn that answered it, then the new
-// block. The model can now SEE what it already wrote, in the position where its own prior output
-// belongs, so not repeating itself is structural rather than instructed.
+// 2026-08-09 reversal, with real evidence. The 2026-08-01 answer here was "build real
+// user/assistant turns, so the model can SEE its own prior output and not repeating itself is
+// structural rather than instructed" -- and it worked for issue #25's failure (repeating the same
+// CONTENT). It also caused a different failure nobody connected to it until today: a real session
+// on one speaker produced fifteen straight cards all opening "Sandy White said/says..." -- the
+// model imitating its own prior CARD's phrasing, not its content, because each prior card sat in
+// the position an assistant turn a chat model is trained to continue the style of. Reproduced and
+// isolated directly (retest against these ten real chunks, 2026-08-09): with the exact same rules
+// and the exact same ten chunks, real turns produced the "Name said" preamble on cards 4-10 of 10;
+// zero conversation history produced it on NONE, but also lost track of who was speaking, falling
+// back to "the person"/"they" once the name stopped appearing in the raw chunk; and prior context
+// folded into the SYSTEM message as plain text ("for context only, do not repeat or imitate the
+// wording of these") kept the speaker's name where it was grammatically needed WITHOUT reproducing
+// a "Name said" template on a single card. That is the shape below: one user/assistant PAIR (a
+// worked example of length and tone) still lives here for that, but the ROLLING history beyond it is
+// data, not more turns to imitate.
 
 // Deterministic, non-cryptographic (FNV-1a) hash -- this exists to detect "the prompt changed",
 // never to secure anything, so 32 bits is plenty and no crypto dependency is needed in the browser.
@@ -230,7 +297,11 @@ export function buildMinimalSummarizeMessages({
   const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords, level });
   const rules = full.replace(/\n*Text:\n*$/, '').trim();
 
-  const messages = [{ role: 'system', content: rules }];
+  // Folded into the system message as data, not more user/assistant turns -- see the block comment
+  // above for why (2026-08-09 reversal, with a real reproduction). historyTurns still caps how many
+  // entries get included; the caller (runtime.js) separately caps by a 60-second rolling window
+  // before this ever sees the array.
+  const contextLines = [];
   for (const turn of history.slice(-historyTurns)) {
     // Trim BEFORE the guard, not after. A whitespace-only entry passed the truthiness check and then
     // trimmed to '', producing an empty content block. OpenAI tolerates that; Anthropic rejects the
@@ -239,9 +310,12 @@ export function buildMinimalSummarizeMessages({
     const spoken = String(turn?.spoken ?? '').trim();
     const shown = String(turn?.shown ?? '').trim();
     if (!spoken || !shown) continue;
-    messages.push({ role: 'user', content: spoken });
-    messages.push({ role: 'assistant', content: shown });
+    contextLines.push(`Said: "${spoken}" / Shown: "${shown}"`);
   }
-  messages.push({ role: 'user', content: text });
-  return messages;
+
+  const system = contextLines.length
+    ? `${rules}\n\nFor context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, they are already on screen:\n${contextLines.join('\n')}`
+    : rules;
+
+  return [{ role: 'system', content: system }, { role: 'user', content: text }];
 }

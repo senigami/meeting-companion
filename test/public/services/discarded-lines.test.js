@@ -38,9 +38,12 @@ test('the count survives the whole path, server through driver to the recording'
   // start of it.
   const tooMany = Array.from({ length: RUNAWAY_LINE_GUARD + 4 }, (_, i) => `Item ${i + 1}.`).join('\n');
 
+  // speaker mode, not information: information is forced to a one-card reply server-side as of
+  // #105, which would discard 15 of these 16 rather than the 4 this test exists to pin. speaker
+  // mode is still packed against the RUNAWAY_LINE_GUARD this test is actually about.
   const fromServer = await summarizeWithSource({
     source: 'openai',
-    mode: 'information',
+    mode: 'speaker',
     recentTranscript: 'Announcements.',
     maxWords: 10,
     openaiApiKey: 'test-key',
@@ -57,11 +60,11 @@ test('the count survives the whole path, server through driver to the recording'
   const driver = createOpenAISummarizer({
     fetchImpl: async () => ({ ok: true, json: async () => ({ line: fromServer.line, discardedByCap: fromServer.discardedByCap }) })
   });
-  const fromDriver = await driver.summarize({ mode: 'information', recentTranscript: 'x', maxWords: 10 });
+  const fromDriver = await driver.summarize({ mode: 'speaker', recentTranscript: 'x', maxWords: 10 });
   assert.equal(fromDriver.discardedByCap, 4, 'and the driver must carry it rather than swallowing it');
 
   const record = buildSummaryRecord({
-    at: Date.now(), mode: 'information', sent: 'Announcements.', returned: fromDriver.line,
+    at: Date.now(), mode: 'speaker', sent: 'Announcements.', returned: fromDriver.line,
     provider: 'openai', ok: true, wasShortened: false, discardedByCap: fromDriver.discardedByCap
   });
   assert.equal(record.discardedByCap, 4, 'and it must reach the recording, which is where a person reads it');

@@ -185,22 +185,25 @@ function finishReply(rawText, visibleLines, { mode, maxWords, level }) {
   // brief is ONE card by contract: nothing to pack, and no second line to accept. Letting either
   // through would hand the reader more than the level promised, which is the whole quantity the level
   // exists to control.
-  if (level === 'brief') {
+  //
+  // information is ONE card by the same contract as of 2026-08-09 (Steve's reversal of the
+  // 2026-08-04 per-announcement-line ruling, #49/#105): one summarize call must never hand back more
+  // than one card, whatever the model returns, or a reader following along gets several cards at
+  // once. The prompt already asks for one line; this is the enforcement, the same way maxLines
+  // enforces every other bound rather than trusting the model to have honoured the wording.
+  if (level === 'brief' || mode === 'information') {
     return finishLines(rawText, visibleLines, { maxLines: 1 });
   }
 
-  // Packing applies to the CONDENSE modes only. In information mode each line is a separate
-  // announcement, and merging two because they happened to fit the word budget is wrong -- a hymn
-  // number and a benediction assignment are two things a reader looks for separately.
+  // Packing applies to speaker/prayer only -- these are the only modes whose prompt still asks for
+  // more than one line, and packLinesIntoCards is what turns that into word-budgeted cards.
   //
-  // RUNAWAY_LINE_GUARD for every mode including information, not the MAX_LINES_PER_CALL default of 3
-  // (#49): announcements are one line each, so 3 was a hard ceiling on how many facts could survive a
-  // tick, and the fourth was dropped silently. Ansel ruled 12, with the release queue doing the
-  // pacing rather than the cap. The same constant is imported by the client drivers, which used to
-  // re-cap at 3 and undo all of it (#63).
-  const packs = mode === 'speaker' || mode === 'prayer';
+  // RUNAWAY_LINE_GUARD (12), not the MAX_LINES_PER_CALL default of 3 (#49): a hard ceiling on how
+  // many facts could survive a tick silently dropped the fourth (no error, no telemetry). Ansel ruled
+  // 12, with the release queue doing the pacing rather than the cap. The same constant is imported by
+  // the client drivers, which used to re-cap at 3 and undo all of it (#63).
   return finishLines(rawText, visibleLines, {
-    cardWords: packs ? maxWords : null,
+    cardWords: maxWords,
     maxLines: RUNAWAY_LINE_GUARD
   });
 }

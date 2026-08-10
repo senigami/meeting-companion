@@ -50,7 +50,7 @@ function createClickable(initial = {}) {
   return element;
 }
 
-test('app bootstrap loads without module errors and starts keyless with demo summaries and no alert', async () => {
+test('app bootstrap loads without module errors and starts keyless on the unready OpenAI default, alerting that a key is needed', async () => {
   const originalDocument = global.document;
   const originalLocalStorage = global.localStorage;
   const originalFetch = global.fetch;
@@ -203,11 +203,12 @@ test('app bootstrap loads without module errors and starts keyless with demo sum
     await import('../../public/app.js?bootstrap-test=' + Date.now());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Fresh install, no provider keys, nothing actively chosen: this defaults to demo summaries
-    // with no alert at all -- no keys is the expected first-run state, not an error to dismiss.
-    assert.equal(elements.apiWarning.hidden, true);
-    assert.equal(elements.apiWarning.textContent, '');
-    assert.match(elements.status.textContent, /Browser transcription and demo summaries work with no key/i);
+    // 2026-08-09 reversal (Steve): a fresh install with no provider keys no longer defaults to
+    // demo, so it lands on the unready OpenAI default and buildAlerts correctly surfaces that a key
+    // is needed -- this is now the honest state, not a false alarm to suppress.
+    assert.equal(elements.apiWarning.hidden, false);
+    assert.match(elements.apiWarning.textContent, /OpenAI is selected for summaries but has no key/i);
+    assert.match(elements.status.textContent, /Browser transcription works with no key/i);
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5%');
     assert.equal(elements.summaryIntervalValue.textContent, '5s');
@@ -226,9 +227,9 @@ test('app bootstrap loads without module errors and starts keyless with demo sum
       'the default 5s interval cannot be met at this reader pace, and the first frame must say so');
     assert.doesNotMatch(elements.summaryMaxWordsValue.textContent, /^11 words$/,
       'and must never present the nearest slider option as though it were the budget');
-    assert.equal(elements.settingsAlertBadge.hidden, true);
-    assert.equal(elements.alertsSection.hidden, true);
-    assert.match(elements.status.textContent, /Browser transcription and demo summaries work with no key/i);
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.status.textContent, /Browser transcription works with no key/i);
     assert.equal(elements.settingsButton.getAttribute?.('aria-expanded') || 'false', 'false');
     assert.equal(elements.settingsPanel.hidden, true);
     assert.equal(summarizationButtons[1].disabled, false);

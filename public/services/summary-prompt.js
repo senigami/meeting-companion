@@ -42,8 +42,33 @@ export const MAX_LINES_PER_CALL = 3;
 // merge the two constants, they mean different things.
 export const RUNAWAY_LINE_GUARD = 12;
 
+// A chunk this thin has no real content to summarize -- 2026-08-09, real session: "Okay.", "Let's
+// see.", and "." each still went out as a full network call and came back "Nothing was said.",
+// displayed as if it were a card. Steve: "if there was truly nothing being said it should never have
+// sent blank to the summarizer in the first place." A genuinely short but complete thought under this
+// count (a bare "Amen.") is held back a tick rather than sent -- it stays in the bucket and goes out
+// once more speech joins it, the same as an empty chunk already does; that small delay is the
+// trade-off for never sending pure filler.
+const MIN_SUBSTANTIVE_WORDS = 3;
+
+export function hasSubstantiveContent(text = '') {
+  const words = String(text).match(/[a-z0-9]{2,}/gi) || [];
+  return words.length >= MIN_SUBSTANTIVE_WORDS;
+}
+
 function lineKey(line = '') {
   return cleanModelLine(line).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// 2026-08-09, real session: a foreign-language ASR fragment and an off-topic aside each got a real
+// refusal back from the model ("I'm sorry, but I can only respond in English...", "I'm sorry, but I
+// can't assist with that."), and it was displayed on the wall as if it were a summary. The server
+// only treats a 200-with-no-content as empty (emptyReplyOrRethrow, server/summarization.js); a
+// refusal has real text content and sailed straight through. This is the display-side backstop --
+// checked the same way isVagueLine is, not as a provider-level failure, because the call itself
+// succeeded and nothing about it should count against the failure-escalation counter.
+function isRefusalLine(line = '') {
+  return /^\s*(i'?m sorry|i can'?t (assist|help)|i cannot (assist|help)|as an ai)\b/i.test(line);
 }
 
 function isVagueLine(line = '') {
@@ -63,6 +88,7 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
   const clean = cleanModelLine(line);
   if (!clean) return false;
   if (isVagueLine(clean)) return false;
+  if (isRefusalLine(clean)) return false;
 
   const key = lineKey(clean);
   if (!key) return false;

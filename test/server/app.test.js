@@ -264,11 +264,12 @@ test('/api/summarize passes well-formed history through to the provider call', a
   });
 
   assert.equal(response.statusCode, 200);
-  // system, user (history), assistant (history), user (new text)
-  assert.equal(sentMessages.length, 4);
-  assert.equal(sentMessages[1].content, 'Earlier chunk.');
-  assert.equal(sentMessages[2].content, 'Earlier card.');
-  assert.equal(sentMessages[3].content, 'New text.');
+  // system (rules + folded-in history), user (new text) -- see summary-prompt-minimal.js's
+  // 2026-08-09 reversal: history is data inside the system message now, not extra turns.
+  assert.equal(sentMessages.length, 2);
+  assert.match(sentMessages[0].content, /Earlier chunk\./);
+  assert.match(sentMessages[0].content, /Earlier card\./);
+  assert.equal(sentMessages[1].content, 'New text.');
 });
 
 test('/api/summarize sanitises a malformed history to at most 8 well-formed entries rather than throwing', async () => {
@@ -300,10 +301,10 @@ test('/api/summarize sanitises a malformed history to at most 8 well-formed entr
 
   assert.equal(response.statusCode, 200);
   // The server sanitises to the most recent 8 well-formed entries; buildMinimalSummarizeMessages
-  // further narrows to its own default historyTurns (4) when building the actual message array --
-  // system + (4 turns * 2 messages) + final user turn.
-  assert.equal(sentMessages.length, 1 + 4 * 2 + 1);
-  assert.equal(sentMessages[1].content, 'spoken 16');
+  // further narrows to its own default historyTurns (4), folded into the system message as data
+  // (2026-08-09 reversal) -- system + final user turn, not one message per turn.
+  assert.equal(sentMessages.length, 2);
+  assert.match(sentMessages[0].content, /spoken 16/);
   assert.equal(sentMessages[sentMessages.length - 1].content, 'New text.');
 
   const notArrayResponse = await invoke(app, {

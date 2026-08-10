@@ -338,7 +338,10 @@ function findSpeakerNode(card) {
   return meta.children.find((node) => node.className === 'transcript-speaker');
 }
 
-test('a speaker label shows on the first card of a new speaker and not on the cards that repeat that speaker', () => {
+test('a speaker label shows on every card for that speaker, not just the first (2026-08-09 reversal of #40)', () => {
+  // Steve's design: the label is a persistent corner nameplate, not a sentence -- a reader glances
+  // at the corner and only needs to notice when it changes. Suppressing repeats forced them to
+  // remember who was talking instead, which is more cognitive load, not less.
   const transcriptViewport = createNode('div');
   const transcriptStack = createNode('div');
 
@@ -358,9 +361,9 @@ test('a speaker label shows on the first card of a new speaker and not on the ca
   renderDisplay(ctx);
 
   const [first, second, third] = transcriptStack.children;
-  assert.equal(findSpeakerNode(first)?.textContent, 'Bro. Ashcroft', 'the change of speaker must be labelled');
-  assert.equal(findSpeakerNode(second), undefined, 'a repeated speaker must not be re-labelled');
-  assert.equal(findSpeakerNode(third), undefined, 'still not re-labelled on the third repeat');
+  assert.equal(findSpeakerNode(first)?.textContent, 'Bro. Ashcroft');
+  assert.equal(findSpeakerNode(second)?.textContent, 'Bro. Ashcroft', 'a repeated speaker is still labelled every card');
+  assert.equal(findSpeakerNode(third)?.textContent, 'Bro. Ashcroft', 'still labelled on the third repeat');
 });
 
 test('an empty speaker never renders a label, and never becomes "Unknown"', () => {

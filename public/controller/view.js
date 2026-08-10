@@ -240,19 +240,15 @@ export function renderDisplay(ctx) {
   const previousIsPrefix = previousIds.length <= renderIds.length
     && previousIds.every((id, index) => id === renderIds[index]);
 
-  // Issue #40: the label shows only on a change of speaker, walked forward through the items in
-  // display order -- a name repeated on every card is reading load a slow reader pays for nothing.
-  // previousSpeaker starts as null (not ''), so a genuinely empty first card's speaker ('') is
-  // still correctly treated as "no change from nothing" (no label) rather than "changed from null".
-  // Walked across every item regardless of which ones get a DOM node below, so a brand new card's
-  // speaker label is judged against the real previous card, not just the other new arrivals.
-  let previousSpeaker = null;
+  // 2026-08-09 reversal of issue #40 (Steve): the label is a persistent card-corner nameplate now,
+  // not a sentence to re-read -- it shows on EVERY card that has a speaker, whether or not it
+  // changed from the previous one. A reader following along glances at the corner and only has to
+  // notice when it's different; making it disappear on a repeat forces them to remember who was
+  // talking instead, which is more cognitive load, not less.
   const newNodes = [];
   renderItems.forEach((item, index) => {
     const speaker = typeof item.speaker === 'string' ? item.speaker.trim() : '';
-    // Empty is a valid state and never gets a label, no matter what came before it.
-    const showSpeaker = Boolean(speaker) && speaker !== previousSpeaker;
-    previousSpeaker = speaker;
+    const showSpeaker = Boolean(speaker);
     if (previousIsPrefix && index < previousIds.length) return;
     newNodes.push(createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker }));
   });

@@ -5,6 +5,14 @@ import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 import { SENTENCE_END_SILENCE_MS } from '../../../public/controller/runtime.js';
 
+// Filler text of an exact character length that still clears hasSubstantiveContent's 3-token gate
+// -- 'a'.repeat(n) is a single giant token, not real words, and got blocked outright once that gate
+// arrived. 'word '.repeat(...) keeps real word boundaries while padding to the same length these
+// bucket-overflow tests rely on (BUCKET_MAX_CHARS trimming).
+function fillerOfLength(length) {
+  return 'word '.repeat(Math.ceil(length / 5)).slice(0, length);
+}
+
 test('a mode press waits out a call already in flight before draining, so the outgoing speaker is not merged into the next', async () => {
   // The drain is skippable: summarizeCurrentText returns early while summarizeInFlight is set.
   // Without waiting, a mode press during a call clears the history but leaves the outgoing tail in
@@ -98,9 +106,26 @@ test('pressing a mode button clears the conversational history, even when the mo
   await withRuntimeHarness({
     stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a', shown: 'A' }, { spoken: 'b', shown: 'B' }] }
   }, async ({ ctx, runtime }) => {
-    runtime.setMode('speaker');
-    await Promise.resolve();
+    await runtime.setMode('speaker');
     assert.deepEqual(ctx.state.summaryHistory, [], 'pressing the current mode must still start fresh');
+  });
+});
+
+test('the speaker-name FIELD clears on every mode press, same-mode or not (2026-08-09)', async () => {
+  // Every mode press clears the field, including a same-mode re-press -- that press is the "new
+  // speaker in testimony meeting" gesture (same reason summaryHistory resets unconditionally too),
+  // and a name typed for whoever was talking before must never survive onto whoever comes next.
+  // This is the FIELD only; the CARD label (view.js) is a separate, persistent per-card nameplate
+  // that just stops appearing on new cards once the field it copies from is empty.
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'speaker', speakerName: 'Bro. Ashcroft' }
+  }, async ({ ctx, runtime }) => {
+    await runtime.setMode('speaker');
+    assert.equal(ctx.state.speakerName, '', 'a same-mode press clears the field too');
+
+    ctx.state.speakerName = 'Sister Droubal';
+    await runtime.setMode('information');
+    assert.equal(ctx.state.speakerName, '', 'an actual mode change clears the field');
   });
 });
 
@@ -111,8 +136,7 @@ test('pressing a mode button says so on a surface visible with the settings pane
   await withRuntimeHarness({
     stateOverrides: { mode: 'speaker' }
   }, async ({ ctx, runtime }) => {
-    runtime.setMode('speaker');
-    await Promise.resolve();
+    await runtime.setMode('speaker');
     assert.match(ctx.dom.railNote.textContent, /starting fresh/i,
       'the rail note is the only feedback surface readable with the panel closed');
   });
@@ -126,8 +150,7 @@ test('changing mode clears the history, so one speaker does not become context f
   await withRuntimeHarness({
     stateOverrides: { mode: 'speaker', summaryHistory: [{ spoken: 'a testimony', shown: 'A testimony' }] }
   }, async ({ ctx, runtime }) => {
-    runtime.setMode('prayer');
-    await Promise.resolve();
+    await runtime.setMode('prayer');
     assert.equal(ctx.state.mode, 'prayer');
     assert.deepEqual(ctx.state.summaryHistory, []);
   });
@@ -168,7 +191,11 @@ test('runtime falls back to Claude summarization when OpenAI is unavailable', as
   });
 });
 
-test('fresh install with no provider keys defaults to demo summaries with no alert and no switch note', async () => {
+test('fresh install with no provider keys stays on the unready default, never demo, with no alert or switch note', async () => {
+  // 2026-08-09 reversal (Steve): a real incident showed the cost of demo ever being reachable by
+  // anything other than an explicit click -- see resolveAvailableSummarizationSource's own comment.
+  // A fresh install with no keys now stays on the ordinary 'openai' default, unready, which renders
+  // as "no key configured, manual mode still works" rather than fabricated content that looks real.
   await withRuntimeHarness({
     fetchConfig: {
       hasOpenAIKey: false,
@@ -188,18 +215,19 @@ test('fresh install with no provider keys defaults to demo summaries with no ale
   }, async ({ ctx, elements, runtime }) => {
     await runtime.loadRuntimeConfig();
 
-    assert.equal(ctx.state.summarizationSource, 'demo');
-    assert.equal(elements.settingsAlertBadge.hidden, true);
-    assert.equal(elements.alertsSection.hidden, true);
-    assert.equal(elements.apiWarning.textContent, '');
-    // No keys is the expected first-run state, not a fallback the operator needs to be told about.
+    assert.equal(ctx.state.summarizationSource, 'openai');
+    // OpenAI selected, unready: buildAlerts correctly surfaces this now that demo cannot silently
+    // absorb it -- an honest "add a key" alert, not the false alarm the old alert model used to raise.
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.apiWarning.textContent, /has no key/i);
+    // The initial state (start-app.js) and the resolved default agree, so nothing "switched" --
+    // no note, same as before this reversal.
     assert.equal(elements.railNote.textContent, '');
     // Nothing recorded a choice. Falsy rather than literally false: start-app.js seeds this field
     // and the test harness does not, so an unseeded `undefined` is the real first-run shape here.
     assert.ok(!ctx.state.summarizationSourceChosen);
-    // And the default must NOT be persisted. A stored 'demo' has to keep meaning "the operator chose
-    // this"; once the app writes the same value to mean "I picked this for you", the next boot cannot
-    // tell them apart. The regression test below is what that actually caused.
+    // demo must never be reachable here at all now, chosen flag or not.
     assert.notEqual(localStorage.getItem('summarizationSource'), 'demo');
   });
 });
@@ -487,7 +515,7 @@ test('runtime pauses and resumes the active transcription driver', async () => {
     fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
   }, async ({ ctx, runtime }) => {
     await runtime.startListening();
-    runtime.setMode('information');
+    await runtime.setMode('information');
     await runtime.togglePauseAi();
     await runtime.togglePauseAi();
 
@@ -518,14 +546,12 @@ test('switching to song mode auto-pauses listening, and switching away auto-resu
     fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
   }, async ({ ctx, runtime }) => {
     await runtime.startListening();
-    runtime.setMode('song');
-    await Promise.resolve();
+    await runtime.setMode('song');
 
     assert.equal(ctx.state.paused, true, 'entering song mode pauses');
     assert.equal(driver.stopCount, 1);
 
-    runtime.setMode('speaker');
-    await Promise.resolve();
+    await runtime.setMode('speaker');
 
     assert.equal(ctx.state.paused, false, 'leaving song mode resumes what it auto-paused');
     assert.equal(driver.startCount, 2);
@@ -550,8 +576,7 @@ test('a manual pause press while in song mode is not overridden when leaving son
     fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
   }, async ({ ctx, runtime }) => {
     await runtime.startListening();
-    runtime.setMode('song');
-    await Promise.resolve();
+    await runtime.setMode('song');
     assert.equal(ctx.state.paused, true);
 
     // The operator's own call: manually resume while still in song mode.
@@ -560,8 +585,7 @@ test('a manual pause press while in song mode is not overridden when leaving son
     assert.equal(ctx.state.songAutoPaused, false, 'a manual press clears the auto-pause marker');
 
     // Leaving song mode must not re-pause on top of the operator's explicit resume.
-    runtime.setMode('speaker');
-    await Promise.resolve();
+    await runtime.setMode('speaker');
     assert.equal(ctx.state.paused, false);
   });
 });
@@ -718,6 +742,31 @@ test('summaryHistory is cleared when listening stops', async () => {
     await runtime.stopListening();
 
     assert.deepEqual(ctx.state.summaryHistory, []);
+  });
+});
+
+test('the speaker-name field clears on a genuine Start press and on Stop, but not on an internal resume (2026-08-09)', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    ctx.state.speakerName = 'Bro. Ashcroft';
+    await runtime.startListening();
+    assert.equal(ctx.state.speakerName, '', 'a genuine Start press clears the field');
+
+    ctx.state.speakerName = 'Sister Droubal';
+    await runtime.startListening({ force: true });
+    assert.equal(ctx.state.speakerName, 'Sister Droubal', 'an internal force resume is not a new speaker');
+
+    await runtime.stopListening();
+    assert.equal(ctx.state.speakerName, '', 'Stop clears the field');
   });
 });
 
@@ -1040,7 +1089,10 @@ test('settings open state keeps alert and settings buttons in sync', async () =>
   });
 });
 
-test('runtime falls back to demo when persisted source is stale, unchosen, and no keys are configured', async () => {
+test('runtime falls back to the unready default, never demo, when persisted source is stale, unchosen, and no keys are configured', async () => {
+  // 2026-08-09 reversal (Steve): demo must never be reachable except by an explicit choice, so a
+  // stale/unchosen persisted value falls through to the ordinary unready 'openai' default (same as
+  // the never-configured case), not to demo.
   await withRuntimeHarness({
     localStorageValues: {
       summarizationSource: 'stale-source'
@@ -1063,13 +1115,10 @@ test('runtime falls back to demo when persisted source is stale, unchosen, and n
   }, async ({ ctx, elements, runtime }) => {
     await runtime.loadRuntimeConfig();
 
-    // Nothing was ever actively chosen and no keys are configured, so this is the expected
-    // first-run state (demo), not an error -- regardless of what stale value happened to be
-    // stored under the old default.
-    assert.equal(ctx.state.summarizationSource, 'demo');
-    assert.equal(elements.settingsAlertBadge.hidden, true);
-    assert.equal(elements.alertsSection.hidden, true);
-    assert.equal(elements.apiWarning.textContent, '');
+    assert.equal(ctx.state.summarizationSource, 'openai');
+    assert.equal(elements.settingsAlertBadge.hidden, false);
+    assert.equal(elements.alertsSection.hidden, false);
+    assert.match(elements.apiWarning.textContent, /has no key/i);
   });
 });
 
@@ -1262,9 +1311,9 @@ test('a summarize success after failures clears the alert, resets the counter, a
       transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
     }
   }, async ({ ctx, elements, runtime }) => {
-    await runtime.summarizeCurrentText('failure one');
-    await runtime.summarizeCurrentText('failure two');
-    await runtime.summarizeCurrentText('failure three');
+    await runtime.summarizeCurrentText('First real failure.');
+    await runtime.summarizeCurrentText('Second real failure.');
+    await runtime.summarizeCurrentText('Third real failure.');
 
     assert.equal(ctx.state.summarizeFailureCount, 3);
     assert.equal(elements.alertsSection.hidden, false);
@@ -1310,9 +1359,9 @@ test('clearing a summarize-failure alert must not blank an unrelated still-live 
       transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
     }
   }, async ({ runtime, elements }) => {
-    await runtime.summarizeCurrentText('failure one');
-    await runtime.summarizeCurrentText('failure two');
-    await runtime.summarizeCurrentText('failure three');
+    await runtime.summarizeCurrentText('First real failure.');
+    await runtime.summarizeCurrentText('Second real failure.');
+    await runtime.summarizeCurrentText('Third real failure.');
     await runtime.summarizeCurrentText('now it works');
 
     assert.equal(elements.alertsSection.hidden, false);
@@ -1347,9 +1396,9 @@ test('the settings alert badge never disagrees with the alerts section after Set
       transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
     }
   }, async ({ elements, runtime }) => {
-    await runtime.summarizeCurrentText('f1');
-    await runtime.summarizeCurrentText('f2');
-    await runtime.summarizeCurrentText('f3');
+    await runtime.summarizeCurrentText('First real failure.');
+    await runtime.summarizeCurrentText('Second real failure.');
+    await runtime.summarizeCurrentText('Third real failure.');
 
     assert.equal(elements.settingsAlertBadge.hidden, false);
     assert.equal(elements.alertsSection.hidden, false);
@@ -1379,7 +1428,7 @@ test('a summarize success without prior failures does not touch the alert surfac
       transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
     }
   }, async ({ ctx, elements, runtime }) => {
-    await runtime.summarizeCurrentText('all good');
+    await runtime.summarizeCurrentText('all is good');
 
     assert.equal(ctx.state.summarizeFailureCount, 0);
     assert.equal(elements.alertsSection.hidden, true);
@@ -1907,17 +1956,17 @@ test('one summarize call never receives text spanning two modes', async () => {
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
 
-    // #54: both complete runs drain in the SAME tick rather than the later mode's chunk waiting
-    // for the next one -- but still as two separate calls, one per mode, never merged into one.
-    assert.deepEqual(sentTexts, [
-      'First speaker sentence. Second speaker sentence.',
-      'An information announcement.'
-    ]);
-    assert.deepEqual(ctx.state.transcriptChunks, []);
+    // 2026-08-09 reversal of #54's same-tick catch-up (Steve): a backlog of several complete runs
+    // now drains ONE run per tick, at the ordinary interval cadence, instead of bursting through
+    // every run it can find the moment it gets the chance -- a real session measured ~20 card pairs
+    // landing under a second apart from exactly this burst. Only the oldest run goes out; the rest
+    // stay in the bucket for later ticks.
+    assert.deepEqual(sentTexts, ['First speaker sentence. Second speaker sentence.']);
+    assert.deepEqual(ctx.state.transcriptChunks, [{ text: 'An information announcement.', at: now - 1000, mode: 'information' }]);
   });
 });
 
-test('#54: a second speaker landing in the same tick gets a card in that tick, not the next one', async () => {
+test('a second speaker landing in the same tick still waits for the next tick, not a same-tick catch-up', async () => {
   const succeedingDriver = {
     id: 'openai',
     summarize: async ({ recentTranscript }) => ({ line: `Card for: ${recentTranscript}` })
@@ -1937,16 +1986,19 @@ test('#54: a second speaker landing in the same tick gets a card in that tick, n
     // One tick, one call to summarizeCurrentText -- exactly what the interval fires.
     await runtime.summarizeCurrentText();
 
+    // 2026-08-09 reversal of #54 (Steve, "eliminate the need for catch up"): with every call now
+    // capped to exactly one card, there is no burst left to protect the reader from by draining
+    // faster than the interval -- so this drains at most one run per tick, same as any other tick.
     assert.deepEqual(
       ctx.state.summaryHistory.map((turn) => turn.shown),
-      ['Card for: First speaker said this.', 'Card for: Second speaker said this.'],
-      'both speakers must produce a card within the same tick, not one waiting for the next'
+      ['Card for: First speaker said this.'],
+      'only the oldest run drains this tick; the second speaker waits for the next one'
     );
-    assert.deepEqual(ctx.state.transcriptChunks, [], 'both runs drained out of the bucket');
+    assert.equal(ctx.state.transcriptChunks.length, 1, 'the second run is still in the bucket for the next tick');
   });
 });
 
-test('#54: the same-tick drain loop is hard-capped, and hitting the cap is observable', async () => {
+test('the drain loop is capped at one run per tick, and a remaining backlog is observable', async () => {
   const succeedingDriver = {
     id: 'openai',
     summarize: async ({ recentTranscript }) => ({ line: `Card for: ${recentTranscript}` })
@@ -1967,8 +2019,10 @@ test('#54: the same-tick drain loop is hard-capped, and hitting the cap is obser
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
 
-    assert.equal(ctx.state.summaryHistory.length, 5, 'the drain loop must stop at its hard cap, not drain every run in one tick');
-    assert.equal(ctx.state.transcriptChunks.length, 2, 'runs left over after the cap stay in the bucket for the next tick');
+    // 2026-08-09 (Steve, "eliminate the need for catch up"): MAX_DRAIN_RUNS_PER_TICK dropped from
+    // 5 to 1, so exactly one run drains per tick and the other six stay queued.
+    assert.equal(ctx.state.summaryHistory.length, 1, 'the drain loop must stop after one run per tick');
+    assert.equal(ctx.state.transcriptChunks.length, 6, 'runs left over after the cap stay in the bucket for the next tick');
     assert.equal(ctx.state.summarizeDrainCapHits, 1, 'hitting the cap must be observable, not silent');
   });
 });
@@ -1990,14 +2044,14 @@ test('previousBlock is never sent across four ticks, and each tick still carries
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: { transcriptChunks: [] }
   }, async ({ ctx, runtime }) => {
-    const ticks = ['A.', 'B.', 'C.', 'D.'];
+    const ticks = ['Tick one happened.', 'Tick two happened.', 'Tick three happened.', 'Tick four happened.'];
     for (const text of ticks) {
       ctx.state.transcriptChunks.push({ text, at: now, mode: 'speaker' });
       ctx.state.lastSentText = null;
       await runtime.summarizeCurrentText();
     }
 
-    assert.deepEqual(seen.map((options) => options.recentTranscript), ['A.', 'B.', 'C.', 'D.']);
+    assert.deepEqual(seen.map((options) => options.recentTranscript), ticks);
     assert.ok(seen.every((options) => !('previousBlock' in options)),
       'no call may carry previousBlock, regardless of tick');
   });
@@ -2018,7 +2072,7 @@ test('a mode change still never sends previousBlock', async () => {
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: {
       mode: 'speaker',
-      transcriptChunks: [{ text: 'A speaker sentence.', at: now, mode: 'speaker' }]
+      transcriptChunks: [{ text: 'A real speaker sentence.', at: now, mode: 'speaker' }]
     }
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
@@ -2048,7 +2102,7 @@ test('a failed call consumes nothing, and never sent previousBlock either way', 
   await withRuntimeHarness({
     createSummarizationDriverFn: () => flakyDriver,
     stateOverrides: {
-      transcriptChunks: [{ text: 'First block.', at: now, mode: 'speaker' }]
+      transcriptChunks: [{ text: 'First real block.', at: now, mode: 'speaker' }]
     }
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
@@ -2076,10 +2130,14 @@ test('a successful summarize with a non-empty line appends {spoken, shown} to su
 
   await withRuntimeHarness({
     createSummarizationDriverFn: () => driver,
-    stateOverrides: { transcriptChunks: [{ text: 'Some speech.', at: now, mode: 'speaker' }] }
+    stateOverrides: { transcriptChunks: [{ text: 'Some real speech.', at: now, mode: 'speaker' }] }
   }, async ({ ctx, runtime }) => {
     await runtime.summarizeCurrentText();
-    assert.deepEqual(ctx.state.summaryHistory, [{ spoken: 'Some speech.', shown: 'A card.' }]);
+    assert.equal(ctx.state.summaryHistory.length, 1);
+    const { spoken, shown } = ctx.state.summaryHistory[0];
+    assert.equal(spoken, 'Some real speech.');
+    assert.equal(shown, 'A card.');
+    assert.equal(typeof ctx.state.summaryHistory[0].at, 'number');
   });
 });
 
@@ -2096,7 +2154,7 @@ test('summaryHistory is not appended to when the summarizer returns an empty lin
   });
 });
 
-test('summaryHistory is capped at the most recent 6 entries', async () => {
+test('summaryHistory is capped at the most recent 30 entries', async () => {
   let n = 0;
   const driver = { id: 'openai', summarize: async () => ({ line: `Card ${n}.` }) };
   const now = Date.now();
@@ -2105,15 +2163,20 @@ test('summaryHistory is capped at the most recent 6 entries', async () => {
     createSummarizationDriverFn: () => driver,
     stateOverrides: { transcriptChunks: [] }
   }, async ({ ctx, runtime }) => {
-    for (n = 0; n < 8; n += 1) {
-      ctx.state.transcriptChunks.push({ text: `Speech ${n}.`, at: now, mode: 'speaker' });
+    for (n = 0; n < 32; n += 1) {
+      // A word for the number, not a digit: single-digit numbers ("0".."9") are one character and
+      // fail hasSubstantiveContent's 3-token gate on their own, which pairs adjacent single-digit
+      // chunks into one bucket run and desyncs this test's per-tick expectations from n.
+      ctx.state.transcriptChunks.push({ text: `Speech number word${n}.`, at: now, mode: 'speaker' });
       ctx.state.lastSentText = null;
       await runtime.summarizeCurrentText();
     }
 
-    assert.equal(ctx.state.summaryHistory.length, 6);
-    assert.deepEqual(ctx.state.summaryHistory[0], { spoken: 'Speech 2.', shown: 'Card 2.' });
-    assert.deepEqual(ctx.state.summaryHistory[5], { spoken: 'Speech 7.', shown: 'Card 7.' });
+    assert.equal(ctx.state.summaryHistory.length, 30);
+    assert.equal(ctx.state.summaryHistory[0].spoken, 'Speech number word2.');
+    assert.equal(ctx.state.summaryHistory[0].shown, 'Card 2.');
+    assert.equal(ctx.state.summaryHistory[29].spoken, 'Speech number word31.');
+    assert.equal(ctx.state.summaryHistory[29].shown, 'Card 31.');
   });
 });
 
@@ -2129,7 +2192,7 @@ test('nothing is consumed twice across the four-tick rolling sequence', async ()
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: { transcriptChunks: [] }
   }, async ({ ctx, runtime }) => {
-    const ticks = ['A.', 'B.', 'C.', 'D.'];
+    const ticks = ['Tick one happened.', 'Tick two happened.', 'Tick three happened.', 'Tick four happened.'];
     for (const text of ticks) {
       ctx.state.transcriptChunks.push({ text, at: now, mode: 'speaker' });
       ctx.state.lastSentText = null;
@@ -2174,7 +2237,7 @@ test('visible lines includes the cards still waiting in the release queue', asyn
     // transcriptItems and were invisible to the dedupe window before this fix.
     assert.equal(ctx.state.transcriptItems.length, 1);
 
-    ctx.state.transcriptChunks.push({ text: 'A second announcement.', at: now - 20000, mode: 'information' });
+    ctx.state.transcriptChunks.push({ text: 'A real second announcement.', at: now - 20000, mode: 'information' });
     await runtime.summarizeCurrentText();
 
     assert.deepEqual(seen[1], [
@@ -2200,7 +2263,7 @@ test('visible lines carries at least as many cards as one call can produce', asy
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: {
       transcriptItems: Array.from({ length: 14 }, (_, i) => ({ text: `Line ${i}`, mode: 'speaker', source: 'ai' })),
-      transcriptChunks: [{ text: 'New block.', at: now, mode: 'speaker' }]
+      transcriptChunks: [{ text: 'A new real block.', at: now, mode: 'speaker' }]
     }
   }, async ({ runtime }) => {
     // 12 is the literal runaway guard from #49, not a value read back out of the code under test:
@@ -2257,8 +2320,8 @@ test('a bucket trim during a sustained outage marks the rail "Speech dropped", a
       // immediately (otherwise, as the newest and still-unsettled chunk, it would sit in the
       // unconsumable remainder and the summarize call below would have nothing to send).
       transcriptChunks: [
-        { text: 'a'.repeat(5000), at: now - 20000 },
-        { text: `${'b'.repeat(4999)}.`, at: now - 1000 }
+        { text: fillerOfLength(5000), at: now - 20000 },
+        { text: `${fillerOfLength(4999)}.`, at: now - 1000 }
       ]
     }
   }, async ({ ctx, elements, runtime }) => {
@@ -2312,8 +2375,8 @@ test('a bucket trim during replay recovers to "Manual mode", not "Listening", wh
       // Same overflow setup as the live-driver version of this test: two chunks totalling just
       // over BUCKET_MAX_CHARS (8000), forcing trimBucket to drop the oldest one.
       transcriptChunks: [
-        { text: 'a'.repeat(5000), at: now - 20000 },
-        { text: `${'b'.repeat(4999)}.`, at: now - 1000 }
+        { text: fillerOfLength(5000), at: now - 20000 },
+        { text: `${fillerOfLength(4999)}.`, at: now - 1000 }
       ]
     },
     createTranscriptionDriverFn: () => replayDriver,
@@ -2392,16 +2455,16 @@ test('a summarize call running longer than the update interval marks the rail "R
     // A real driver, actually started, rather than a `listening: true` shortcut -- the recovered
     // level below depends on the driver's own `isLive`, which only exists once one is built.
     await runtime.startListening();
-    const first = runtime.summarizeCurrentText('first pass');
+    const first = runtime.summarizeCurrentText('first pass now');
     await new Promise((resolve) => setImmediate(resolve));
 
     // Tick 2: the previous call is still in flight -- one skip, not yet sticky-worthy (mirrors
     // SILENCE_WATCHDOG_MS's "don't cry wolf on a single blip" reasoning).
-    await runtime.summarizeCurrentText('tick two');
+    await runtime.summarizeCurrentText('tick two now');
     assert.notEqual(ctx.state.railStatusLevel, 'behind');
 
     // Tick 3: a second consecutive skip -- the wall is now more than one full interval behind.
-    await runtime.summarizeCurrentText('tick three');
+    await runtime.summarizeCurrentText('tick three now');
     assert.equal(ctx.state.railStatusLevel, 'behind');
     assert.equal(elements.railStatusDot.classList.contains('is-level-behind'), true);
     assert.equal(elements.railStatusWord.textContent, 'Running behind');
@@ -2452,11 +2515,11 @@ test('a "Running behind" note during replay recovers to "Manual mode", not "List
     // A real (replay) driver, actually started, so clearWallBehindAlert's recovered level is
     // read from the driver's own isLive rather than ctx.state.listening (which stays true here).
     await runtime.startListening();
-    const first = runtime.summarizeCurrentText('first pass');
+    const first = runtime.summarizeCurrentText('first pass now');
     await new Promise((resolve) => setImmediate(resolve));
 
-    await runtime.summarizeCurrentText('tick two');
-    await runtime.summarizeCurrentText('tick three');
+    await runtime.summarizeCurrentText('tick two now');
+    await runtime.summarizeCurrentText('tick three now');
     assert.equal(ctx.state.railStatusLevel, 'behind');
 
     // Flip paused directly (not via togglePauseAi, which would itself overwrite the rail with a
@@ -2499,10 +2562,10 @@ test('a "Running behind" note is NOT cleared by a late attempt that goes on to f
     // A real driver, actually started, rather than a `listening: true` shortcut -- the recovered
     // level below depends on the driver's own `isLive`, which only exists once one is built.
     await runtime.startListening();
-    const first = runtime.summarizeCurrentText('first pass');
+    const first = runtime.summarizeCurrentText('first pass now');
     await new Promise((resolve) => setImmediate(resolve));
-    await runtime.summarizeCurrentText('tick two');
-    await runtime.summarizeCurrentText('tick three');
+    await runtime.summarizeCurrentText('tick two now');
+    await runtime.summarizeCurrentText('tick three now');
     assert.equal(ctx.state.railStatusLevel, 'behind');
 
     resolveFirst();
@@ -2511,10 +2574,10 @@ test('a "Running behind" note is NOT cleared by a late attempt that goes on to f
 
     // Now force a fresh, genuinely late-and-failing attempt: two skipped ticks re-arm "behind",
     // then the attempt that finally gets to run fails instead of succeeding.
-    const second = runtime.summarizeCurrentText('tick four');
+    const second = runtime.summarizeCurrentText('tick four now');
     await new Promise((resolve) => setImmediate(resolve));
-    await runtime.summarizeCurrentText('tick five');
-    await runtime.summarizeCurrentText('tick six');
+    await runtime.summarizeCurrentText('tick five now');
+    await runtime.summarizeCurrentText('tick six now');
     assert.equal(ctx.state.railStatusLevel, 'behind');
 
     rejectSecond();
