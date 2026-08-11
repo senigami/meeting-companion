@@ -42,18 +42,27 @@ export const MAX_LINES_PER_CALL = 3;
 // merge the two constants, they mean different things.
 export const RUNAWAY_LINE_GUARD = 12;
 
-// A chunk this thin has no real content to summarize -- 2026-08-09, real session: "Okay.", "Let's
-// see.", and "." each still went out as a full network call and came back "Nothing was said.",
-// displayed as if it were a card. Steve: "if there was truly nothing being said it should never have
-// sent blank to the summarizer in the first place." A genuinely short but complete thought under this
-// count (a bare "Amen.") is held back a tick rather than sent -- it stays in the bucket and goes out
-// once more speech joins it, the same as an empty chunk already does; that small delay is the
-// trade-off for never sending pure filler.
-const MIN_SUBSTANTIVE_WORDS = 3;
-
+// 2026-08-09, real session: "Okay.", "Let's see.", and "." each still went out as a full network
+// call and came back "Nothing was said.", displayed as if it were a card. Steve: "if there was
+// truly nothing being said it should never have sent blank to the summarizer in the first place."
+//
+// 2026-08-10 correction, also Steve, from a real prayer that never printed its closing: a first
+// version of this gate required several real words, specifically to hold back a bare "Amen." one
+// tick until more speech joined it -- but there is no way to tell "Amen" (a real, complete,
+// meaningful word) apart from "Okay" (filler) by word count or character-script structure; they are
+// both one word. Treating them the same way silently ate real content the gate had no business
+// judging.
+//
+// "Gating bucket and summary should work the same" (Steve): the gate must never be stricter than
+// what the summarizer's own prompt already promises (SIMPLE_RULES, summary-prompt-minimal.js:
+// return nothing only when the text holds no real words at all) -- so this only rejects text with
+// NO letter or digit in it at all, in any script. A stray "Okay." or a single non-English syllable
+// can still reach the network, and occasionally come back a literal non-answer; isNonAnswerLine
+// below is the display-side catch for that, the same way isRefusalLine already catches a refusal --
+// moving the judgment call to where it can actually be made (after the model has seen the real
+// text), not guessed blind beforehand.
 export function hasSubstantiveContent(text = '') {
-  const words = String(text).match(/[a-z0-9]{2,}/gi) || [];
-  return words.length >= MIN_SUBSTANTIVE_WORDS;
+  return /[\p{L}\p{N}]/u.test(String(text));
 }
 
 function lineKey(line = '') {
@@ -67,8 +76,33 @@ function lineKey(line = '') {
 // refusal has real text content and sailed straight through. This is the display-side backstop --
 // checked the same way isVagueLine is, not as a provider-level failure, because the call itself
 // succeeded and nothing about it should count against the failure-escalation counter.
+//
+// Narrowed 2026-08-09 (adversarial review): the first version matched a bare "I'm sorry" or "as an
+// ai" prefix and, run against constructed legitimate content, rejected "I'm sorry for the
+// confusion, the bishop explained.", "I'm sorry the meeting ran long, the leader said.", and "As an
+// AI hobbyist, the speaker builds robots." -- real content, silently dropped the exact way a
+// duplicate or vague line already is, with nothing distinguishing the loss. Requires the full
+// refusal-shaped continuation now (matching both real observed cases), not just the opening words,
+// and excludes the "cannot help but" idiom specifically, which shares a prefix with a real refusal.
 function isRefusalLine(line = '') {
-  return /^\s*(i'?m sorry|i can'?t (assist|help)|i cannot (assist|help)|as an ai)\b/i.test(line);
+  return (
+    /^\s*i'?m sorry,?\s+but\s+i\s+(can(?:not|'?t)\s*(?:assist|help)\b(?!\s+but)|can only respond in\b)/i.test(line) ||
+    /^\s*i\s*(?:cannot|can'?t)\s*(?:assist|help)\b(?!\s+but)/i.test(line) ||
+    /^\s*as an ai[,.]/i.test(line) ||
+    /^\s*as an ai (?:language model|assistant)\b/i.test(line)
+  );
+}
+
+// 2026-08-10: the display-side counterpart to widening hasSubstantiveContent above. Once the gate
+// stopped pre-judging "is this enough to bother sending," the model occasionally does what it did
+// in the original incident and answers with a literal statement that there is nothing to say
+// ("Nothing was said.") instead of returning empty text as the prompt actually asks for. That is
+// exactly as much a non-answer as an empty string, so it is caught here rather than displayed as a
+// real card. Anchored to the specific observed phrasing and close variants, not a broad "nothing"
+// match, so a real card that happens to start with the word "nothing" ("Nothing was decided at the
+// meeting, so...") is not mistaken for one of these.
+function isNonAnswerLine(line = '') {
+  return /^(nothing|no)\s+(significant|important|much|really)?\s*(was\s+)?said\b\.?$/i.test(line.trim());
 }
 
 function isVagueLine(line = '') {
@@ -89,6 +123,7 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
   if (!clean) return false;
   if (isVagueLine(clean)) return false;
   if (isRefusalLine(clean)) return false;
+  if (isNonAnswerLine(clean)) return false;
 
   const key = lineKey(clean);
   if (!key) return false;
@@ -159,4 +194,3 @@ export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines
 
   return { accepted, discardedByCap };
 }
-

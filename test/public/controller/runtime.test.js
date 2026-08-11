@@ -111,6 +111,45 @@ test('pressing a mode button clears the conversational history, even when the mo
   });
 });
 
+test('a mode switch dumps the outgoing mode\'s bucket BEFORE the mode actually changes (2026-08-10)', async () => {
+  // Steve's real incident: he pressed Information only after the prayer had finished speaking, but
+  // the bucket had not drained yet (the 20s interval hadn't ticked). "Clean dump and switch, just
+  // like hitting Stop or clicking for a new speaker" -- the whole operation must read as one atomic
+  // unit, with nothing about the new mode (state, driver, buttons) existing until the old mode's
+  // leftover content has actually been sent. Verified here by holding the summarize call open and
+  // checking ctx.state.mode has NOT yet flipped while it's in flight.
+  let resolveSummarize;
+  const summarizePromise = new Promise((resolve) => { resolveSummarize = resolve; });
+  let modeAtCallTime = null;
+
+  await withRuntimeHarness({
+    stateOverrides: {
+      mode: 'prayer',
+      transcriptChunks: [{ text: 'We say this in the name of Jesus Christ, amen.', at: Date.now() - 30000, mode: 'prayer', speaker: '' }]
+    },
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async (opts) => {
+        modeAtCallTime = opts.mode;
+        await summarizePromise;
+        return { line: 'We say this in the name of Jesus Christ, amen.' };
+      }
+    })
+  }, async ({ ctx, runtime }) => {
+    const switching = runtime.setMode('information');
+    // Let the flush's summarize call actually start before checking anything.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(modeAtCallTime, 'prayer', 'the flush must send the leftover content under the OLD mode');
+    assert.equal(ctx.state.mode, 'prayer', 'ctx.state.mode must not flip until the dump is done');
+
+    resolveSummarize();
+    await switching;
+
+    assert.equal(ctx.state.mode, 'information', 'and it must flip once the dump has actually finished');
+  });
+});
+
 test('the speaker-name FIELD clears on every mode press, same-mode or not (2026-08-09)', async () => {
   // Every mode press clears the field, including a same-mode re-press -- that press is the "new
   // speaker in testimony meeting" gesture (same reason summaryHistory resets unconditionally too),
@@ -2016,14 +2055,52 @@ test('the drain loop is capped at one run per tick, and a remaining backlog is o
   await withRuntimeHarness({
     createSummarizationDriverFn: () => succeedingDriver,
     stateOverrides: { mode: 'speaker', transcriptChunks }
-  }, async ({ ctx, runtime }) => {
+  }, async ({ ctx, elements, runtime }) => {
     await runtime.summarizeCurrentText();
 
     // 2026-08-09 (Steve, "eliminate the need for catch up"): MAX_DRAIN_RUNS_PER_TICK dropped from
     // 5 to 1, so exactly one run drains per tick and the other six stay queued.
     assert.equal(ctx.state.summaryHistory.length, 1, 'the drain loop must stop after one run per tick');
     assert.equal(ctx.state.transcriptChunks.length, 6, 'runs left over after the cap stay in the bucket for the next tick');
-    assert.equal(ctx.state.summarizeDrainCapHits, 1, 'hitting the cap must be observable, not silent');
+    assert.equal(ctx.state.summarizeDrainCapHits, 1, 'the cap-hit count stays a silent diagnostic');
+    // 2026-08-09, adversarial review + Steve ("we should honor that interval... no catch up, so I
+    // don't understand the issue"): with the cap now permanently 1, a queued second run is the
+    // NORMAL steady state whenever more than one speaker/mode segment is ready, not a fault -- the
+    // next run simply waits for the next tick, same as the interval always paces. A status message
+    // here called that normal pacing a "backlog" on every such tick. An ordinary tick must stay
+    // silent; only a boundary flush (Stop, mode change) that still can't clear everything is worth
+    // surfacing, covered by the next test.
+    assert.doesNotMatch(elements.status.textContent, /backlog/i, 'an ordinary tick must not warn about a "backlog" -- a queued run is normal pacing');
+  });
+});
+
+test('a boundary flush (Stop, mode change) that still can\'t clear a huge backlog says so honestly', async () => {
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => ({ line: `Card for: ${recentTranscript}` })
+  };
+  const now = Date.now();
+  // More than FINAL_FLUSH_MAX_RUNS (20) distinct one-chunk runs, so even the generous
+  // boundary-flush cap cannot clear all of them in one call.
+  const transcriptChunks = Array.from({ length: 25 }, (_, i) => ({
+    text: `Speaker ${i} said this.`,
+    at: now - 30000,
+    mode: 'speaker',
+    speaker: `Speaker${i}`
+  }));
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: { mode: 'speaker', transcriptChunks }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.summarizeCurrentText(undefined, { maxRuns: 20 });
+
+    assert.equal(ctx.state.summaryHistory.length, 20);
+    assert.equal(ctx.state.transcriptChunks.length, 5);
+    // Honest either way: never promises "the next few ticks" specifically, since Stop's flush runs
+    // after the interval is already cleared and cannot rely on one.
+    assert.match(elements.status.textContent, /backlog remained after the flush/i);
+    assert.doesNotMatch(elements.status.textContent, /next few ticks/i);
   });
 });
 
@@ -3916,9 +3993,10 @@ test('turning recording off before the header has been flushed does not leave th
 });
 
 test('several cards from one summary are released one at a time, not dropped on the wall together', async () => {
-  // A testimony is now four or five cards (the model splits by thought, packLinesIntoCards sizes
-  // them). Four appearing in the same frame costs a slow reader their place, which is the exact
-  // thing the display exists to protect.
+  // A live summarize call is one card per call now (2026-08-10), but addLine's own multi-line
+  // splitting is still real, general-purpose behaviour -- exercised here directly, and for real by
+  // manual multi-line paste. Four appearing in the same frame costs a slow reader their place,
+  // which is the exact thing the display exists to protect, whatever produced the four lines.
   const timers = [];
   await withRuntimeHarness({
     setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
@@ -3934,6 +4012,36 @@ test('several cards from one summary are released one at a time, not dropped on 
     assert.equal(ctx.state.transcriptItems.length, 2);
     tick().fn();
     assert.equal(ctx.state.transcriptItems.length, 3);
+    assert.match(ctx.state.transcriptItems[2].text, /Third thought/);
+  });
+});
+
+// 2026-08-10, Steve's question: does Pause stop the microphone only, or does it also freeze cards
+// already computed and sitting in the release queue? It must be the former only -- an "Amen." (or
+// any other real closing) that was already summarized before Pause was pressed must still reach
+// the wall on its normal cadence, since the operator paused the MIC, not the display. Verified
+// directly: the release queue (card-release-queue.js) takes no ctx.state at all and is never
+// touched by pauseAi/togglePauseAi (grepped for it -- the only two callers of .clear() are
+// clearLines and the Clear-armed confirm, neither of which Pause calls), so this pins that it
+// actually behaves that way, not just that the code looks like it should.
+test('pausing AI stops the microphone but does not freeze cards already queued for release', async () => {
+  const timers = [];
+  await withRuntimeHarness({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutFn: () => {}
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('First thought.\nSecond thought.\nThird thought.', { source: 'ai', paced: true });
+    assert.equal(ctx.state.transcriptItems.length, 1, 'only the first card goes up immediately');
+
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+
+    const tick = () => timers.filter((t) => t.ms === 5000).pop();
+    tick().fn();
+    assert.equal(ctx.state.transcriptItems.length, 2, 'a queued card still releases while paused');
+    assert.match(ctx.state.transcriptItems[1].text, /Second thought/);
+    tick().fn();
+    assert.equal(ctx.state.transcriptItems.length, 3, 'and so does the one after it');
     assert.match(ctx.state.transcriptItems[2].text, /Third thought/);
   });
 });

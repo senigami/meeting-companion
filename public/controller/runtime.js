@@ -291,10 +291,13 @@ export function createRuntime(ctx, deps = {}) {
     showRecentTranscript();
   }
 
-  // One summarize result is now several cards (the model splits by thought, packLinesIntoCards
-  // sizes them), and putting four cards on the wall in the same frame costs a slow reader their
-  // place -- the exact thing the display exists to protect. `paced` hands them to the release queue
-  // instead, one every CARD_RELEASE_INTERVAL_MS.
+  // A live summarize call is one card per call now (2026-08-10: no mode packs several thoughts into
+  // several cards any more), but a backlog flush (Stop, a mode change) can still hand over several
+  // SEPARATE calls' single cards at once, and dropping all of them on the wall in the same frame
+  // costs a slow reader their place -- the exact thing the display exists to protect. `paced` hands
+  // them to the release queue instead, one every CARD_RELEASE_INTERVAL_MS. A multi-line string
+  // still splits into one item per line here too, for manual multi-line paste -- that path is the
+  // operator's own text, not the summarizer's, and is unaffected by the one-card-per-call rule.
   //
   // Manual lines are never paced: the operator typed that and pressed Show now, so it shows now.
   const cardReleaseQueue = createCardReleaseQueue({
@@ -1496,7 +1499,18 @@ export function createRuntime(ctx, deps = {}) {
     }
     if (stillPending) {
       ctx.state.summarizeDrainCapHits = (ctx.state.summarizeDrainCapHits || 0) + 1;
-      updateStatus(ctx, 'Backlog is longer than expected; catching up over the next few ticks.');
+      // 2026-08-09 (Steve, "we should honor that interval... no catch up"): an ordinary tick capped
+      // at MAX_DRAIN_RUNS_PER_TICK (1) hitting this every time a second run is already queued is
+      // not a fault, it is the interval working as designed -- the next run simply waits for the
+      // next tick, same as any other pacing. A message here was actively misleading in two
+      // directions: on an ordinary tick it called normal pacing a "backlog," and at a boundary
+      // flush (Stop, mode change) with maxRuns raised well past 1, Stop specifically has already
+      // killed the interval by this point (pauseActiveTranscription, above stopListening), so "the
+      // next few ticks" is a promise nothing will keep. Only the boundary-flush case is worth
+      // surfacing at all, and only without that promise.
+      if (maxRuns > MAX_DRAIN_RUNS_PER_TICK) {
+        updateStatus(ctx, 'A large backlog remained after the flush; some speech may not have been summarized.');
+      }
     }
   }
 
@@ -1717,19 +1731,24 @@ export function createRuntime(ctx, deps = {}) {
     // label, without needing separate logic for that.
     setSpeakerName('');
 
+    // 2026-08-10 reordering (Steve): dump, THEN switch -- not the other way round. A real session:
+    // he pressed Information only after the prayer had finished speaking, but the bucket had not
+    // been drained yet (the 20s interval hadn't ticked), so the leftover prayer content was still
+    // sitting there when he clicked. The old order flipped ctx.state.mode to 'information'
+    // immediately and only THEN flushed -- the flush itself still drained the right chunks (each
+    // one is tagged with the mode it was captured under, not read from current state), but any
+    // chunk arriving DURING the flush would have been captured under the mode already switched to,
+    // and the whole operation reads, and should behave, as one atomic unit: "clean dump and switch,
+    // just like hitting Stop or clicking for a new speaker." So the flush is awaited BEFORE the
+    // mode, driver, and buttons change at all -- nothing about the new mode exists yet while the
+    // old one's leftover content is still being sent.
+    await startNewSpeaker();
+
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
     }
     updateModeButtons(ctx);
-    // Awaited now, not fire-and-forget (2026-08-09): this is the same forced flush stopListening
-    // uses, so whatever is already sitting in the bucket under the outgoing mode gets summarized
-    // before anything else touches state. It has to finish BEFORE the auto-pause below, not just
-    // get started before it -- a real session showed content still in flight when song mode's
-    // auto-pause landed, and it came out ~4 minutes later still labelled with the mode it was
-    // captured under, right after content from whatever mode the operator was actually in by then.
-    // A flush that can be interrupted by the very state change it precedes is not a flush.
-    await startNewSpeaker();
 
     let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
     if (enteringSong && ctx.state.listening && !ctx.state.paused) {

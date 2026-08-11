@@ -78,11 +78,10 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // Literal, computed independently of this code path -- not derived from calling the function under
   // test with different inputs. If this ever legitimately needs updating, that itself is the signal
   // that a recording's header hash will look different, which is the whole point of recording it.
-  // Updated 2026-08-09 (seventh time same day): reverted a same-day NAME_ATTACHMENT edit ("never
-  // name the speaker") that misread Steve's intent -- back to '5e23dd21', the wording tested and
-  // confirmed working earlier the same day (name a person when the source actually said it and the
-  // point depends on it, no special-casing the speaker's own name).
-  assert.equal(computeSummaryPromptHash(), '5e23dd21');
+  // Updated 2026-08-10 (third time same day): WORD_SELECTIVITY reworded to Steve's own phrasing
+  // ("be frugal with your words -- include only the ones that meaningfully contribute to the
+  // meaning being conveyed"), replacing the first draft's "be picky... add real information."
+  assert.equal(computeSummaryPromptHash(), 'faf8b7d2');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {
@@ -104,7 +103,7 @@ test('every branch of the prompt is inside the hashed corpus, so no real prompt 
     'This is meeting information: announcements, dates, times, assignments, logistics.',
     'It must still read as a prayer being offered, not as a report that someone',
     'Summarize the main point of this text using simple words, as',
-    'Report it, in the third person.',
+    'Write in the third person. Do not write as the speaker or use "I".',
     'Pull out the most important information.'
   ];
 

@@ -5,7 +5,8 @@ import {
   cleanModelLine,
   cleanModelLines,
   MAX_LINES_PER_CALL,
-  shouldAcceptModelLine
+  shouldAcceptModelLine,
+  hasSubstantiveContent
 } from '../../../public/services/summary-prompt.js';
 
 test('model line cleanup trims bullets and quotes', () => {
@@ -17,6 +18,44 @@ test('vague model lines are rejected', () => {
   assert.equal(shouldAcceptModelLine('He is talking about faith.'), false);
   assert.equal(shouldAcceptModelLine('Hymn 241 selected', ['Hymn 241 selected']), false);
   assert.equal(shouldAcceptModelLine('Prayer has started'), true);
+});
+
+// 2026-08-10, Steve, from a real prayer that never printed its closing: a prior version of this
+// gate required several real words specifically to hold a bare "Amen." back a tick, and there is
+// no way to tell "Amen" (real, complete, meaningful) apart from "Okay" (filler) by word count --
+// they are both one word. "Gating bucket and summary should work the same": the gate now only
+// rejects text with no letter or digit in it at all, matching what the summarizer's own prompt
+// already promises (return nothing only when the text holds no real words at all).
+test('a real one-word closing like "Amen." is never held back by the content gate', () => {
+  assert.equal(hasSubstantiveContent('Amen.'), true);
+  assert.equal(hasSubstantiveContent('Amen'), true);
+});
+
+test('the content gate only rejects text with no letter or digit at all, in any script', () => {
+  assert.equal(hasSubstantiveContent('.'), false);
+  assert.equal(hasSubstantiveContent(''), false);
+  assert.equal(hasSubstantiveContent('   '), false);
+  // Filler is no longer specially detected -- it can reach the network now; isNonAnswerLine below
+  // is what catches the model's occasional literal non-answer to it, not this gate.
+  assert.equal(hasSubstantiveContent('Okay.'), true);
+  // Non-Latin scripts: Chinese/Japanese do not space-delimit words, so a word-count-based version
+  // of this gate held real testimony back forever (confirmed by direct test, 2026-08-09) -- a
+  // single Unicode letter of any script is enough now.
+  assert.equal(hasSubstantiveContent('我'), true);
+  assert.equal(hasSubstantiveContent('오늘'), true);
+});
+
+// 2026-08-10: the display-side counterpart to widening the gate above. The model occasionally
+// answers a real network call with a literal "Nothing was said." instead of returning empty text
+// as the prompt asks for -- observed directly in a real session. Caught here the same way a
+// refusal already is, not re-added as a stricter pre-send gate.
+test('a literal "nothing was said" reply is rejected as a non-answer, not displayed as a card', () => {
+  assert.equal(shouldAcceptModelLine('Nothing was said.'), false);
+  assert.equal(shouldAcceptModelLine('Nothing significant was said.'), false);
+  assert.equal(shouldAcceptModelLine('Nothing important was said'), false);
+  // A real card that happens to start with the word "nothing" must still get through.
+  assert.equal(shouldAcceptModelLine('Nothing was decided at the meeting, so plans continue.'), true);
+  assert.equal(shouldAcceptModelLine('Amen.'), true);
 });
 
 test('cleanModelLines preserves the order the ideas were spoken in', () => {

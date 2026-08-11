@@ -20,40 +20,22 @@ export const CARD_WORDS = 15;
 // keeping only the two directives changed nothing observable in the output.
 const READER = `Write clean, simple English. Never ASL gloss or ASL word order.`;
 
-const VERBATIM = `Keep these exactly as spoken, never paraphrased and never rounded: names, dates,
-times, numbers, hymn numbers, and scripture references.
+// 2026-08-09, consolidated: this is now the ONE compression instruction every mode and level
+// shares (Steve's own leaner prompt, retested directly against real problem chunks -- see decision
+// log below). It replaced a heavier, separately-worded version of the same idea that had drifted:
+// measured on the same real chunks, the old wording produced 14-24 word cards against a 10-word
+// target; this one held 7-13. Having ONE wording for "how to compress" is also what makes every
+// mode/level branch below just a small addition on top of a shared base, instead of each carrying
+// its own near-duplicate copy that can drift out of sync with the others.
+// 2026-08-10 (Steve, experimental -- "might be worth trying at least once"): added to test his own
+// theory of why "Sandy White said..." kept recurring -- if the model has to be selective about which
+// words earn a place, it may stop spending three of ten words on a preamble that adds no
+// information. Reworded same day to Steve's own phrasing ("meaningfully contribute to the meaning
+// being conveyed" is more precise than the first draft's "add real information" -- it also rules out
+// redundant restatement, not just filler words).
+const WORD_SELECTIVITY = `Be frugal with your words -- include only the ones that meaningfully
+contribute to the meaning being conveyed.`;
 
-Replace idioms, figures of speech and long words with plain everyday words. Say what was meant, not
-the picture they used to say it.
-
-Write numbers as digits, not words: 9:00 rather than nine o'clock, 19 rather than nineteen, $4
-rather than four dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are
-faster to read and harder to misread at a distance.
-
-Never invent a name, number, date, or detail that was not said. Do not say the same thing twice.
-Return only the text, with no preamble.`;
-
-// 2026-08-09: a real session showed the model settling into "Sandy White said..." as the opening of
-// every card for one speaker, burning three of a ten-word budget on the same phrase every time --
-// the conversation history below fed its own prior cards back as an example and it repeated the
-// pattern on every following one. A first version of this rule named the "<name> said" pattern
-// directly and told the model not to open with it; Steve's objection, and a real failure mode: a
-// speaker recounting a story ("Harold said he was retired then...") legitimately needs "said" in the
-// middle of a sentence, and an instruction naming the word risked being read as strip it out of
-// everything, corrupting exactly the kind of quoted speech this app must keep faithful. So this stays
-// deliberately general and says nothing about wording: it constrains what NEW information a card may
-// add, not how a sentence may be phrased, which leaves normal reported speech untouched.
-const NO_REPEAT = `Do not repeat information from a previous card. Do not put anything in a card that
-was not in the source text.`;
-
-// 2026-08-09, later same day: Steve's own leaner prompt, retested directly against today's real
-// problem chunks (Sandy White's repetition streak, the multi-announcement splitting, a
-// constructed misattribution case) alongside the fuller VERBATIM/NO_REPEAT prompt above. Same
-// input, same model: this produced tighter word counts (7-13w vs 14-24w for the same chunks) and
-// held up on every retest -- no repetition, no misattribution, no invented numbers or names in that
-// retest, even with NO_REPEAT and VERBATIM's digit-formatting explanation absent. Used for speaker
-// and information's condense level below; brief and prayer are untested against this and stay on
-// the fuller prompt above until they are.
 const SIMPLE_RULES = (cardWords) => `Summarize the main point of this text using simple words, as
 if explaining it to an 8 year old.
 
@@ -63,19 +45,33 @@ Replace idioms, figures of speech and long words with plain everyday words. Say 
 the picture they used to say it.
 
 Favor the shortest amount of characters possible, digits for numbers, time, or amounts. John
-14:26-27 rather than the fourteenth chapter of John.`;
+14:26-27 rather than the fourteenth chapter of John.
+
+${WORD_SELECTIVITY}`;
+
+// A real missionary or member sometimes bears testimony in another language, and Steve does not
+// want that lost -- without this, the model's default behaviour on non-English input was outright
+// refusal ("I'm sorry, but I can only respond in English..."), observed directly in a real session
+// and now also guarded against on the display side (isRefusalLine, summary-prompt.js). This is the
+// other half of that fix: telling the model what TO do with non-English speech, not just catching it
+// when it declines to.
+const TRANSLATE = `If the speaker is not speaking in English, translate the meaning into English --
+never refuse to summarize non-English speech, and never leave foreign words untranslated.`;
 
 const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
 
-// Kept even though the 2026-08-09 retest above did not manage to trigger a fabrication either way
-// with or without it: the retest was two constructed chunks, not the adversarial sweep that found
-// this gap the first time (2026-08-08 review: 12 tests protecting this exact contract were deleted
-// alongside dead code, and nothing replaced them -- see summary-level.test.js). A small retest
-// disproving a failure mode is not the same evidence as a review built to find one, so this line
-// stays on every mode rather than being dropped on the strength of a sample that never tried to
-// break it.
+// 2026-08-09, consolidated: this used to be two separately-worded copies of the same invariant
+// (one on the brief/prayer path, one on the speaker/information path), which is exactly the drift
+// risk an adversarial review flagged -- a future edit to one copy has nothing forcing the other to
+// follow. One wording now, used everywhere. Kept even though a small retest could not trigger a
+// fabrication either way with or without it: the retest was two constructed chunks, not the
+// adversarial sweep that found this gap the first time (2026-08-08 review: 12 tests protecting this
+// exact contract were deleted alongside dead code, and nothing replaced them -- see
+// summary-level.test.js). A small retest disproving a failure mode is not the same evidence as a
+// review built to find one, so this line stays on every mode rather than being dropped on the
+// strength of a sample that never tried to break it.
 const ANTI_FABRICATION = `Keep names, dates, times, numbers, hymn numbers, and scripture references exactly as spoken, never paraphrased and never rounded.
-Never invent a name, number, date, or detail that was not said.`;
+Never invent a name, number, date, or detail that was not said. Return only the text, with no preamble.`;
 
 // Reverted 2026-08-09 to the wording tested and confirmed working earlier the same day, after a
 // same-day edit ("never name the speaker at all") misread Steve's intent and was never what he
@@ -119,22 +115,23 @@ export function buildMinimalSummarizePrompt({
     return `
 ${READER}
 
+${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
+
 ${subject}
 
-Write ONE line, target ${cardWords} words. Focus on the main topic being communicated. If more than
-one thing fits naturally in that length, that is fine -- the point is one card, not exactly one fact.
-
-Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
+${THIRD_PERSON}
 
 Do not spend words on who is talking. Never say "the speaker", "someone", or "a member". Lead with
-the thing itself. Name a person only when a name was actually said and the point depends on it.
+the thing itself.
+
+${NAME_ATTACHMENT}
 
 Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
 instead. Return nothing only when the text holds no words at all, or repeats a line already shown.
 
-${NO_REPEAT}
-
-${VERBATIM}
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -151,17 +148,27 @@ ${text}
   // Removing the instruction and testing the same chunks plus a genuine opening and closing: all
   // four came out correct, with the real address/amen still preserved by the ordinary verbatim
   // rule below when they were actually said, and nothing added when they weren't.
+  //
+  // 2026-08-10 (Steve): "put each separate thought on its own line" is gone -- it was the one
+  // remaining prompt instruction anywhere in this file that asked for more than one line, and a
+  // real prayer produced four separate cards from a single chunk because of it. One card per call
+  // is enforced in CODE now (finishReply, server/summarization.js joins everything the model
+  // returns onto one card rather than splitting or discarding), so the prompt does not need to ask
+  // for a line count at all -- an explicit "write ONE line" was tried and then also removed
+  // (Steve): the word target above already says how much to say, and the enforcement guarantees
+  // one card regardless of what the model actually returns.
   if (mode === 'prayer') {
     return `
 ${READER}
 
+${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
+
 This is a prayer. It must still read as a prayer being offered, not as a report that someone
 prayed.
 
-Put each separate thought on its own line, in the order they were said. Do not number them and do
-not add bullets.
-
-${VERBATIM}
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -169,16 +176,18 @@ ${text}
   }
 
   // SPEAKER: third person, one card's worth of length per call. Steve's leaner prompt (see
-  // SIMPLE_RULES above), 2026-08-09 -- the fuller VERBATIM/NO_REPEAT version above had drifted word
-  // counts to 14-24 on a 10-word target on real speech, without anyone noticing until today; this
-  // held 7-13 on the same chunks. The mandate is fitting on one card at the target length, not
-  // forcing exactly one line out of the model -- if it ever returns more than one, packLinesIntoCards
-  // still packs/sizes them same as any other mode; nothing downstream assumes a single line.
+  // SIMPLE_RULES above), 2026-08-09 -- the fuller version above had drifted word counts to 14-24 on
+  // a 10-word target on real speech, without anyone noticing until today; this held 7-13 on the
+  // same chunks. If the model ever returns more than one line anyway, finishReply
+  // (server/summarization.js) keeps only the first -- one card per call, every mode, no exception
+  // (2026-08-10).
   if (mode === 'speaker') {
     return `
 ${READER}
 
 ${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
 
 ${THIRD_PERSON}
 
@@ -207,6 +216,8 @@ ${text}
 ${READER}
 
 ${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
 
 ${THIRD_PERSON}
 
