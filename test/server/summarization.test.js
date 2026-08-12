@@ -384,7 +384,7 @@ test('the words-per-card setting bounds the cards actually produced, so the slid
   // always, regardless of maxWords. What is left is the prompt's own stated target ("Your target
   // output is about N words"), which is the only mechanism left for maxWords to have any effect. A
   // scripted mock reply can't demonstrate the model actually honouring a different target (that is
-  // an empirical, real-API question -- see scripts/battering-test.js); this pins the structural half:
+  // an empirical, real-API question -- see scripts/battering-run.js); this pins the structural half:
   // a different maxWords produces a different number in the actual prompt sent, and exactly one card
   // survives regardless of which budget was asked for.
   const modelReply = [

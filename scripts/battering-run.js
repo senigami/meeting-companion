@@ -11,14 +11,18 @@
 // few checks that ARE mechanical (one card, non-empty, no gate-blocked filler, wildly over budget)
 // are flagged inline; everything else is for you to read.
 //
+// Do NOT rename this to anything matching `*-test.js`, `*.test.js`, or `test-*.js`: `npm test` is a
+// bare `node --test`, which globs those patterns, so the old name `battering-test.js` pulled this
+// into the suite and failed it for anyone without an OPENAI_API_KEY.
+//
 // 2026-08-10 (Steve): every run also writes a timestamped markdown report to test-reports/
 // (gitignored, same rationale as recordings/ -- ADR-0004) pairing the raw source text with the
 // summary it produced, prefaced with the exact prompt sent, so the results can be read and judged
 // independently rather than taken on trust from a terminal scroll.
 //
-// Usage: node scripts/battering-test.js [caseName ...]
+// Usage: node scripts/battering-run.js [caseName ...]
 //   With no arguments, runs every case in ALL_CASES.
-//   node scripts/battering-test.js REPETITION_PRONE_SPEAKER NON_ENGLISH_TESTIMONY
+//   node scripts/battering-run.js REPETITION_PRONE_SPEAKER NON_ENGLISH_TESTIMONY
 
 import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -157,6 +161,6 @@ for (const def of cases) {
   allReports.push(report);
 }
 
-const outPath = `test-reports/${timestamp}-battering-test.md`;
+const outPath = `test-reports/${timestamp}-battering-run.md`;
 writeFileSync(outPath, allReports.join('\n\n---\n\n'));
 console.log(`\nReport written to ${outPath}`);

@@ -10,7 +10,7 @@
 // Each case names what made it hard, what a correct run should do, and any shortcoming that is
 // KNOWN and ACCEPTED (a deliberate trade-off, not a bug to keep chasing) -- see each case's own
 // comment for the incident/decision that shaped the expectation. This file holds data only; run it
-// with scripts/battering-test.js.
+// with scripts/battering-run.js.
 
 // Real, consecutive chunks from a complete opening prayer (2026-08-09T15-54-05-907Z.ndjson,
 // 16:06:25-16:07:03). The night this was captured, the prayer's own closing ("...we say these
