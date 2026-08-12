@@ -58,6 +58,26 @@ test('a literal "nothing was said" reply is rejected as a non-answer, not displa
   assert.equal(shouldAcceptModelLine('Amen.'), true);
 });
 
+// Both rejected strings are the exact refusals observed in the 2026-08-09 real session, and both
+// reached the wall as if they were summaries. The accepted strings matter more: this filter drops
+// silently, the way a vague or duplicate line does, so a false positive costs a real card with
+// nothing on the display to say one went missing. PRAYER mode is deliberately first person
+// (summary-prompt-minimal.js), which is why first-person "I cannot ..." content is a live case here
+// rather than a hypothetical one.
+test('a model refusal is rejected, and first-person content that merely starts like one is not', () => {
+  assert.equal(shouldAcceptModelLine("I'm sorry, but I can only respond in English."), false);
+  assert.equal(shouldAcceptModelLine("I'm sorry, but I can't assist with that."), false);
+  assert.equal(shouldAcceptModelLine('I cannot assist with that.'), false);
+  assert.equal(shouldAcceptModelLine("I can't help."), false);
+
+  assert.equal(shouldAcceptModelLine("I'm sorry the meeting ran long, the leader said."), true);
+  assert.equal(shouldAcceptModelLine("I'm sorry for the confusion, the bishop explained."), true);
+  assert.equal(shouldAcceptModelLine('As an AI hobbyist, the speaker builds robots.'), true);
+  assert.equal(shouldAcceptModelLine('I cannot help but feel grateful for this ward.'), true);
+  assert.equal(shouldAcceptModelLine('I cannot help my brother without Thy strength.'), true);
+  assert.equal(shouldAcceptModelLine('I cannot thank Thee enough for this day.'), true);
+});
+
 test('cleanModelLines preserves the order the ideas were spoken in', () => {
   const modelReply = 'Closing hymn will be number 301.\nSister Margaret Ellsworth will offer the benediction.';
   const lines = cleanModelLines(modelReply, []);

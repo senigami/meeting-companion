@@ -87,7 +87,12 @@ function lineKey(line = '') {
 function isRefusalLine(line = '') {
   return (
     /^\s*i'?m sorry,?\s+but\s+i\s+(can(?:not|'?t)\s*(?:assist|help)\b(?!\s+but)|can only respond in\b)/i.test(line) ||
-    /^\s*i\s*(?:cannot|can'?t)\s*(?:assist|help)\b(?!\s+but)/i.test(line) ||
+    // Narrowed again 2026-08-12: this arm had no observed case behind it, unlike the one above, and
+    // PRAYER mode is deliberately first person (summary-prompt-minimal.js), so "I cannot help my
+    // brother without Thy strength" is a real prayer card this would have dropped silently. A
+    // refusal either names what it will not do ("with that") or is the entire line.
+    /^\s*i\s*(?:cannot|can'?t)\s*(?:assist|help)\s+(?:you\s+)?with\s+that\b/i.test(line) ||
+    /^\s*i\s*(?:cannot|can'?t)\s*(?:assist|help)\s*[.!]?\s*$/i.test(line) ||
     /^\s*as an ai[,.]/i.test(line) ||
     /^\s*as an ai (?:language model|assistant)\b/i.test(line)
   );
