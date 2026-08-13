@@ -140,10 +140,7 @@ export function createDemoTranscriptionDriver({
   return {
     id: 'demo',
     label: 'Demo',
-    // Demo has the same "not actually a live microphone" honesty problem as replay, but
-    // changing its reported level is a separate, tracked decision -- left `true` here to
-    // preserve today's behavior exactly. Do not read this as an oversight.
-    isLive: true,
+    isLive: false,
     isAvailable() {
       return true;
     },
