@@ -22,8 +22,14 @@ reader-profiles/
 # list of exceptions is the wrong shape when the cost of missing one is publishing role names.
 # launch.json is the deliberate exception: dev-server configs are useful to anyone who clones this.
 # The decision log is unversioned as a result, so it is backed up outside the repo (OD-0013).
+#
+# repo-id is the second deliberate exception, and it is tracked for the opposite reason to the rest
+# of this block: every seat token is `mtgc-<name>`, so a clone that resolved a DIFFERENT id would
+# silently point every seat at a different memory store. The id must be the same everywhere, which
+# means it cannot live in the local-only layer. It holds no role names, just the token (OD-0026).
 .claude/*
 !.claude/launch.json
+!/.claude/repo-id
 
 # Session memory — local only, never published (OD-0017: Memory/ and .remember/ retired 2026-07-29)
 .memory/
