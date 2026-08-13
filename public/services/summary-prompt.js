@@ -69,6 +69,102 @@ function lineKey(line = '') {
   return cleanModelLine(line).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Words carrying no distinguishing information, so their presence or absence should not decide whether
+// two cards say the same thing. Titles are here on purpose: "Brother" and "Sister" appear in most
+// cards in this setting and identify nobody.
+const FUNCTION_WORDS = new Set([
+  'a', 'an', 'and', 'as', 'at', 'be', 'been', 'brother', 'but', 'by', 'elder', 'for', 'from', 'had',
+  'has', 'have', 'he', 'her', 'him', 'his', 'in', 'is', 'it', 'its', 'of', 'on', 'or', 'president',
+  'she', 'sister', 'that', 'the', 'their', 'them', 'then', 'they', 'this', 'to', 'was', 'were',
+  'will', 'with'
+]);
+
+// Crude on purpose. The point is only that "offer" and "offered" should not read as different facts;
+// anything cleverer would need a stemmer this app has no reason to carry.
+function stem(word) {
+  return word.replace(/(?:ing|ed|es|s)$/, '');
+}
+
+function contentWords(line = '') {
+  return lineKey(line)
+    .split(' ')
+    .filter(Boolean)
+    .filter((word) => !FUNCTION_WORDS.has(word))
+    .map(stem)
+    .filter(Boolean);
+}
+
+// The tokens that make a card worth reading rather than skipping: numbers (verse, hymn, chapter,
+// date, time) and proper names. Everything else is phrasing. Names are approximated by any word the
+// model capitalised other than the first word of the line, which is enough here because the summary
+// prompt is third person and writes ordinary sentences.
+function distinctiveTokens(line = '') {
+  const clean = cleanModelLine(line);
+  const tokens = new Set();
+
+  for (const number of clean.match(/\d+/g) || []) tokens.add(number);
+
+  const words = clean.split(/\s+/).filter(Boolean);
+  for (const [index, word] of words.entries()) {
+    if (index === 0) continue;
+    const bare = word.replace(/[^A-Za-z']/g, '');
+    if (!bare || !/^[A-Z]/.test(bare)) continue;
+    const lower = bare.toLowerCase();
+    if (FUNCTION_WORDS.has(lower)) continue;
+    tokens.add(lower);
+  }
+
+  return tokens;
+}
+
+// How much of the incoming line's content is already on screen. Deliberately asymmetric: what matters
+// is whether the NEW card adds anything, not whether the two lines resemble each other overall. A
+// short restatement of a long visible card is a duplicate; a long card that happens to contain a short
+// visible one is not.
+function containedFraction(incomingWords, visibleWords) {
+  if (incomingWords.length === 0) return 0;
+  const visible = new Set(visibleWords);
+  const shared = incomingWords.filter((word) => visible.has(word)).length;
+  return shared / incomingWords.length;
+}
+
+// Pinned from both sides in test/public/services/summary-prompt.test.js, because a threshold nothing
+// tests is a threshold that can be anything. Below it, a restatement carrying one extra filler word
+// ("...the closing prayer today") escapes and shows up as a second card; above it, a line that shares
+// most of its words while saying something else ("Sister Margaret Ellsworth offered thanks") gets
+// eaten. Raising this to 1.0 or dropping it to 0.5 each fails a test on purpose.
+const RESTATEMENT_CONTAINMENT = 0.8;
+
+// #25, from the 2026-07-31 live run: two cards stated one fact in different words, and the closing
+// prayer was restated about three times at the end of the meeting. lineKey compares normalised
+// strings for exact equality, so two phrasings of one fact are two different keys and both pass.
+//
+// The danger here is worse than the bug. This filter drops a card silently and nothing on the display
+// says one went missing, so suppressing a genuinely new fact costs the reader something he cannot
+// know he lost, and he has no second source. So the test is deliberately narrow in the safe
+// direction: a line is a restatement ONLY if it introduces no name, number or date the visible card
+// does not already have, AND almost all of its remaining content is already on screen. Any card
+// carrying a new distinctive token survives, whatever it looks like.
+//
+// That means the pair in #25's own report is NOT suppressed: "...will share verses 26 and 27 from the
+// 14th chapter of John" adds 26 and 27 to "...will speak on the 14th chapter of John", so it counts as
+// new information rather than a restatement. Whether that is right is a judgment about what the reader
+// should see, not something this file can settle. See the discussion on #25.
+export function isRestatementOfVisible(line = '', visibleLines = []) {
+  const incomingWords = contentWords(line);
+  if (incomingWords.length === 0) return false;
+
+  const incomingDistinctive = distinctiveTokens(line);
+
+  return visibleLines.some((visible) => {
+    const visibleDistinctive = distinctiveTokens(visible);
+    for (const token of incomingDistinctive) {
+      if (!visibleDistinctive.has(token)) return false;
+    }
+    return containedFraction(incomingWords, contentWords(visible)) >= RESTATEMENT_CONTAINMENT;
+  });
+}
+
 // 2026-08-09, real session: a foreign-language ASR fragment and an off-topic aside each got a real
 // refusal back from the model ("I'm sorry, but I can only respond in English...", "I'm sorry, but I
 // can't assist with that."), and it was displayed on the wall as if it were a summary. The server
@@ -135,6 +231,7 @@ export function shouldAcceptModelLine(line, visibleLines = []) {
 
   const visibleKeys = visibleLines.map(lineKey);
   if (visibleKeys.includes(key)) return false;
+  if (isRestatementOfVisible(clean, visibleLines)) return false;
 
   return true;
 }

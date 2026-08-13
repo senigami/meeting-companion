@@ -78,6 +78,70 @@ test('a model refusal is rejected, and first-person content that merely starts l
   assert.equal(shouldAcceptModelLine('I cannot thank Thee enough for this day.'), true);
 });
 
+// #25, and the reason this filter is narrow rather than clever. It drops a card silently, so
+// suppressing a genuinely new fact costs the reader something he cannot know he lost. Every ACCEPTED
+// case below is the one that matters; the rejected ones are the easy half.
+test('a fact restated in different words is suppressed', () => {
+  const visible = ['Sister Margaret Ellsworth will offer the closing prayer.'];
+
+  // The 2026-07-31 run put the closing prayer on screen about three times this way.
+  assert.equal(shouldAcceptModelLine('The closing prayer will be offered by Sister Margaret Ellsworth.', visible), false);
+  assert.equal(shouldAcceptModelLine('Sister Margaret Ellsworth is offering the closing prayer.', visible), false);
+});
+
+test('a card adding any new name, number or date is never suppressed as a restatement', () => {
+  const visible = ['Brother Daniel Ashcroft will speak on the 14th chapter of John.'];
+
+  // #25's own reported pair. The second line adds verses 26 and 27, so it carries information the
+  // first does not and must reach the display. See the discussion on the issue.
+  assert.equal(
+    shouldAcceptModelLine('Brother Daniel Ashcroft will share verses 26 and 27 from the 14th chapter of John.', visible),
+    true
+  );
+  // A different person, mostly the same sentence.
+  assert.equal(shouldAcceptModelLine('Sister Ruth Nielsen will speak on the 14th chapter of John.', visible), true);
+  // A different chapter, same person.
+  assert.equal(shouldAcceptModelLine('Brother Daniel Ashcroft will speak on the 3rd chapter of John.', visible), true);
+});
+
+test('a card sharing names with a visible one but saying something else is not a restatement', () => {
+  const visible = ['Sister Margaret Ellsworth will offer the closing prayer.'];
+
+  assert.equal(shouldAcceptModelLine('Sister Margaret Ellsworth drove a school bus for thirty-one years.', visible), true);
+  assert.equal(shouldAcceptModelLine('Sister Margaret Ellsworth asked the congregation to visit her mother.', visible), true);
+});
+
+// The containment floor, pinned from both sides. Without these two, the threshold could be 1.0 or 0.5
+// and nothing would notice: every other case here sits at containment 1.0 or far below.
+test('a restatement carrying one extra filler word is still a restatement', () => {
+  const visible = ['Sister Margaret Ellsworth will offer the closing prayer.'];
+  // Five of six content words already on screen. Raise the floor to 1.0 and this escapes as a card.
+  assert.equal(shouldAcceptModelLine('Sister Margaret Ellsworth will offer the closing prayer today.', visible), false);
+});
+
+test('a line sharing most of its words while stating a different fact survives', () => {
+  const visible = ['Sister Margaret Ellsworth will offer the closing prayer.'];
+  // Three of four content words already on screen, and offering thanks is not offering the prayer.
+  // Drop the floor to 0.5 and this gets eaten.
+  assert.equal(shouldAcceptModelLine('Sister Margaret Ellsworth offered thanks.', visible), true);
+});
+
+test('a restatement is only matched against what is actually on screen', () => {
+  const line = 'The closing prayer will be offered by Sister Margaret Ellsworth.';
+  assert.equal(shouldAcceptModelLine(line, []), true);
+  assert.equal(shouldAcceptModelLine(line, ['The opening hymn is number 301.']), true);
+});
+
+test('a longer card containing a short visible one still reaches the display', () => {
+  // Asymmetric on purpose: the question is whether the NEW card adds anything, not whether the two
+  // lines resemble each other. "Amen." should not swallow the sentence that follows it.
+  assert.equal(shouldAcceptModelLine('Amen.', ['Amen.']), false);
+  assert.equal(
+    shouldAcceptModelLine('The bishop thanked everyone who helped with the cleanup on Saturday.', ['The bishop thanked everyone.']),
+    true
+  );
+});
+
 test('cleanModelLines preserves the order the ideas were spoken in', () => {
   const modelReply = 'Closing hymn will be number 301.\nSister Margaret Ellsworth will offer the benediction.';
   const lines = cleanModelLines(modelReply, []);
