@@ -67,6 +67,11 @@ The cost is that answering those questions is now a deliberate act rather than a
 
 This is why retention is **not** age-based. Thirty days is the wrong unit: a recording used the day after a meeting should go immediately, and one still unexamined after two months should stay. Being drained is the trigger, and only a person can judge that, so **deletion is manual and deliberately not automated.** Any sweep would have to guess when value was spent, and guessing wrong destroys the one artifact that cannot be recreated.
 
+Judging that a recording is drained needs a way to see what each one holds without opening it, which
+is what `scripts/list-recordings.js` prints (issue #8). Without it the retention rule quietly became
+"they pile up forever, because nobody could tell which ones mattered." Deletion is still `rm`, and
+still a person's call.
+
 Disk is not a consideration either way. A meeting is a few hundred KB, dominated by the summary records rather than the transcript chunks, since each summary record stores the text it sent and a retried call stores it again.
 
 One thing is consciously deferred rather than solved: a replay transcription source that reads a session file back at its original timing ([issue #3](https://github.com/senigami/meeting-companion/issues/3)).

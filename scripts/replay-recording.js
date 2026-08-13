@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
 import { resolveAppCommit } from '../server/app-commit.js';
+import { parseRecordingLines, summarizeRecording } from './lib/recording-summary.js';
 
 // Resolved against THIS script's own directory, not process.cwd(): the script is routinely run by
 // absolute path from somewhere else, and asking git about whatever directory the operator happens
@@ -52,11 +53,13 @@ async function main() {
 
   const asJson = flags.includes('--json');
   const raw = await readFile(filePath, 'utf8');
-  const records = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+  // Parsing moved into the shared reader (#8), which also stopped this crashing outright on a
+  // session that ended in a hard quit: the file is appended a line at a time, so a partial last line
+  // is a normal file, and JSON.parse over every line threw and printed nothing at all.
+  const { records, unparseable } = parseRecordingLines(raw);
+  if (unparseable > 0 && !asJson) {
+    console.log(`NOTE: ${unparseable} line(s) could not be parsed and are not counted below. A partial last line usually means the session ended abruptly.\n`);
+  }
 
   const header = records.find((record) => record.t === 'header') || null;
   if (!asJson) printHeader(header);
@@ -90,21 +93,17 @@ async function main() {
     return;
   }
 
-  const chunkCount = records.filter((r) => r.t === 'chunk').length;
-  const summaryCount = pairs.length;
-  const failedCount = pairs.filter((p) => !p.ok).length;
-  const shortenedCount = pairs.filter((p) => p.wasShortened).length;
   // A count written and never read is the same failure the count exists to fix. This tool is the human
   // facing reader of a recording, and it surfaced wasShortened while saying nothing about discarded
   // lines -- so a session that silently dropped four announcements printed "0 shortened" and looked
   // clean, which is exactly how #49, #63 and #65 each survived being fixed. Found by Cato (#58).
-  const linesLost = pairs.reduce((total, p) => total + (Number(p.discardedByCap) || 0), 0);
-  const clientLost = pairs.reduce((total, p) => total + (Number(p.discardedByCapClient) || 0), 0);
-  // A recording made before #58 carries no count at all, and rendering that unknown as a confident 0
-  // is the same failure one step removed: the reader cannot tell "nothing was lost" from "nobody was
-  // counting". Cato's finding while gating this. Say which it is.
-  const countWasRecorded = pairs.some((p) => typeof p.discardedByCap === 'number');
-  const lossText = countWasRecorded ? `${linesLost} line(s) DISCARDED` : 'discards NOT RECORDED (predates this field)';
+  //
+  // Counted in scripts/lib/recording-summary.js as of #8, shared with list-recordings.js. Two tools
+  // printing the same numbers from two implementations is how they come to disagree, and the cheap
+  // one is the one people trust.
+  const counts = summarizeRecording(records, { unparseable });
+  const { chunkCount, summaryCount, failedCount, shortenedCount, linesLost, clientLost } = counts;
+  const lossText = counts.countWasRecorded ? `${linesLost} line(s) DISCARDED` : 'discards NOT RECORDED (predates this field)';
 
   console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened, ${lossText}.\n`);
   if (linesLost > 0) {

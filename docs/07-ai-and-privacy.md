@@ -82,6 +82,13 @@ for the full decision.
 - `scripts/replay-recording.js` remains a separate, simpler tool: it reads a session file directly
   off disk and prints the correlated chunk/summary pairs for eyeballing, without going through the
   app or its pipeline at all.
+- `scripts/list-recordings.js` (issue #8) prints one line per recording: duration, chunk and
+  summarize-call counts, failures, shortenings, lines lost to a cap, and the commit that produced it,
+  marking any recording whose commit is not the current checkout. ADR-0004's retention rule keeps a
+  file until it has been used and then deletes it by hand, which needs a way to tell at a glance which
+  files are still worth reading. Deleting stays `rm`. Both tools count through
+  `scripts/lib/recording-summary.js` so a session cannot read as clean in the listing and lossy in the
+  detail view.
 
 ## Related specs
 
