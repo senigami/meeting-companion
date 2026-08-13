@@ -21,5 +21,7 @@ actually does.
 
 One issue on the board did not come from this file: [#4](https://github.com/senigami/meeting-companion/issues/4),
 stamping each recording with the prompt and commit that produced it. ADR-0004 deletes a recording once it
-has been used, because a stale recording measures a pipeline that no longer exists, and nothing currently
-in the file lets you tell how old it is.
+has been used, because a stale recording measures a pipeline that no longer exists, and at the time nothing
+in the file let you tell how old it was. #4 shipped the header that says so, and
+[#8](https://github.com/senigami/meeting-companion/issues/8) shipped `scripts/list-recordings.js`, which
+prints it per recording alongside what each one holds.
