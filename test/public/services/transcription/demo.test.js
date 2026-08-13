@@ -247,7 +247,7 @@ test('DEMO_SCRIPT entries are per-sentence and no longer carry an inter-utteranc
 
 const VALID_MODES = ['speaker', 'information', 'song', 'prayer'];
 
-// The full matrix from .agent/demo-scenario-matrix-brief.md. Asserted against a literal list so
+// The full matrix from docs/09-demo-scenarios.md. Asserted against a literal list so
 // deleting a scenario fails a test rather than passing quietly.
 const REQUIRED_PROVES_TAGS = [
   'speaker-narrative',

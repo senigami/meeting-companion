@@ -9,7 +9,7 @@ import { normalizeText } from '../text.js';
 // seconds.
 // Each entry names the summarization `mode` the real summarizer should be in while it processes
 // that line, and an optional `proves` tag naming the coverage scenario the entry exists for (see
-// .agent/demo-scenario-matrix-brief.md for the full matrix). `proves` is test-facing only — most
+// docs/09-demo-scenarios.md for the full matrix). `proves` is test-facing only — most
 // lines are plain connective tissue and carry no tag. `pauseBeforeMs`, where present, adds an
 // extra deterministic gap before that entry on top of the normal length-derived pause, used only
 // for the silence-watchdog scenario.

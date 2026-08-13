@@ -13,6 +13,8 @@
 | [docs/05-code-organization.md](05-code-organization.md) | Folder layout, module boundaries, and mirrored test layout. |
 | [docs/06-test-strategy.md](06-test-strategy.md) | What is unit-tested, what is verified manually, and where tests live. |
 | [docs/07-ai-and-privacy.md](07-ai-and-privacy.md) | Browser/OpenAI source model, prompt rules, and privacy defaults. |
+| [docs/08-audio-conditioning.md](08-audio-conditioning.md) | Microphone conditioning contract for the OpenAI path: module shape, presets, level classification, and deliberate deviations. |
+| [docs/09-demo-scenarios.md](09-demo-scenarios.md) | The demo script as a mode-matched test corpus: the scenario matrix, `proves` tags, and the judging pass. |
 | [docs/backlog.md](backlog.md) | A pointer only. Open work lives in GitHub issues; this records what became of the five ideas it used to hold. Not a spec. |
 
 ## Product Summary

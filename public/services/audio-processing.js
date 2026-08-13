@@ -1,6 +1,6 @@
 // Real-time microphone conditioning for the OpenAI transcription path only (the browser
 // SpeechRecognition path opens the microphone itself and accepts no audio input -- see
-// .agent/audio-conditioning-brief.md). Owns the Web Audio graph, level analysis, AGC state,
+// docs/08-audio-conditioning.md). Owns the Web Audio graph, level analysis, AGC state,
 // presets, and diagnostics. The transcription driver hands us a raw MediaStream and gets back
 // either a conditioned MediaStream or, on any failure/bypass, the same raw stream untouched.
 //
