@@ -129,9 +129,9 @@ export function clampAudioBoolean(value, fallback) {
 // sanity-check. Defaulting to disabled restores exactly the pre-wiring capture behaviour (raw
 // stream straight to the recorder) and makes the graph opt-in once someone verifies it in a real
 // browser/room. The other eight values stay configured (not neutered) so switching this one flag
-// is all a tested rollout needs. See .agent/janus-audio-wiring-20260729.md for the full reasoning
-// and what remains an ask-first call (the browser-level AGC/noise-suppression/echo-cancel
-// constraint values, which are a room-acoustics judgment, not a data-safety one).
+// is all a tested rollout needs. The browser-level AGC/noise-suppression/echo-cancel constraint
+// values below stay ask-first: they are a room-acoustics judgment with no measurements behind them
+// yet, not a data-safety one, so changing them needs a real room rather than a rationale.
 export const AUDIO_SETTINGS_DEFAULTS = {
   audioProcessingPreset: 'gentle',
   audioHighPassEnabled: true,
