@@ -20,18 +20,70 @@ export const CARD_WORDS = 15;
 // keeping only the two directives changed nothing observable in the output.
 const READER = `Write clean, simple English. Never ASL gloss or ASL word order.`;
 
-const VERBATIM = `Keep these exactly as spoken, never paraphrased and never rounded: names, dates,
-times, numbers, hymn numbers, and scripture references.
+// 2026-08-09, consolidated: this is now the ONE compression instruction every mode and level
+// shares (Steve's own leaner prompt, retested directly against real problem chunks -- see decision
+// log below). It replaced a heavier, separately-worded version of the same idea that had drifted:
+// measured on the same real chunks, the old wording produced 14-24 word cards against a 10-word
+// target; this one held 7-13. Having ONE wording for "how to compress" is also what makes every
+// mode/level branch below just a small addition on top of a shared base, instead of each carrying
+// its own near-duplicate copy that can drift out of sync with the others.
+// 2026-08-10 (Steve, experimental -- "might be worth trying at least once"): added to test his own
+// theory of why "Sandy White said..." kept recurring -- if the model has to be selective about which
+// words earn a place, it may stop spending three of ten words on a preamble that adds no
+// information. Reworded same day to Steve's own phrasing ("meaningfully contribute to the meaning
+// being conveyed" is more precise than the first draft's "add real information" -- it also rules out
+// redundant restatement, not just filler words).
+const WORD_SELECTIVITY = `Be frugal with your words -- include only the ones that meaningfully
+contribute to the meaning being conveyed.`;
+
+const SIMPLE_RULES = (cardWords) => `Summarize the main point of this text using simple words, as
+if explaining it to an 8 year old.
+
+Your target output is about ${cardWords} words.
 
 Replace idioms, figures of speech and long words with plain everyday words. Say what was meant, not
 the picture they used to say it.
 
-Write numbers as digits, not words: 9:00 rather than nine o'clock, 19 rather than nineteen, $4
-rather than four dollars, John 14:26-27 rather than the fourteenth chapter of John. Digits are
-faster to read and harder to misread at a distance.
+Favor the shortest amount of characters possible, digits for numbers, time, or amounts. John
+14:26-27 rather than the fourteenth chapter of John.
 
-Never invent a name, number, date, or detail that was not said. Do not say the same thing twice.
-Return only the text, with no preamble.`;
+${WORD_SELECTIVITY}`;
+
+// A real missionary or member sometimes bears testimony in another language, and Steve does not
+// want that lost -- without this, the model's default behaviour on non-English input was outright
+// refusal ("I'm sorry, but I can only respond in English..."), observed directly in a real session
+// and now also guarded against on the display side (isRefusalLine, summary-prompt.js). This is the
+// other half of that fix: telling the model what TO do with non-English speech, not just catching it
+// when it declines to.
+const TRANSLATE = `If the speaker is not speaking in English, translate the meaning into English --
+never refuse to summarize non-English speech, and never leave foreign words untranslated.`;
+
+const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
+
+// 2026-08-09, consolidated: this used to be two separately-worded copies of the same invariant
+// (one on the brief/prayer path, one on the speaker/information path), which is exactly the drift
+// risk an adversarial review flagged -- a future edit to one copy has nothing forcing the other to
+// follow. One wording now, used everywhere. Kept even though a small retest could not trigger a
+// fabrication either way with or without it: the retest was two constructed chunks, not the
+// adversarial sweep that found this gap the first time (2026-08-08 review: 12 tests protecting this
+// exact contract were deleted alongside dead code, and nothing replaced them -- see
+// summary-level.test.js). A small retest disproving a failure mode is not the same evidence as a
+// review built to find one, so this line stays on every mode rather than being dropped on the
+// strength of a sample that never tried to break it.
+const ANTI_FABRICATION = `Keep names, dates, times, numbers, hymn numbers, and scripture references exactly as spoken, never paraphrased and never rounded.
+Never invent a name, number, date, or detail that was not said. Return only the text, with no preamble.`;
+
+// Reverted 2026-08-09 to the wording tested and confirmed working earlier the same day, after a
+// same-day edit ("never name the speaker at all") misread Steve's intent and was never what he
+// asked for -- naming the speaker is not forbidden. The actual rule, from his own example: if the
+// source text says "Harold said...", the summary can say "Harold said...". If later chunks about
+// the same person don't restate a name and the point does not depend on it, don't add one. If
+// naming becomes important again (the point depends on knowing whose story it is), it is fine to
+// use it again. This one line covers both the speaker's own name and anyone else's, without
+// special-casing either -- attach a name only when the source actually said it AND the point needs it.
+const NAME_ATTACHMENT = `Keep facts attached to whoever they are about: if a name is mentioned, that
+name did it, not the speaker. Name a person only when a name was actually said and the point
+depends on it.`;
 
 export function buildMinimalSummarizePrompt({
   recentTranscript = '',
@@ -63,19 +115,23 @@ export function buildMinimalSummarizePrompt({
     return `
 ${READER}
 
+${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
+
 ${subject}
 
-Write ONE line, target ${cardWords} words. Pick the single most important thing and write only that.
-
-Report it, in the third person. Do not write in the speaker's voice and do not write as "I".
+${THIRD_PERSON}
 
 Do not spend words on who is talking. Never say "the speaker", "someone", or "a member". Lead with
-the thing itself. Name a person only when a name was actually said and the point depends on it.
+the thing itself.
+
+${NAME_ATTACHMENT}
 
 Never return nothing because what was said seems unimportant, ordinary or repetitive. Compress it
 instead. Return nothing only when the text holds no words at all, or repeats a line already shown.
 
-${VERBATIM}
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -92,42 +148,52 @@ ${text}
   // Removing the instruction and testing the same chunks plus a genuine opening and closing: all
   // four came out correct, with the real address/amen still preserved by the ordinary verbatim
   // rule below when they were actually said, and nothing added when they weren't.
+  //
+  // 2026-08-10 (Steve): "put each separate thought on its own line" is gone -- it was the one
+  // remaining prompt instruction anywhere in this file that asked for more than one line, and a
+  // real prayer produced four separate cards from a single chunk because of it. One card per call
+  // is enforced in CODE now (finishReply, server/summarization.js joins everything the model
+  // returns onto one card rather than splitting or discarding), so the prompt does not need to ask
+  // for a line count at all -- an explicit "write ONE line" was tried and then also removed
+  // (Steve): the word target above already says how much to say, and the enforcement guarantees
+  // one card regardless of what the model actually returns.
   if (mode === 'prayer') {
     return `
 ${READER}
 
+${SIMPLE_RULES(cardWords)}
+
+${TRANSLATE}
+
 This is a prayer. It must still read as a prayer being offered, not as a report that someone
 prayed.
 
-Put each separate thought on its own line, in the order they were said. Do not number them and do
-not add bullets.
-
-${VERBATIM}
+${ANTI_FABRICATION}
 
 Text:
 ${text}
 `.trim();
   }
 
-  // SPEAKER: third person, one card's worth of length per call. Steve's ruling, 2026-08-08, tested
-  // against a real recorded talk: direct, simple instructions for exactly what is wanted, no
-  // narration -- and no "keep their voice" framing, which is a deliberate reversal of this branch's
-  // original shape (see git history). The mandate is fitting on one card at the target length, not
-  // forcing exactly one line out of the model -- if it ever returns more than one, packLinesIntoCards
-  // still packs/sizes them same as any other mode; nothing downstream assumes a single line.
+  // SPEAKER: third person, one card's worth of length per call. Steve's leaner prompt (see
+  // SIMPLE_RULES above), 2026-08-09 -- the fuller version above had drifted word counts to 14-24 on
+  // a 10-word target on real speech, without anyone noticing until today; this held 7-13 on the
+  // same chunks. If the model ever returns more than one line anyway, finishReply
+  // (server/summarization.js) keeps only the first -- one card per call, every mode, no exception
+  // (2026-08-10).
   if (mode === 'speaker') {
     return `
 ${READER}
 
-Summarize the main point using simple words, as if explaining it to an 8 year old. Third person only
--- never write as the speaker or use "I".
+${SIMPLE_RULES(cardWords)}
 
-Keep facts attached to whoever they are about: if a name is mentioned, that name did it, not the
-speaker.
+${TRANSLATE}
 
-${VERBATIM}
+${THIRD_PERSON}
 
-Your target is about ${cardWords} words.
+${NAME_ATTACHMENT}
+
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -136,27 +202,32 @@ ${text}
 
   // SUMMARIZE: announcements and logistics. Facts survive, wording does not.
   //
-  // Note what this no longer says: a total number of lines. It used to cap at three, and
-  // cleanModelLines capped at three too, so the two agreed and nothing looked wrong -- while a fourth
-  // announcement in one tick was discarded with no error, no telemetry and wasShortened false (#49).
-  // A cap that matches the prompt rather than the speech is the whole shape of that bug.
-  //
-  // Ansel's ruling, 2026-08-04: the 3 was only ever burst control for a display that rendered a
-  // whole result at once, and that display is gone -- the release queue hands over one card every few
-  // seconds however many lines a call returns, so the queue is what protects him from a burst, not
-  // the cap. A runaway guard belongs in code (maxLines, now 12 to match the speaker path), never in
-  // the model's instructions.
+  // 2026-08-09 reversal, Steve's call: this used to ask for one line PER SEPARATE announcement (a
+  // 2026-08-04 ruling that a fourth announcement in one tick was being silently dropped, #49) --
+  // but that traded one problem for a worse one. One summarize call could then hand back several
+  // cards at once, which is exactly what a reader following along card by card cannot absorb: he
+  // wants one call, one card. What #49 actually needed was for a real fourth announcement to survive
+  // somewhere, not for it to arrive on the same tick as the other three -- and the release queue
+  // already paces cards out one at a time regardless of how many a call returns, so a second
+  // announcement that does not fit this card's word budget is simply left for the model to pick up on
+  // its own next call against the fresh transcript, the same way speaker mode leaves the rest of a
+  // long sentence for next time.
   return `
 ${READER}
 
-This is meeting information: announcements, dates, times, assignments, logistics. Summarize it as
-if explaining it to an 8 year old. Third person, facts only, no voice to preserve.
+${SIMPLE_RULES(cardWords)}
 
-Write one line, target ${cardWords} words, per SEPARATE announcement. Two announcements are
-two lines; one announcement said at length is still one line. Lead with the thing itself ("Working
-bee Saturday"), never with a clause about it ("If you are able to help...").
+${TRANSLATE}
 
-${VERBATIM}
+${THIRD_PERSON}
+
+Pull out the most important information. If more than one announcement fits naturally in that
+length, that is fine -- the point is one card, not exactly one fact. Lead with the thing itself
+("Working bee Saturday"), never with a clause about it ("If you are able to help...").
+
+${NAME_ATTACHMENT}
+
+${ANTI_FABRICATION}
 
 Text:
 ${text}
@@ -167,15 +238,22 @@ ${text}
 // ---------------------------------------------------------------------------
 // Steve's question, 2026-08-01: are we sending prior context the right way?
 //
-// No. Everything above builds ONE user message with the previous block and the already-shown lines
-// pasted in as prose sections. The model is handed a description of a conversation rather than a
-// conversation. That makes "do not repeat what is already shown" a request it can ignore, which is
-// exactly where issue #25 keeps failing.
-//
-// This builds real turns instead: the rules as a system message, then each earlier block as a user
-// turn with the card we actually displayed as the assistant turn that answered it, then the new
-// block. The model can now SEE what it already wrote, in the position where its own prior output
-// belongs, so not repeating itself is structural rather than instructed.
+// 2026-08-09 reversal, with real evidence. The 2026-08-01 answer here was "build real
+// user/assistant turns, so the model can SEE its own prior output and not repeating itself is
+// structural rather than instructed" -- and it worked for issue #25's failure (repeating the same
+// CONTENT). It also caused a different failure nobody connected to it until today: a real session
+// on one speaker produced fifteen straight cards all opening "Sandy White said/says..." -- the
+// model imitating its own prior CARD's phrasing, not its content, because each prior card sat in
+// the position an assistant turn a chat model is trained to continue the style of. Reproduced and
+// isolated directly (retest against these ten real chunks, 2026-08-09): with the exact same rules
+// and the exact same ten chunks, real turns produced the "Name said" preamble on cards 4-10 of 10;
+// zero conversation history produced it on NONE, but also lost track of who was speaking, falling
+// back to "the person"/"they" once the name stopped appearing in the raw chunk; and prior context
+// folded into the SYSTEM message as plain text ("for context only, do not repeat or imitate the
+// wording of these") kept the speaker's name where it was grammatically needed WITHOUT reproducing
+// a "Name said" template on a single card. That is the shape below: one user/assistant PAIR (a
+// worked example of length and tone) still lives here for that, but the ROLLING history beyond it is
+// data, not more turns to imitate.
 
 // Deterministic, non-cryptographic (FNV-1a) hash -- this exists to detect "the prompt changed",
 // never to secure anything, so 32 bits is plenty and no crypto dependency is needed in the browser.
@@ -230,7 +308,11 @@ export function buildMinimalSummarizeMessages({
   const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords, level });
   const rules = full.replace(/\n*Text:\n*$/, '').trim();
 
-  const messages = [{ role: 'system', content: rules }];
+  // Folded into the system message as data, not more user/assistant turns -- see the block comment
+  // above for why (2026-08-09 reversal, with a real reproduction). historyTurns still caps how many
+  // entries get included; the caller (runtime.js) separately caps by a 60-second rolling window
+  // before this ever sees the array.
+  const contextLines = [];
   for (const turn of history.slice(-historyTurns)) {
     // Trim BEFORE the guard, not after. A whitespace-only entry passed the truthiness check and then
     // trimmed to '', producing an empty content block. OpenAI tolerates that; Anthropic rejects the
@@ -239,9 +321,12 @@ export function buildMinimalSummarizeMessages({
     const spoken = String(turn?.spoken ?? '').trim();
     const shown = String(turn?.shown ?? '').trim();
     if (!spoken || !shown) continue;
-    messages.push({ role: 'user', content: spoken });
-    messages.push({ role: 'assistant', content: shown });
+    contextLines.push(`Said: "${spoken}" / Shown: "${shown}"`);
   }
-  messages.push({ role: 'user', content: text });
-  return messages;
+
+  const system = contextLines.length
+    ? `${rules}\n\nFor context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, they are already on screen:\n${contextLines.join('\n')}`
+    : rules;
+
+  return [{ role: 'system', content: system }, { role: 'user', content: text }];
 }

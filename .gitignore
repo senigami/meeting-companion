@@ -35,3 +35,9 @@ AGENTS.md
 # changelog queue. All of it is working material for how the repo gets built, not part of the app, so
 # the whole folder stays local rather than us maintaining a list of which parts are published.
 .agent/
+
+# battering-run.js output (Steve, 2026-08-10): timestamped markdown reports pairing real meeting
+# text with the summarizer's output, for Steve to read and judge directly rather than take a verbal
+# report on. Same rationale as recordings/ (ADR-0004) -- meeting content is not sensitive, this is
+# local working material, not part of the app, and disposable once read.
+test-reports/

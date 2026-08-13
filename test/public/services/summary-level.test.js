@@ -48,12 +48,19 @@ test('only the two known levels are accepted', () => {
   assert.ok(!isSummaryLevel(undefined));
 });
 
-test('the brief prompt asks for one line, third person, and the single most important thing', () => {
+test('the brief prompt targets a word count, third person, and focuses on the main point', () => {
+  // Was "the single most important thing": Steve's 2026-08-09 reversal dropped the "pick only one
+  // thing" framing -- he always wanted one card per output, not one fact per card. Consolidated the
+  // same day onto SIMPLE_RULES ("summarize the main point"), shared with every other mode/level.
+  //
+  // 2026-08-10: an explicit "Write ONE line only" was tried and then removed (Steve) -- one card
+  // per call is enforced in code now (finishReply joins everything onto one card), so the prompt no
+  // longer needs to ask for a line count itself; the word target is the only length guidance left.
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 10, level: 'brief' });
-  assert.match(prompt, /target 10 words/);
-  assert.match(prompt, /ONE line/);
+  assert.match(prompt, /about 10 words/);
+  assert.doesNotMatch(prompt, /ONE line/);
   assert.match(prompt, /third person/i);
-  assert.match(prompt, /most important/i);
+  assert.match(prompt, /main point/i);
   // The reversal that matters: brief must NOT ask for the speaker's voice. Keeping first person at
   // ten words is what put words in people's mouths.
   assert.doesNotMatch(prompt, /must still read as them talking/);
@@ -68,7 +75,7 @@ test('the condense prompt is third person too now, but still a distinct prompt f
   // this test's old name, not a regression -- what still matters is that condense and brief remain
   // two distinct prompts rather than one silently collapsing into the other.
   const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'Some speech.', mode: 'speaker', maxWords: 17, level: 'condense' });
-  assert.match(prompt, /Third person only/);
+  assert.match(prompt, /third person/i);
   assert.doesNotMatch(prompt, /must still read as them talking/);
   assert.match(prompt, /8 year old/);
   assert.doesNotMatch(prompt, /single most important/i);

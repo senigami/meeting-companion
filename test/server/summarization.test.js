@@ -42,7 +42,12 @@ test('OpenAI summarize with no history sends a system message plus one user turn
   assert.equal(sentMessages[1].content, 'The new sentence.');
 });
 
-test('OpenAI summarize with two history entries sends system, user/assistant pairs, then the new turn', async () => {
+test('OpenAI summarize with two history entries folds both into the system message as context, not as turns', async () => {
+  // 2026-08-09 reversal: history used to become real user/assistant turn pairs; a real session
+  // showed the model imitating its own prior turn's phrasing (repeating a "Name said" preamble on
+  // card after card). Folding history into the system message as plain data, with an explicit
+  // "do not imitate the wording" instruction, reproducibly removed that in a direct retest -- see
+  // summary-prompt-minimal.js's block comment and its own test for the isolated repro.
   let sentMessages = null;
   const fetchImpl = openaiFetch(({ messages }) => {
     sentMessages = messages;
@@ -64,18 +69,14 @@ test('OpenAI summarize with two history entries sends system, user/assistant pai
     fetchImpl
   });
 
-  assert.equal(sentMessages.length, 6);
+  assert.equal(sentMessages.length, 2);
   assert.equal(sentMessages[0].role, 'system');
+  assert.match(sentMessages[0].content, /First earlier chunk\./);
+  assert.match(sentMessages[0].content, /First card\./);
+  assert.match(sentMessages[0].content, /Second earlier chunk\./);
+  assert.match(sentMessages[0].content, /Second card\./);
   assert.equal(sentMessages[1].role, 'user');
-  assert.equal(sentMessages[1].content, 'First earlier chunk.');
-  assert.equal(sentMessages[2].role, 'assistant');
-  assert.equal(sentMessages[2].content, 'First card.');
-  assert.equal(sentMessages[3].role, 'user');
-  assert.equal(sentMessages[3].content, 'Second earlier chunk.');
-  assert.equal(sentMessages[4].role, 'assistant');
-  assert.equal(sentMessages[4].content, 'Second card.');
-  assert.equal(sentMessages[5].role, 'user');
-  assert.equal(sentMessages[5].content, 'The newest chunk.');
+  assert.equal(sentMessages[1].content, 'The newest chunk.');
 });
 
 test('server summarization routes claude requests through anthropic', async () => {
@@ -105,7 +106,7 @@ test('server summarization routes claude requests through anthropic', async () =
   assert.equal(JSON.parse(request.options.body).model, 'claude-sonnet-test');
 });
 
-test('server preserves line order across providers and rejoins multiple ideas with newlines', async () => {
+test('server preserves line order across providers and joins multiple ideas onto one card', async () => {
   const multiLine = 'Closing hymn will be number 301.\nSister Margaret Ellsworth will offer the benediction.';
 
   // information mode explicitly, which is what this fixture actually is: two separate
@@ -113,6 +114,9 @@ test('server preserves line order across providers and rejoins multiple ideas wi
   // packLinesIntoCards arrived -- packing merged both announcements into one card because they fit
   // the word budget. That merge is correct for a testimony and wrong for a notice board, so the
   // mode is now stated rather than inherited.
+  //
+  // 2026-08-10: one card per call, everything real joined onto it (not just the first line kept) --
+  // both providers must collapse this two-announcement reply to the SAME single, space-joined card.
   const claudeResult = await summarizeWithSource({
     source: 'claude',
     mode: 'information',
@@ -121,7 +125,7 @@ test('server preserves line order across providers and rejoins multiple ideas wi
     anthropicApiKey: 'test-key',
     fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: multiLine }] }) })
   });
-  assert.equal(claudeResult.line, multiLine);
+  assert.equal(claudeResult.line, 'Closing hymn will be number 301. Sister Margaret Ellsworth will offer the benediction.');
 
   const openaiResult = await summarizeWithSource({
     source: 'openai',
@@ -131,24 +135,26 @@ test('server preserves line order across providers and rejoins multiple ideas wi
     openaiApiKey: 'test-key',
     fetchImpl: openaiFetch(() => ({ choices: [{ message: { content: multiLine } }] }))
   });
-  assert.equal(openaiResult.line, multiLine);
+  assert.equal(openaiResult.line, 'Closing hymn will be number 301. Sister Margaret Ellsworth will offer the benediction.');
 });
 
-test('a line duplicating one already on screen is dropped, and only that line', async () => {
+test('a line duplicating one already on screen is dropped, but real distinct lines are joined not discarded', async () => {
   // Was "caps a model reply at three lines": the Claude path capped at 3 and this asserted it. Since
-  // #47 it runs the same guard as OpenAI, so four items now survive four items. The behaviour this
-  // test actually protects -- one sibling dropped for matching a visible line, the rest kept -- is
-  // unchanged and is the part worth pinning.
+  // #47 it runs the same guard as OpenAI. Updated again 2026-08-10: one card per call everywhere
+  // (Steve's reversal), with everything real joined onto it rather than only the first surviving --
+  // the duplicate is still skipped (that is the dedup filter doing its job), but the three distinct
+  // real items all belong on the one card together.
   const modelReply = 'Hymn 241 selected.\nFirst item.\nSecond item.\nThird item.';
   const result = await summarizeWithSource({
     source: 'claude',
-    mode: 'information',
+    mode: 'speaker',
+    maxWords: 2,
     recentTranscript: 'irrelevant transcript text.',
     visibleLines: ['Hymn 241 selected.'],
     anthropicApiKey: 'test-key',
     fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: modelReply }] }) })
   });
-  assert.equal(result.line, 'First item.\nSecond item.\nThird item.');
+  assert.equal(result.line, 'First item. Second item. Third item.');
 });
 
 test('Anthropic max_tokens is raised well past the old 64-token cap to hold three 14-word lines', async () => {
@@ -184,9 +190,9 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
     await summarizeWithSource({
       source,
       mode: 'speaker',
-      // brief, because the CONDENSE prompt deliberately names no word count any more (the model
-      // ignored it, so packLinesIntoCards enforces the budget in code instead). brief is the branch
-      // that still states a number, so it is where an unbounded value would actually surface.
+      // Either level states the number now (SIMPLE_RULES, shared by both since 2026-08-09); brief
+      // picked here because it also enforces the budget in code (packLinesIntoCards does the same
+      // for condense), so this is testing the prompt text specifically, not the enforcement.
       level: 'brief',
       recentTranscript: 'A neighbor was forgiven.',
       maxWords,
@@ -194,7 +200,7 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
       anthropicApiKey: 'test-key',
       fetchImpl
     });
-    const match = seen.match(/target (\d+) words/);
+    const match = seen.match(/about (\d+) words/);
     return match ? Number(match[1]) : null;
   }
 
@@ -220,10 +226,9 @@ test('an out-of-range or non-numeric maxWords is bounded before it reaches any p
 
 // previousBlock is gone from the route, both drivers and both provider functions (#66).
 // buildMinimalSummarizeMessages (the OpenAI path since #43, and Claude too since #47) carries prior
-// context as real user/assistant turns in `history` instead of pasting a described block into one
-// message. It is still passed in below on purpose: an ignored extra key must stay ignored, and the
-// assertions at the bottom prove none of it reaches the model.
-test('prior context reaches Claude as conversation turns, the same way it reaches OpenAI', async () => {
+// context in `history`. It is still passed in below on purpose: an ignored extra key must stay
+// ignored, and the assertions at the bottom prove none of it reaches the model.
+test('prior context reaches Claude the same way it reaches OpenAI: folded into the system field', async () => {
   let request = null;
   await summarizeWithSource({
     source: 'claude',
@@ -240,12 +245,13 @@ test('prior context reaches Claude as conversation turns, the same way it reache
   });
 
   const body = JSON.parse(request.options.body);
-  // System prompt as its own field, not as a message -- that is Anthropic's shape.
+  // System prompt as its own field, not as a message -- that is Anthropic's shape. History is
+  // folded in here too now (2026-08-09), not as extra message turns.
   assert.match(body.system, /Never ASL gloss/);
-  assert.deepEqual(body.messages.map((m) => m.role), ['user', 'assistant', 'user']);
-  assert.equal(body.messages[0].content, 'An earlier chunk.');
-  assert.equal(body.messages[1].content, 'An earlier card.');
-  assert.equal(body.messages[2].content, 'The new sentence.');
+  assert.match(body.system, /An earlier chunk\./);
+  assert.match(body.system, /An earlier card\./);
+  assert.deepEqual(body.messages.map((m) => m.role), ['user']);
+  assert.equal(body.messages[0].content, 'The new sentence.');
   // And the superseded mechanism is genuinely gone rather than duplicated alongside it.
   assert.doesNotMatch(body.system, /Previous block/i);
   assert.ok(!body.messages.some((m) => /The earlier sentence/.test(m.content)));
@@ -370,58 +376,67 @@ test('regression: reconstructed real captured overflow (info-mode schedule line)
 });
 
 test('the words-per-card setting bounds the cards actually produced, so the slider is not a dead control', async () => {
-  // It WAS dead: the minimal prompt hardcoded 15 while maxWords was threaded to a function that no
-  // longer read it. The setting persisted, rendered, and did nothing.
+  // It WAS dead once already: the minimal prompt hardcoded 15 while maxWords was threaded to a
+  // function that no longer read it. The setting persisted, rendered, and did nothing.
   //
-  // This asserts the CONSEQUENCE (card widths), not the presence of "8" in the prompt text. The
-  // earlier version asserted the prompt string, and when the speaker prompt stopped naming a word
-  // count at all -- because the model demonstrably ignored it and packLinesIntoCards took the job
-  // over -- that assertion failed while the slider was working perfectly. A check pinned to how a
-  // rule is phrased goes green or red on the phrasing, not on whether the rule holds.
+  // 2026-08-10 reversal changed HOW the slider matters, not whether it does: packLinesIntoCards (a
+  // wider budget merging more thoughts into fewer, fuller cards) is gone -- one card per call now,
+  // always, regardless of maxWords. What is left is the prompt's own stated target ("Your target
+  // output is about N words"), which is the only mechanism left for maxWords to have any effect. A
+  // scripted mock reply can't demonstrate the model actually honouring a different target (that is
+  // an empirical, real-API question -- see scripts/battering-run.js); this pins the structural half:
+  // a different maxWords produces a different number in the actual prompt sent, and exactly one card
+  // survives regardless of which budget was asked for.
   const modelReply = [
     "I'd like to bear my testimony.",
     'I know the Church is true.',
-    'Joseph Smith is a prophet.',
-    'I enjoy going to the temple.',
-    "I'm grateful to be at church today."
+    'Joseph Smith is a prophet.'
   ].join('\n');
-  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: modelReply } }] }));
 
+  let narrowSystem = null;
   const narrow = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 8, openaiApiKey: 'test-key', fetchImpl
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 8, openaiApiKey: 'test-key',
+    fetchImpl: openaiFetch(({ messages }) => { narrowSystem = messages[0].content; return { choices: [{ message: { content: modelReply } }] }; })
   });
+  let wideSystem = null;
   const wide = await summarizeWithSource({
-    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 20, openaiApiKey: 'test-key', fetchImpl
+    source: 'openai', mode: 'speaker', recentTranscript: 'Some speech.', maxWords: 20, openaiApiKey: 'test-key',
+    fetchImpl: openaiFetch(({ messages }) => { wideSystem = messages[0].content; return { choices: [{ message: { content: modelReply } }] }; })
   });
 
-  const cards = (result) => result.line.split('\n').filter(Boolean);
-  const widest = (result) => Math.max(...cards(result).map((c) => c.split(/\s+/).length));
-
-  assert.ok(widest(narrow) <= 8, `every card must fit the 8-word budget, widest was ${widest(narrow)}`);
-  assert.ok(widest(wide) <= 20, `every card must fit the 20-word budget, widest was ${widest(wide)}`);
-  assert.ok(cards(wide).length < cards(narrow).length,
-    'a bigger budget must produce fewer, fuller cards -- otherwise the setting changes nothing');
-  // Nothing the speaker said may be dropped on the way through packing, at either setting.
-  assert.equal(cards(narrow).join(' ').replace(/\s+/g, ' '), modelReply.split('\n').join(' '));
+  assert.match(narrowSystem, /about 8 words/);
+  assert.match(wideSystem, /about 20 words/);
+  // One card either way -- everything real joined onto it, not just the first line kept.
+  const joined = 'I\'d like to bear my testimony. I know the Church is true. Joseph Smith is a prophet.';
+  assert.equal(narrow.line, joined);
+  assert.equal(wide.line, joined);
 });
 
-test('brief returns exactly one card, never packed and never a second line', async () => {
-  // The level IS the reading budget. A second card doubles what the reader was promised, and at one
-  // word every two seconds that is the difference between finishing and not.
+test('brief returns exactly one card, everything joined onto it rather than a second card', async () => {
+  // The level IS the reading budget. A second CARD doubles what the reader was promised, and at one
+  // word every two seconds that is the difference between finishing and not. 2026-08-10: that no
+  // longer means dropping real content to get there -- it means joining it onto the one card.
   const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }));
   const result = await summarizeWithSource({
     source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
-  assert.equal(result.line, 'First thing.', 'only the first line survives brief');
+  assert.equal(result.line, 'First thing. Second thing. Third thing.');
   assert.ok(!result.line.includes('\n'));
 });
 
-test('condense still produces several packed cards, so brief did not replace it', async () => {
+test('condense collapses to one card too, the same as every other level (2026-08-10 reversal)', async () => {
+  // Was "condense keeps multiple cards, so brief did not replace it" -- Steve's 2026-08-10 reversal:
+  // "Multiple cards per call is never correct... should not exist for any mode, anywhere." A real
+  // prayer had produced four cards from one chunk via exactly this path. A first fix kept only the
+  // model's first accepted line and discarded the rest; Steve caught that too ("if it returned 2
+  // sentences then both would be on the same card. no artificial splitting") -- finishReply now
+  // joins every accepted line onto the one card instead.
   const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'First thing.\nSecond thing.\nThird thing.' } }] }));
   const result = await summarizeWithSource({
     source: 'openai', mode: 'speaker', recentTranscript: 'A long testimony.', maxWords: 5, level: 'condense', openaiApiKey: 'test-key', fetchImpl
   });
-  assert.ok(result.line.split('\n').length > 1, 'condense keeps multiple cards');
+  assert.equal(result.line.split('\n').length, 1, 'condense is one card too now, not several packed ones');
+  assert.equal(result.line, 'First thing. Second thing. Third thing.');
 });
 
 test('an unrecognised level falls back to condense rather than silently changing the contract', async () => {
@@ -434,31 +449,43 @@ test('an unrecognised level falls back to condense rather than silently changing
 });
 
 test('an information-mode request is forced to condense at the server, even when brief is asked for', async () => {
-  // Defence at the point of use: this is where an untrusted request body arrives, and a brief
-  // announcement round loses facts silently instead of failing.
-  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'Closing hymn is 301.\nSister Ellsworth offers the benediction.' } }] }));
+  // Defence at the point of use: this is where an untrusted request body arrives. Since #105,
+  // information mode is ALSO forced to a single card regardless of level (Steve's reversal of the
+  // per-announcement-line ruling), so this now asserts the level is still condense server-side (via
+  // the prompt) while the reply itself collapses to one card either way.
+  let seenSystem = null;
+  const fetchImpl = openaiFetch(({ messages }) => {
+    seenSystem = messages[0].content;
+    return { choices: [{ message: { content: 'Closing hymn is 301.\nSister Ellsworth offers the benediction.' } }] };
+  });
   const result = await summarizeWithSource({
     source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
   const cards = result.line.split('\n').filter(Boolean);
-  assert.equal(cards.length, 2, 'both announcements must survive');
+  assert.equal(cards.length, 1, 'information mode never hands back more than one card');
   assert.match(cards[0], /301/, 'the hymn number is exactly the thing that must not be dropped');
-  assert.match(cards[1], /benediction/);
+  assert.match(seenSystem, /8 year old/, 'level was forced to condense, not the brief prompt');
 });
 
 test('a speaker-mode brief request is still honoured, so the server guard is narrow', async () => {
+  // 2026-08-10: one card per call is now unconditional (every mode, every level), so this no longer
+  // distinguishes brief's old maxLines: 1 from anything else -- both lines are real content and get
+  // joined onto the one card rather than the second being dropped.
   const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'One.\nTwo.' } }] }));
   const result = await summarizeWithSource({
     source: 'openai', mode: 'speaker', recentTranscript: 'Speech.', maxWords: 10, level: 'brief', openaiApiKey: 'test-key', fetchImpl
   });
-  assert.equal(result.line, 'One.');
+  assert.equal(result.line, 'One. Two.');
 });
 
-test('a fourth announcement in one tick survives, instead of being dropped without a word (#49)', async () => {
-  // cleanModelLines capped information mode at MAX_LINES_PER_CALL (3) and the prompt asked for "no
-  // more than three lines in total", so the two agreed and nothing looked wrong. A fourth
-  // announcement was discarded with no error, no telemetry and wasShortened false. A cap that matches
-  // the prompt rather than the speech is the whole shape of that bug.
+test('several announcements in one tick land on one joined card, none dropped (#105, 2026-08-10)', async () => {
+  // Was "the fourth announcement survives" (#49), then "later announcements are dropped, only the
+  // first survives" (#105, 2026-08-09). Steve's 2026-08-10 correction: "if it returned 2 sentences
+  // then both would be on the same card. no artificial splitting" -- dropping the rest to force one
+  // card was just as wrong as splitting into several. finishReply now joins everything the model
+  // returns onto the one card; the information-mode PROMPT (pull out the most important
+  // information) is what's supposed to stop a well-behaved model from listing five separate
+  // announcements in the first place, not a code-level discard of four real ones.
   const reply = [
     'Closing hymn is 301.',
     'Sister Ellsworth offers the benediction.',
@@ -472,33 +499,37 @@ test('a fourth announcement in one tick survives, instead of being dropped witho
     source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiApiKey: 'test-key', fetchImpl
   });
   const cards = result.line.split('\n').filter(Boolean);
-  assert.equal(cards.length, 5, 'every announcement must survive; the release queue paces them, not a cap');
-  // The specific things a cap silently ate: a hymn number, a time, an assignment.
+  assert.equal(cards.length, 1, 'still exactly one card, whatever the model returns');
   assert.match(result.line, /301/);
-  assert.match(result.line, /9:00/);
-  assert.match(result.line, /6:30/);
-  assert.match(result.line, /benediction/);
-  assert.match(result.line, /Thursday/);
+  assert.match(result.line, /Thursday/, 'nothing real is discarded to force a single line -- it is joined, not dropped');
 });
 
-test('the information prompt no longer names a line count, since the model ignored it anyway', async () => {
+test('the information prompt asks for one line focused on the main topic, not a per-announcement count', async () => {
   // Measured 2026-08-02: asked for "no more than 3 lines" this model returned 8, and three different
-  // configurations produced byte-identical output. A runaway guard belongs in code, not in prose the
-  // model does not follow -- and stating it in both places is what made the cap look agreed.
+  // configurations produced byte-identical output -- which is why a line count was ever named here in
+  // the first place. Steve's 2026-08-09 reversal removes the per-announcement framing entirely: one
+  // card per output, same shape as brief. The prompt itself no longer names a line count at all
+  // (2026-08-09, later same day, Steve's leaner prompt) -- the one-card guarantee is enforced in
+  // code now (finishReply's maxLines: 1 for mode === 'information'), covered by its own test.
   let seenSystem = null;
   const fetchImpl = openaiFetch(({ messages }) => { seenSystem = messages[0].content; return { choices: [{ message: { content: 'A line.' } }] }; });
   await summarizeWithSource({
     source: 'openai', mode: 'information', recentTranscript: 'Announcements.', maxWords: 10, openaiApiKey: 'test-key', fetchImpl
   });
   assert.doesNotMatch(seenSystem, /three lines in total/);
-  assert.match(seenSystem, /per SEPARATE announcement/, 'the per-announcement rule must survive');
+  assert.doesNotMatch(seenSystem, /per SEPARATE announcement/, 'the per-announcement rule is gone, not just reworded');
+  assert.match(seenSystem, /most important information/i);
+  // 2026-08-09, later same day: Steve clarified "focus on the main topic" was meant for speaker
+  // mode, not information -- information pulls out the most important information instead.
+  assert.match(seenSystem, /most important information/i);
 });
 
-test('both providers run the same prompt, levels and line guard (#47)', async () => {
+test('both providers run the same prompt, levels and line guard (#47), and both collapse information mode to one card', async () => {
   // Steve, 2026-08-04: "Claude is supported for live transcription but untested as I do not have
   // claude api key. In theory it should work the same as the openai one." Before this, they were two
   // applications wearing one setting: Claude got a pasted-context single message, no levels, no
-  // third-person brief, no packing, and a line cap of 3 -- so #49's fix never applied to it.
+  // third-person brief, no packing, and a line cap of 3 -- so #49's fix never applied to it. #105 then
+  // replaced the per-announcement cap with a one-card rule for information mode, on both providers.
   const FOUR = 'Closing hymn is 301.\nSister Ellsworth offers the benediction.\nWorking bee Saturday at 9:00.\nWard council at 6:30.';
 
   async function announcementsVia(source) {
@@ -524,11 +555,13 @@ test('both providers run the same prompt, levels and line guard (#47)', async ()
   const openai = await announcementsVia('openai');
   const claude = await announcementsVia('claude');
   assert.equal(claude.line, openai.line, 'the same reply must survive identically on both providers');
-  assert.equal(claude.line.split('\n').filter(Boolean).length, 4, 'including the fourth announcement');
+  assert.equal(claude.line.split('\n').filter(Boolean).length, 1, 'one card only, on both providers');
+  assert.match(claude.line, /301/);
+  // 2026-08-10: nothing real is dropped to force a single line any more -- it is joined.
   assert.match(claude.line, /6:30/);
 });
 
-test('brief keeps one line on Claude too, not just on OpenAI', async () => {
+test('brief keeps everything joined onto one line on Claude too, not just on OpenAI', async () => {
   const reply = 'First thing.\nSecond thing.\nThird thing.';
   const result = await summarizeWithSource({
     source: 'claude',
@@ -539,7 +572,7 @@ test('brief keeps one line on Claude too, not just on OpenAI', async () => {
     anthropicApiKey: 'test-key',
     fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: 'text', text: reply }] }) })
   });
-  assert.equal(result.line, 'First thing.');
+  assert.equal(result.line, 'First thing. Second thing. Third thing.');
 });
 
 test('the Claude prompt is the third-person brief one, not the old voice-preserving prompt', async () => {
@@ -557,7 +590,7 @@ test('the Claude prompt is the third-person brief one, not the old voice-preserv
     }
   });
   assert.match(system, /third person/i, 'Ansel ruled brief is reported, not voiced');
-  assert.match(system, /most important/i);
+  assert.match(system, /main point/i, 'Steve\'s 2026-08-09 wording, consolidated onto SIMPLE_RULES: summarize the main point');
   assert.doesNotMatch(system, /Maximum \d+ words/, 'the old buildSummarizePrompt wording must be gone');
 });
 

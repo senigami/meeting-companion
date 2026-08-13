@@ -36,6 +36,15 @@ import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
 import { createRecordingSessionId } from '../services/session-recording.js';
 import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
+// 2026-08-09: a real session had demo cards appear unprompted mid-meeting with a real OpenAI key
+// configured and selected in Settings the whole time -- traced to a stray `?demo` left in the URL
+// (from earlier same-day demo testing) triggering startDemoFeed on page load, whose returned cancel
+// function was discarded. Pressing Stop repeatedly did nothing because Stop never had a handle to
+// cancel it; only a hard refresh did. Held here, at module scope, because the feed is scheduled once
+// from startApp() but must be cancellable from bindControlButtons()'s Stop handler, which runs
+// earlier in the same startApp() call.
+let cancelDemoFeed = () => {};
+
 const STORAGE = {
   fontSize: 'fontSize',
   displayMargin: 'displayMargin',
@@ -323,7 +332,19 @@ export function startApp() {
   void runtime.applyLastReadingPaceProfile();
   if (isDemoModeEnabled(globalThis.location?.search)) {
     runtimeConfig.finally?.(() => {
-      startDemoFeed(runtime);
+      // A real provider being configured means this is a live meeting, whatever the URL still says
+      // -- a leftover `?demo` param from earlier testing must never inject scripted content into
+      // that session (2026-08-09 incident: exactly this, with OpenAI configured and selected the
+      // whole time). The query string alone is not consent; only the absence of any real provider
+      // makes an unconfigured demo-on-load a safe, expected first-run default.
+      if (ctx.state.openAiReady || ctx.state.anthropicReady) return;
+      cancelDemoFeed = startDemoFeed(runtime);
+      // Stop starts disabled (only Start enables it) and the demo feed never calls startListening,
+      // so Stop stayed disabled -- and a disabled button never dispatches a click at all, in any
+      // browser. That is the exact "I clicked Stop a few more times, nothing would change" from the
+      // 2026-08-09 incident: cancelDemoFeed existed by then but the button that was meant to reach
+      // it could not be pressed. Enabling it here is what makes Stop an actual way out of a demo run.
+      ctx.dom.stopListening.disabled = false;
     });
   }
   const ticker = setInterval(runtime.showRecentTranscript, 1000);
@@ -359,7 +380,13 @@ function bindTranscriptSummaries(ctx, runtime) {
 
 function bindControlButtons(ctx, runtime) {
   ctx.dom.startListening.addEventListener('click', runtime.startListening);
-  ctx.dom.stopListening.addEventListener('click', runtime.stopListening);
+  ctx.dom.stopListening.addEventListener('click', () => {
+    // Stop must be able to kill a scripted demo feed too, not just a real transcription driver --
+    // see cancelDemoFeed's own comment for the incident this closes.
+    cancelDemoFeed();
+    cancelDemoFeed = () => {};
+    runtime.stopListening();
+  });
   ctx.dom.pauseAi.addEventListener('click', runtime.togglePauseAi);
   ctx.dom.undo.addEventListener('click', runtime.undoLine);
   ctx.dom.clear.addEventListener('click', runtime.clearLines);

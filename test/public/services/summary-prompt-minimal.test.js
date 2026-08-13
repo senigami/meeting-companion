@@ -4,11 +4,7 @@ import assert from 'node:assert/strict';
 import { buildMinimalSummarizeMessages, computeSummaryPromptHash } from '../../../public/services/summary-prompt-minimal.js';
 
 
-test('a whitespace-only history turn is skipped, not sent as an empty message', async () => {
-  // OpenAI tolerates an empty content block; Anthropic rejects the whole request with a 400. Once the
-  // Claude path started using these messages (#47) that became a failed summarize call rather than a
-  // slightly odd turn. The guard checked truthiness and trimmed afterwards, so '   ' passed it and
-  // then became ''. Found by Cato before it shipped.
+test('a whitespace-only history entry is skipped, not folded in as blank context', async () => {
   const messages = buildMinimalSummarizeMessages({
     recentTranscript: 'New words.',
     mode: 'speaker',
@@ -17,8 +13,33 @@ test('a whitespace-only history turn is skipped, not sent as an empty message', 
   });
 
   assert.ok(!messages.some((m) => m.content.trim() === ''), 'no message may have empty content');
-  assert.deepEqual(messages.map((m) => m.role), ['system', 'user', 'assistant', 'user']);
-  assert.equal(messages[1].content, 'Real chunk.');
+  assert.deepEqual(messages.map((m) => m.role), ['system', 'user']);
+  assert.match(messages[0].content, /Real chunk\./);
+  assert.match(messages[0].content, /Real card\./);
+  assert.doesNotMatch(messages[0].content, /"\s*"\s*\/\s*Shown/, 'the whitespace-only entry must not appear as blank context');
+  assert.equal(messages.at(-1).content, 'New words.');
+});
+
+// 2026-08-09: real evidence prior history sat as user/assistant TURNS (a chat model imitates the
+// style of its own preceding turn) rather than as inert context data. Isolated by reproducing a
+// real session's "Sandy White said..." repetition streak directly: identical rules, identical ten
+// chunks, real turns produced the "Name said" preamble on 7 of 10 cards; the same history folded
+// into the system message as plain "Said/Shown" data produced it on none. This is the structural
+// guarantee that regression tested against, so it must survive any future edit to this function.
+test('prior context is folded into the system message as data, never as user/assistant turns', async () => {
+  const messages = buildMinimalSummarizeMessages({
+    recentTranscript: 'New words.',
+    mode: 'speaker',
+    maxWords: 10,
+    history: [{ spoken: 'Earlier chunk.', shown: 'Earlier card.' }]
+  });
+
+  assert.deepEqual(messages.map((m) => m.role), ['system', 'user'],
+    'no assistant turn -- a prior card must never sit where a chat model expects to continue its own style');
+  assert.match(messages[0].content, /for context only/i);
+  assert.match(messages[0].content, /do not repeat or imitate the wording/i);
+  assert.match(messages[0].content, /Earlier chunk\./);
+  assert.match(messages[0].content, /Earlier card\./);
   assert.equal(messages.at(-1).content, 'New words.');
 });
 
@@ -57,9 +78,10 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // Literal, computed independently of this code path -- not derived from calling the function under
   // test with different inputs. If this ever legitimately needs updating, that itself is the signal
   // that a recording's header hash will look different, which is the whole point of recording it.
-  // Updated 2026-08-09 for the speaker/brief/prayer/information prompt rewrite (#105) -- a real,
-  // deliberate wording change, not a regression.
-  assert.equal(computeSummaryPromptHash(), 'dcb81cce');
+  // Updated 2026-08-10 (third time same day): WORD_SELECTIVITY reworded to Steve's own phrasing
+  // ("be frugal with your words -- include only the ones that meaningfully contribute to the
+  // meaning being conveyed"), replacing the first draft's "be picky... add real information."
+  assert.equal(computeSummaryPromptHash(), 'faf8b7d2');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {
@@ -80,9 +102,9 @@ test('every branch of the prompt is inside the hashed corpus, so no real prompt 
     'This is somebody speaking to the congregation.',
     'This is meeting information: announcements, dates, times, assignments, logistics.',
     'It must still read as a prayer being offered, not as a report that someone',
-    'Summarize the main point using simple words, as if explaining it to an 8 year old.',
-    'Report it, in the third person.',
-    'per SEPARATE announcement'
+    'Summarize the main point of this text using simple words, as',
+    'Write in the third person. Do not write as the speaker or use "I".',
+    'Pull out the most important information.'
   ];
 
   const corpus = PROMPT_HASH_SAMPLE_CASES

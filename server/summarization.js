@@ -1,7 +1,6 @@
 import { cleanModelLinesWithLoss, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
 import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
-import { packLinesIntoCards } from '../public/services/card-packing.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
 import { responseErrorMessage } from '../public/services/response.js';
 import { shortenToLimit } from '../public/services/text.js';
@@ -160,7 +159,7 @@ async function summarizeWithOpenAI({ apiKey, fetchImpl, mode, recentTranscript, 
     rawText = emptyReplyOrRethrow(error);
   }
 
-  return finishReply(rawText, visibleLines, { mode, maxWords, level });
+  return finishReply(rawText, visibleLines);
 }
 
 // A 200 whose body carries no usable text (OpenAI returning `content: null` on a refusal, Claude
@@ -181,58 +180,38 @@ function emptyReplyOrRethrow(error) {
 // parity (#47) meant re-deriving every rule in it -- which is precisely how the two drifted into being
 // different applications wearing one setting. One function now, so a rule added for one provider
 // cannot silently miss the other.
-function finishReply(rawText, visibleLines, { mode, maxWords, level }) {
-  // brief is ONE card by contract: nothing to pack, and no second line to accept. Letting either
-  // through would hand the reader more than the level promised, which is the whole quantity the level
-  // exists to control.
-  if (level === 'brief') {
-    return finishLines(rawText, visibleLines, { maxLines: 1 });
-  }
-
-  // Packing applies to the CONDENSE modes only. In information mode each line is a separate
-  // announcement, and merging two because they happened to fit the word budget is wrong -- a hymn
-  // number and a benediction assignment are two things a reader looks for separately.
-  //
-  // RUNAWAY_LINE_GUARD for every mode including information, not the MAX_LINES_PER_CALL default of 3
-  // (#49): announcements are one line each, so 3 was a hard ceiling on how many facts could survive a
-  // tick, and the fourth was dropped silently. Ansel ruled 12, with the release queue doing the
-  // pacing rather than the cap. The same constant is imported by the client drivers, which used to
-  // re-cap at 3 and undo all of it (#63).
-  const packs = mode === 'speaker' || mode === 'prayer';
-  return finishLines(rawText, visibleLines, {
-    cardWords: packs ? maxWords : null,
-    maxLines: RUNAWAY_LINE_GUARD
-  });
+// ONE card per summarize call, every mode, every level, no exceptions (Steve, 2026-08-10: "Multiple
+// cards per call is never correct... should not exist for any mode, anywhere"). This used to hold
+// only for brief and information (#105) while speaker and prayer could still pack several thoughts
+// into several word-budgeted cards via packLinesIntoCards -- a real prayer produced 4 cards from
+// one chunk. That packing capability is gone.
+//
+// A first version of this enforcement kept only the model's first accepted line and DISCARDED the
+// rest -- wrong, caught immediately (Steve): "if it returned 2 sentences then both would be on the
+// same card. no artificial splitting." One card per call means everything the model actually said
+// lands on that one card, joined together -- never split across several cards, and never thrown
+// away to force a single line. finishLines below joins every accepted line with a space instead of
+// a newline, so transcript-display.js's splitByThought (which turns each newline into its own
+// card) never sees more than one to split.
+function finishReply(rawText, visibleLines) {
+  return finishLines(rawText, visibleLines);
 }
 
-// Splits the raw model reply into accepted, ordered, deduped lines (cleanModelLines), optionally
-// packs them into word-budgeted cards (OpenAI path only -- see cardWords below),
-// shortens each line independently to the display char cap, and rejoins survivors with newlines so
-// transcript-display.js's splitByThought turns each into its own card. wasShortened is true if ANY
-// line needed shortening -- the per-call telemetry signal stays a single boolean either way.
-function finishLines(rawText, visibleLines, { cardWords = null, maxLines = undefined } = {}) {
-  const { accepted: acceptedLines, discardedByCap } = cleanModelLinesWithLoss(
-    rawText,
-    visibleLines,
-    maxLines ? { maxLines } : undefined
-  );
-  // cardWords null means "leave the model's line breaks alone" -- the Claude path, whose prompt
-  // still asks for three finished lines. The OpenAI path passes a budget, because its prompt now
-  // returns one thought per line and something has to decide where the cards actually break.
-  const packedLines = cardWords ? packLinesIntoCards(acceptedLines, { cardWords }) : acceptedLines;
-  let anyShortened = false;
-
-  const shortenedLines = packedLines.map((line) => {
-    const shortened = shortenToLimit(line, DISPLAY_LINE_MAX_CHARS);
-    if (shortened !== line) anyShortened = true;
-    return shortened;
-  });
+// Splits the raw model reply into accepted, ordered, deduped lines (cleanModelLines), joins ALL of
+// them into one card (space-separated, never a newline -- see finishReply above), and shortens the
+// result to the display char cap if needed. wasShortened is true if the joined line needed
+// shortening. maxLines stays a generous safety cap (RUNAWAY_LINE_GUARD, not 1) purely against a
+// truly runaway reply; an ordinary 2-3 sentence answer never comes close to it.
+function finishLines(rawText, visibleLines) {
+  const { accepted: acceptedLines, discardedByCap } = cleanModelLinesWithLoss(rawText, visibleLines, { maxLines: RUNAWAY_LINE_GUARD });
+  const joined = acceptedLines.join(' ');
+  const shortened = shortenToLimit(joined, DISPLAY_LINE_MAX_CHARS);
 
   // discardedByCap is reported separately from wasShortened on purpose (#58). They are different
   // failures: shortening trims a line's characters and the line still arrives, while a discard means
   // real speech never reached the reader. Collapsing them into one boolean is what made three
   // successive silent-loss defects look like clean calls.
-  return { line: shortenedLines.join('\n'), wasShortened: anyShortened, discardedByCap };
+  return { line: shortened, wasShortened: shortened !== joined, discardedByCap };
 }
 
 async function summarizeWithClaude({
@@ -279,7 +258,7 @@ async function summarizeWithClaude({
     // emptyReplyOrRethrow. Checked BEFORE the enrichment below, which would otherwise turn it into
     // an operator-facing error the old code never raised.
     if (error instanceof ProviderError && error.type === PROVIDER_ERROR_TYPES.MALFORMED_RESPONSE) {
-      return finishReply(emptyReplyOrRethrow(error), visibleLines, { mode, maxWords, level });
+      return finishReply(emptyReplyOrRethrow(error), visibleLines);
     }
 
     // Preserves the pre-existing Claude behaviour exactly: turn the provider's own error text into
@@ -293,5 +272,5 @@ async function summarizeWithClaude({
   }
 
   // Identical post-processing to the OpenAI path, through the same function so the two cannot drift.
-  return finishReply(rawText, visibleLines, { mode, maxWords, level });
+  return finishReply(rawText, visibleLines);
 }

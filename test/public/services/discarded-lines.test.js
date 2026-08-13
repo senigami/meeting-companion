@@ -35,12 +35,19 @@ test('a line dropped by the cap is counted, and a duplicate is not', () => {
 
 test('the count survives the whole path, server through driver to the recording', async () => {
   // The seam is where #63 hid, so this asserts the number at the end of the path rather than at the
-  // start of it.
+  // start of it. One card per call everywhere now (2026-08-10, Steve's reversal of packing several
+  // thoughts into several cards) -- but "one card" means everything real gets JOINED onto it, not
+  // that only the first line survives (a first attempt at the join fix did that, and lost content;
+  // Steve caught it: "no artificial splitting"). RUNAWAY_LINE_GUARD (12) is still the cap
+  // finishReply passes as maxLines, so a 16-line reply still loses exactly 4 -- the same number as
+  // before, for the same reason (a genuine runaway-reply guard), just landing on one joined card
+  // now instead of being packed into several.
   const tooMany = Array.from({ length: RUNAWAY_LINE_GUARD + 4 }, (_, i) => `Item ${i + 1}.`).join('\n');
+  const expectedDiscarded = 4;
 
   const fromServer = await summarizeWithSource({
     source: 'openai',
-    mode: 'information',
+    mode: 'speaker',
     recentTranscript: 'Announcements.',
     maxWords: 10,
     openaiApiKey: 'test-key',
@@ -52,19 +59,19 @@ test('the count survives the whole path, server through driver to the recording'
       });
     }
   });
-  assert.equal(fromServer.discardedByCap, 4, 'the server must say how many it threw away');
+  assert.equal(fromServer.discardedByCap, expectedDiscarded, 'the server must say how many it threw away');
 
   const driver = createOpenAISummarizer({
     fetchImpl: async () => ({ ok: true, json: async () => ({ line: fromServer.line, discardedByCap: fromServer.discardedByCap }) })
   });
-  const fromDriver = await driver.summarize({ mode: 'information', recentTranscript: 'x', maxWords: 10 });
-  assert.equal(fromDriver.discardedByCap, 4, 'and the driver must carry it rather than swallowing it');
+  const fromDriver = await driver.summarize({ mode: 'speaker', recentTranscript: 'x', maxWords: 10 });
+  assert.equal(fromDriver.discardedByCap, expectedDiscarded, 'and the driver must carry it rather than swallowing it');
 
   const record = buildSummaryRecord({
-    at: Date.now(), mode: 'information', sent: 'Announcements.', returned: fromDriver.line,
+    at: Date.now(), mode: 'speaker', sent: 'Announcements.', returned: fromDriver.line,
     provider: 'openai', ok: true, wasShortened: false, discardedByCap: fromDriver.discardedByCap
   });
-  assert.equal(record.discardedByCap, 4, 'and it must reach the recording, which is where a person reads it');
+  assert.equal(record.discardedByCap, expectedDiscarded, 'and it must reach the recording, which is where a person reads it');
   assert.equal(record.wasShortened, false, 'while staying distinct from shortening, which did not happen here');
 });
 

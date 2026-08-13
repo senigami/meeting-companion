@@ -1,7 +1,7 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
 import { createCardReleaseQueue } from '../services/card-release-queue.js';
 import { chooseSummaryLevel } from '../services/summary-level.js';
-import { RUNAWAY_LINE_GUARD } from '../services/summary-prompt.js';
+import { RUNAWAY_LINE_GUARD, hasSubstantiveContent } from '../services/summary-prompt.js';
 import {
   appendTranscriptItems,
   createTranscriptItems
@@ -130,6 +130,12 @@ const CARD_RELEASE_INTERVAL_MS = 5000;
 // single call can return, or a card falls out of it before the next call is even made (#61).
 const DEDUPE_WINDOW_LINES = RUNAWAY_LINE_GUARD;
 const UNDO_STATUS_MAX_CHARS = 40;
+
+// How far back the model is shown what was already said and already summarized (Steve, 2026-08-09).
+// A fixed turn count reaches back minutes in a slow stretch and anchors the model on a topic the
+// conversation has already left; a live meeting's topic shifts, and this is meant to reflect "what
+// have we covered very recently", not "what has this speaker ever said".
+const SUMMARY_HISTORY_WINDOW_MS = 60000;
 
 // How often the watchdog re-checks the gap since the last transcript event (partial or final).
 const SILENCE_CHECK_INTERVAL_MS = 5000;
@@ -285,10 +291,13 @@ export function createRuntime(ctx, deps = {}) {
     showRecentTranscript();
   }
 
-  // One summarize result is now several cards (the model splits by thought, packLinesIntoCards
-  // sizes them), and putting four cards on the wall in the same frame costs a slow reader their
-  // place -- the exact thing the display exists to protect. `paced` hands them to the release queue
-  // instead, one every CARD_RELEASE_INTERVAL_MS.
+  // A live summarize call is one card per call now (2026-08-10: no mode packs several thoughts into
+  // several cards any more), but a backlog flush (Stop, a mode change) can still hand over several
+  // SEPARATE calls' single cards at once, and dropping all of them on the wall in the same frame
+  // costs a slow reader their place -- the exact thing the display exists to protect. `paced` hands
+  // them to the release queue instead, one every CARD_RELEASE_INTERVAL_MS. A multi-line string
+  // still splits into one item per line here too, for manual multi-line paste -- that path is the
+  // operator's own text, not the summarizer's, and is unaffected by the one-card-per-call rule.
   //
   // Manual lines are never paced: the operator typed that and pressed Show now, so it shows now.
   const cardReleaseQueue = createCardReleaseQueue({
@@ -1426,7 +1435,20 @@ export function createRuntime(ctx, deps = {}) {
   // hit without needing one.
   // A caller-supplied `text` (used only by tests) is a single explicit call, never a bucket drain,
   // so it never loops.
-  const MAX_DRAIN_RUNS_PER_TICK = 5;
+  // 2026-08-09, Steve's call: this used to be 5, so a real backlog (a provider outage, a long pause)
+  // drained in a burst of back-to-back network calls the moment it cleared -- measured in a real
+  // session as ~20 card pairs landing under a second apart, which is unreadable no matter how each
+  // call was capped. With every call now capped to exactly one card, there is no burst left to drain
+  // faster than the ordinary interval cadence already does; a backlog just clears one card per tick,
+  // same pacing a reader gets the rest of the time, however many ticks that takes.
+  const MAX_DRAIN_RUNS_PER_TICK = 1;
+
+  // Stop and a mode/speaker change are boundaries, not the ongoing interval cadence the cap above
+  // paces: at those moments listening has already ended or the operator has already moved on, so
+  // there is no reader-pacing reason left to hold a real backlog back, and every reason not to lose
+  // it silently. Generous rather than unbounded for the same reason MAX_DRAIN_RUNS_PER_TICK has a
+  // number at all -- a bucket fault must still be bounded.
+  const FINAL_FLUSH_MAX_RUNS = 20;
 
   // Returns true when the bucket has another complete run worth draining, OR when peeking at it
   // threw (e.g. takeOldestModeRun's over-BUCKET_MAX_CHARS guard at transcript-bucket.js:109) --
@@ -1454,14 +1476,14 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS } = {}) {
+  async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS, maxRuns = MAX_DRAIN_RUNS_PER_TICK } = {}) {
     if (text) {
       await drainOnce(text, settleMs);
       return;
     }
     let runs = 0;
     let ok = true;
-    while (ok && !ctx.state.paused && runs < MAX_DRAIN_RUNS_PER_TICK && mustKeepDraining(settleMs)) {
+    while (ok && !ctx.state.paused && runs < maxRuns && mustKeepDraining(settleMs)) {
       runs += 1;
       ok = await drainOnce(undefined, settleMs);
     }
@@ -1471,13 +1493,24 @@ export function createRuntime(ctx, deps = {}) {
     // again next tick since drainOnce never removes the offending chunk (INV-11).
     let stillPending = false;
     try {
-      stillPending = ok && !ctx.state.paused && runs >= MAX_DRAIN_RUNS_PER_TICK && hasCompleteModeRun(settleMs);
+      stillPending = ok && !ctx.state.paused && runs >= maxRuns && hasCompleteModeRun(settleMs);
     } catch (_error) {
       stillPending = false;
     }
     if (stillPending) {
       ctx.state.summarizeDrainCapHits = (ctx.state.summarizeDrainCapHits || 0) + 1;
-      updateStatus(ctx, 'Backlog is longer than expected; catching up over the next few ticks.');
+      // 2026-08-09 (Steve, "we should honor that interval... no catch up"): an ordinary tick capped
+      // at MAX_DRAIN_RUNS_PER_TICK (1) hitting this every time a second run is already queued is
+      // not a fault, it is the interval working as designed -- the next run simply waits for the
+      // next tick, same as any other pacing. A message here was actively misleading in two
+      // directions: on an ordinary tick it called normal pacing a "backlog," and at a boundary
+      // flush (Stop, mode change) with maxRuns raised well past 1, Stop specifically has already
+      // killed the interval by this point (pauseActiveTranscription, above stopListening), so "the
+      // next few ticks" is a promise nothing will keep. Only the boundary-flush case is worth
+      // surfacing at all, and only without that promise.
+      if (maxRuns > MAX_DRAIN_RUNS_PER_TICK) {
+        updateStatus(ctx, 'A large backlog remained after the flush; some speech may not have been summarized.');
+      }
     }
   }
 
@@ -1533,7 +1566,10 @@ export function createRuntime(ctx, deps = {}) {
         return false;
       }
     }
-    if (!recent || recent === ctx.state.lastSentText) return false;
+    // #hasSubstantiveContent gates pure filler ("Okay.", "Let's see.", ".") from ever reaching the
+    // network -- see its own comment. Left in the bucket, not consumed: the same treatment an empty
+    // chunk already gets.
+    if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) return false;
 
     ctx.state.summarizeInFlight = true;
     updateStatus(ctx, 'Summarizing...');
@@ -1568,7 +1604,11 @@ export function createRuntime(ctx, deps = {}) {
         // mode matters as much as the budget: information mode must never take brief, because brief
         // keeps one line and a round of announcements then loses every fact after the first.
         level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
-        history: ctx.state.summaryHistory
+        // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
+        // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
+        // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
+        // the window is always relative to NOW rather than to whenever a card last landed.
+        history: ctx.state.summaryHistory.filter((turn) => nowFn() - turn.at < SUMMARY_HISTORY_WINDOW_MS)
       });
 
       // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
@@ -1618,7 +1658,10 @@ export function createRuntime(ctx, deps = {}) {
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
-        ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line }].slice(-6);
+        // Capped generously by count here (well past SUMMARY_HISTORY_WINDOW_MS at any real interval)
+        // purely so the array cannot grow unbounded across a long meeting; the time filter at the
+        // call site above is what actually decides what the model sees.
+        ctx.state.summaryHistory = [...ctx.state.summaryHistory, { spoken: recent, shown: result.line, at: nowFn() }].slice(-30);
         return true;
       } else {
         updateStatus(ctx, result.reason || 'No new useful line.', { level: recoveredLevel });
@@ -1670,7 +1713,7 @@ export function createRuntime(ctx, deps = {}) {
   // Pressing the mode you are ALREADY on clears it too, which is Steve's idea and a better control
   // than the one I built. During testimony meeting he never leaves speaker mode, so a
   // mode-change-only reset would never fire, and the buttons are already under his hand.
-  function setMode(mode) {
+  async function setMode(mode) {
     const changed = ctx.state.mode !== mode;
     // Song is typed, not heard (#106): listening through a hymn feeds sung audio into a prompt built
     // for speech, and the app has no way to tell "the hymn ended" from silence. Auto-pause on entry,
@@ -1678,15 +1721,34 @@ export function createRuntime(ctx, deps = {}) {
     // an operator's own call is never overridden by this switching back.
     const enteringSong = mode === 'song' && ctx.state.mode !== 'song';
     const leavingAutoPausedSong = ctx.state.mode === 'song' && mode !== 'song' && ctx.state.songAutoPaused;
+
+    // Every mode press clears the speaker-name field, whether or not the mode actually changed --
+    // pressing the mode you are already on is the "new speaker in testimony meeting" gesture (same
+    // reason summaryHistory resets unconditionally below), and a name typed for whoever was talking
+    // before must never survive onto whoever comes next. This is separate from the CARD label
+    // (view.js), which is a persistent corner nameplate shown on every card for as long as this
+    // field holds a value -- clearing the field here is exactly what makes new cards stop getting a
+    // label, without needing separate logic for that.
+    setSpeakerName('');
+
+    // 2026-08-10 reordering (Steve): dump, THEN switch -- not the other way round. A real session:
+    // he pressed Information only after the prayer had finished speaking, but the bucket had not
+    // been drained yet (the 20s interval hadn't ticked), so the leftover prayer content was still
+    // sitting there when he clicked. The old order flipped ctx.state.mode to 'information'
+    // immediately and only THEN flushed -- the flush itself still drained the right chunks (each
+    // one is tagged with the mode it was captured under, not read from current state), but any
+    // chunk arriving DURING the flush would have been captured under the mode already switched to,
+    // and the whole operation reads, and should behave, as one atomic unit: "clean dump and switch,
+    // just like hitting Stop or clicking for a new speaker." So the flush is awaited BEFORE the
+    // mode, driver, and buttons change at all -- nothing about the new mode exists yet while the
+    // old one's leftover content is still being sent.
+    await startNewSpeaker();
+
     ctx.state.mode = mode;
     if (transcriptionDriver && typeof transcriptionDriver.setMode === 'function') {
       transcriptionDriver.setMode(mode);
     }
     updateModeButtons(ctx);
-    // Fire and forget: this runs from a click handler and the drain is the same forced flush
-    // stopListening uses, so the outgoing speaker's last sentence is summarized under their own
-    // context before the history is dropped.
-    void startNewSpeaker();
 
     let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
     if (enteringSong && ctx.state.listening && !ctx.state.paused) {
@@ -1976,6 +2038,11 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
 
+    // Same reasoning as #106's awaitingNewSpeakerArrival just below: the operator's own Start press
+    // begins a new speaker, an internal force:true resume (pause/resume, song mode's auto-resume)
+    // continues the same one, so only a genuine press clears the name.
+    if (!force) setSpeakerName('');
+
     const driver = await ensureTranscriptionDriver();
     if (typeof driver.setMode === 'function') driver.setMode(ctx.state.mode);
 
@@ -2035,8 +2102,11 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.state.summarizeCallPromise) {
       await ctx.state.summarizeCallPromise;
     }
-    await summarizeCurrentText(undefined, { settleMs: 0 });
+    await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS });
     ctx.state.summaryHistory = [];
+    // After the flush above, not before -- whatever was still in the bucket must drain under the
+    // speaker who was actually talking when it was said.
+    setSpeakerName('');
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
     if (!ctx.state.paused) {
@@ -2239,12 +2309,15 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function resolveAvailableSummarizationSource() {
-    // First run, nothing configured, nothing chosen: demo is the expected out-of-the-box state,
-    // not an error to alert about. Only applies when zero providers are configured -- if exactly
-    // one is, the existing fallback to that provider below is still correct and desirable.
-    if (!ctx.state.summarizationSourceChosen && !ctx.state.openAiReady && !ctx.state.anthropicReady) {
-      return 'demo';
-    }
+    // 2026-08-09 reversal (Steve): a fresh install used to default here to demo with nothing
+    // configured and nothing chosen, on the reasoning that demo is a harmless out-of-the-box state.
+    // A real incident showed the cost of ever reaching demo by anything other than an explicit
+    // click: a dropped/misread flag reaching this branch would put fabricated content on a live
+    // wall with nothing to distinguish it from a real summary. Falling through to the ordinary
+    // unready-openai fallback below is the safer unconfigured state -- it renders as "no key
+    // configured, manual mode still works" (see server/summarization.js), never as scripted text
+    // that looks real.
+    //
     // Demo needs no key, so an EXPLICIT choice of it is always honoured -- and the chosen flag is
     // what makes it explicit. This check used to read the source alone, which was safe only while
     // 'demo' in storage could mean nothing else. Once the keyless first run started writing 'demo'
@@ -2264,22 +2337,14 @@ export function createRuntime(ctx, deps = {}) {
     const nextSource = resolveAvailableSummarizationSource();
     if (nextSource === previousSource) return;
 
-    // Belt and braces with the chosen-flag gate above: the unchosen first-run default is not
-    // persisted at all, so storage never holds a 'demo' that means "the app picked this". A stored
-    // source should only ever mean "the operator chose it" or "a real provider was substituted".
-    const isFirstRunDemoDefault =
-      nextSource === 'demo' && !ctx.state.summarizationSourceChosen && !ctx.state.openAiReady && !ctx.state.anthropicReady;
-
     ctx.state.summarizationSource = nextSource;
-    if (!isFirstRunDemoDefault) localStorage.setItem(STORAGE.summarizationSource, nextSource);
+    localStorage.setItem(STORAGE.summarizationSource, nextSource);
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);
     // The switch itself is not an error -- summaries are still running -- but it is a fact the
     // operator did not choose and should be told about, transiently, rather than left to notice
     // only by checking Settings. A silent automatic provider switch is its own kind of dishonesty
-    // even though nothing is broken. Exception: an unchosen, keyless first run defaulting to demo
-    // is not a switch from the operator's point of view -- they never chose anything -- so no note.
-    if (isFirstRunDemoDefault) return;
+    // even though nothing is broken.
     const label = nextSource === 'claude' ? 'Claude' : nextSource === 'openai' ? 'OpenAI' : nextSource;
     flashRailNote(ctx, `Summaries switched to ${label} (previous source unavailable).`);
   }
@@ -2347,11 +2412,11 @@ export function createRuntime(ctx, deps = {}) {
         ? 'Manual mode is ready. OpenAI key detected.'
         : ctx.state.anthropicReady
           ? 'Manual mode is ready. Browser transcription and Claude summaries are available.'
-          // No keys at all is the expected first-run state, not a deficiency, and it is no longer
-          // even a limited one: browser transcription works and summaries fall back to demo. Leading
-          // with "OpenAI key is missing" told a brand-new operator that something was wrong with an
-          // app that was in fact working, which is the same false-alarm problem the alert model had.
-          : 'Manual mode is ready. Browser transcription and demo summaries work with no key. Add a provider key in AI services for live summaries.'
+          // 2026-08-09 reversal (Steve): demo is no longer an implicit fallback for a keyless
+          // install, so this can no longer say summaries "work with no key" -- they do not run at
+          // all until a key is added or Demo is explicitly selected. Browser transcription and
+          // manual typing are the only things genuinely available here.
+          : 'Manual mode is ready. Browser transcription works with no key. Add a provider key in AI services for live summaries, or select Demo to see the app end-to-end.'
     );
   }
 
@@ -2380,7 +2445,7 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.state.summarizeCallPromise) {
       await ctx.state.summarizeCallPromise;
     }
-    await summarizeCurrentText(undefined, { settleMs: 0 });
+    await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentText = '';
     // #106: the new speaker's first complete sentence deserves the same #31 fast path the very
