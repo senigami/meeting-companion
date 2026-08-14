@@ -432,8 +432,10 @@ export function createAudioConditioner({
 //
 // Our own graph adds nothing -- no gain, no compressor, no persistence. What it measures is still
 // not the bare device: it requests the same three browser-level constraints as the real path
-// (browserAudioConstraints), so AGC/noise-suppression/echo-cancel are applied by the browser before
-// anything reaches the analyser. That sameness is the point (a probe that measured a different
+// (browserAudioConstraints), so AGC/noise-suppression/echo-cancel are asked of the browser, and
+// applied wherever it honours them, before anything reaches the analyser. Asked, not guaranteed:
+// see the diagnostic readback below for why a granted constraint still has to be read off the track
+// rather than assumed. That sameness is the point (a probe that measured a different
 // signal to the meeting would not predict it), but the earlier wording here claimed the probe
 // measured the raw device, and #36 was filed on the strength of it.
 //
