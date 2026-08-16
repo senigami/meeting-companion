@@ -1,7 +1,7 @@
 import { appendUniqueChunk, normalizeText } from '../services/text.js';
 import { createCardReleaseQueue } from '../services/card-release-queue.js';
 import { chooseSummaryLevel } from '../services/summary-level.js';
-import { RUNAWAY_LINE_GUARD, hasSubstantiveContent } from '../services/summary-prompt.js';
+import { RUNAWAY_LINE_GUARD, cleanModelLine, hasSubstantiveContent, isFillerLine, shouldAcceptModelLine } from '../services/summary-prompt.js';
 import {
   appendTranscriptItems,
   createTranscriptItems
@@ -1567,9 +1567,16 @@ export function createRuntime(ctx, deps = {}) {
         return false;
       }
     }
-    // #hasSubstantiveContent gates pure filler ("Okay.", "Let's see.", ".") from ever reaching the
-    // network -- see its own comment. Left in the bucket, not consumed: the same treatment an empty
-    // chunk already gets.
+    // hasSubstantiveContent only rejects text with no letter or digit in it at all (see its own
+    // comment in summary-prompt.js) -- it does NOT catch filler like "Okay." or "Let's see.", which
+    // both contain real letters. Before #120, filler like that still reached the network, and the
+    // model's own reply was often display-side rejected by isNonAnswerLine ("Nothing was said.").
+    // Verbatim passthrough (#120) skips the network call entirely for a short, punctuated run, so
+    // that incidental filter no longer applies to it -- passthrough-eligible filler can now reach
+    // the display verbatim with no gate catching it. Flagged, not fixed here: whether filler should
+    // occupy a card at all is a reading-load call for Ansel or Steve, not something this comment or
+    // hasSubstantiveContent should quietly decide (Cato, #120 review, 2026-08-16). Left in the
+    // bucket, not consumed, either way: the same treatment an empty chunk already gets.
     if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) return false;
 
     ctx.state.summarizeInFlight = true;
@@ -1584,23 +1591,47 @@ export function createRuntime(ctx, deps = {}) {
 
     const summarizeStartedAt = nowFn();
     try {
+      // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
+      // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
+      // announcements the oldest card was already outside it and the model could restate it,
+      // with cleanModelLines unable to catch it either since it dedupes against this same list.
+      // And cards release one at a time, so anything still in cardReleaseQueue is not in
+      // transcriptItems yet and was invisible here regardless of the size. Those cards are going
+      // on screen, so the model has to be told about them.
+      //
+      // Hoisted above the passthrough/summarizer branch (#120) so both share the exact same
+      // dedupe window: passthrough must not lose the duplicate-suppression the summarizer path
+      // has always had just because it skips the network call that used to carry it.
+      const visibleLines = [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
+        .slice(-DEDUPE_WINDOW_LINES)
+        .map((item) => item.text);
+
+      // shouldAcceptModelLine is the same accept/reject gate the summarizer path has always run on
+      // its own reply -- vague/refusal/non-answer pattern rejection plus dedupe against
+      // visibleLines. Passthrough never touches a model, but it must not lose that guard just
+      // because it skips the call that used to carry it: a repeated short utterance (someone
+      // saying "Amen." twice) still must not land as two cards. Cato, #120 review, 2026-08-16.
+      //
+      // isFillerLine gates passthrough only, not the summarizer path -- the summarizer path already
+      // has its own incidental filter (isNonAnswerLine on the model's reply) and this is not a
+      // change to that path's behavior. Steve's call, 2026-08-16: a filler word must not occupy a
+      // reading-load card slot verbatim just because it happens to be short and punctuated.
       const result = isPassthroughEligible(recent, ctx.state.readingBudget?.words)
-        ? { line: recent, verbatim: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 }
+        && shouldAcceptModelLine(recent, visibleLines)
+        && !isFillerLine(recent)
+        // cleanModelLine, not raw recent -- shouldAcceptModelLine already decided on the cleaned
+        // form (it calls cleanModelLine internally), and every existing path in this codebase
+        // (cleanModelLinesWithLoss, used by both driver.summarize() implementations) displays the
+        // exact string it judged. Displaying raw `recent` instead would have broken that invariant
+        // silently: a pasted line ("- Sacrament meeting starts at nine.") is judged clean but shown
+        // with its bullet marker still attached. Warrick, #120 review, 2026-08-16.
+        ? { line: cleanModelLine(recent), verbatim: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 }
         : await (async () => {
             const driver = await ensureSummarizationDriver();
             return driver.summarize({
               mode: sendMode,
               recentTranscript: recent,
-              // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
-              // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
-              // announcements the oldest card was already outside it and the model could restate it,
-              // with cleanModelLines unable to catch it either since it dedupes against this same list.
-              // And cards release one at a time, so anything still in cardReleaseQueue is not in
-              // transcriptItems yet and was invisible here regardless of the size. Those cards are going
-              // on screen, so the model has to be told about them.
-              visibleLines: [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
-                .slice(-DEDUPE_WINDOW_LINES)
-                .map((item) => item.text),
+              visibleLines,
               maxWords: ctx.state.summaryMaxWords,
               // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
               // words-per-card setting and the amount of compression can never disagree. Measured pace is

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   cleanModelLine,
   cleanModelLines,
+  isFillerLine,
   MAX_LINES_PER_CALL,
   shouldAcceptModelLine,
   hasSubstantiveContent
@@ -18,6 +19,38 @@ test('vague model lines are rejected', () => {
   assert.equal(shouldAcceptModelLine('He is talking about faith.'), false);
   assert.equal(shouldAcceptModelLine('Hymn 241 selected', ['Hymn 241 selected']), false);
   assert.equal(shouldAcceptModelLine('Prayer has started'), true);
+});
+
+// #120: verbatim passthrough gates on this to keep a bare filler word from occupying a card,
+// something the summarizer path used to catch incidentally via isNonAnswerLine on the model's
+// reply -- passthrough has no reply to check, so the input itself needs its own filter.
+test('filler-only lines are rejected regardless of trailing punctuation', () => {
+  assert.equal(isFillerLine('Okay.'), true);
+  assert.equal(isFillerLine('okay'), true);
+  assert.equal(isFillerLine('Yeah.'), true);
+  assert.equal(isFillerLine('Right?'), true);
+  assert.equal(isFillerLine('Mm-hmm.'), true);
+  assert.equal(isFillerLine('So,'), true);
+  assert.equal(isFillerLine('Um.'), true);
+  assert.equal(isFillerLine('Sure.'), true);
+  assert.equal(isFillerLine('All right.'), true);
+});
+
+// The exact case the history behind this function exists to protect: "Amen" is real, complete
+// content and must never be caught by a filler check, however short it is.
+test('filler check never catches real short content', () => {
+  assert.equal(isFillerLine('Amen.'), false);
+  assert.equal(isFillerLine('Approved.'), false);
+  assert.equal(isFillerLine("Okay, let's begin the lesson on faith."), false);
+  assert.equal(isFillerLine(''), false);
+});
+
+// Wade, #120 review, 2026-08-16: a comma-joined repeat of filler words is still zero content,
+// and the whole-string-anchored check alone missed it because a comma isn't a sentence boundary.
+test('a comma-joined repeat of filler words is still filler', () => {
+  assert.equal(isFillerLine('Yeah, yeah.'), true);
+  assert.equal(isFillerLine('Okay, so.'), true);
+  assert.equal(isFillerLine('Right, right.'), true);
 });
 
 // 2026-08-10, Steve, from a real prayer that never printed its closing: a prior version of this

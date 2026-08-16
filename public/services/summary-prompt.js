@@ -123,6 +123,42 @@ function isVagueLine(line = '') {
   ].some((pattern) => pattern.test(line));
 }
 
+// Backchannel/filler words, matched only when they are the WHOLE utterance (after stripping
+// trailing terminal punctuation) -- "Okay, let's begin the lesson on faith." is real content that
+// happens to start with a filler word and must not be caught here.
+//
+// Exists specifically for verbatim passthrough (#120): before passthrough, this kind of filler
+// still went to the model, and the model's own reply was often display-side rejected by
+// isNonAnswerLine ("Nothing was said."). Passthrough skips the network call, so that incidental
+// filter no longer applies -- a card slot is reading-load budget for a slow reader, and a filler
+// word occupying one is a real cost with no correction-channel argument covering it (unlike
+// OD-0027's reasoning for a wrong-order sentence, which is about a DIFFERENT kind of harm). Steve's
+// call, 2026-08-16, following Cato's #120 review.
+const FILLER_LINES = [
+  /^(okay|ok)$/i,
+  /^(yeah|yep|yup|yes)$/i,
+  /^right$/i,
+  /^(mm-?hmm|mhm|uh-?huh)$/i,
+  /^so$/i,
+  /^(um|uh|erm)$/i,
+  /^sure$/i,
+  /^(alright|all right)$/i
+];
+
+export function isFillerLine(line = '') {
+  // Split on commas so a comma-joined repeat ("Yeah, yeah.", "Okay, so.") is still caught -- the
+  // whole-string anchor alone only matched a single token, so two filler words joined by a comma
+  // (not a sentence boundary, so isSingleSentence never rejects it either) silently slipped through
+  // as if it were content. Every resulting token must independently be filler; one real word anywhere
+  // in the list ("Okay, let's begin the lesson on faith.") still correctly fails this. Wade, #120
+  // review, 2026-08-16.
+  const clean = cleanModelLine(line).replace(/[.!?…]+$/, '').trim();
+  if (!clean) return false;
+  const tokens = clean.split(',').map((token) => token.trim()).filter(Boolean);
+  if (!tokens.length) return false;
+  return tokens.every((token) => FILLER_LINES.some((pattern) => pattern.test(token)));
+}
+
 export function shouldAcceptModelLine(line, visibleLines = []) {
   const clean = cleanModelLine(line);
   if (!clean) return false;

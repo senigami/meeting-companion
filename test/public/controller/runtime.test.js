@@ -4449,3 +4449,68 @@ test('#120: a multi-sentence run still calls the driver even within the word bud
     assert.deepEqual(seen, ['Yes. No.']);
   });
 });
+
+test('#120: a bare filler word never lands as its own passthrough card (Steve, #120 review)', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: '' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Okay.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Okay.'], 'filler must fall through to the summarizer path, not bypass it verbatim');
+  });
+});
+
+test('#120: a passthrough card displays the cleaned line, not raw markup around it (Warrick, #120 review)', async () => {
+  // Reachable via the paste-override path: summarizeCurrentText(text) sets recent = normalizeText(text)
+  // directly, skipping the bucket, so a manually pasted line with a bullet marker reaches the same
+  // passthrough branch a live speech run does. shouldAcceptModelLine already judges the CLEANED form;
+  // the displayed card must be that same string, not the raw one still carrying the marker.
+  const driver = { id: 'openai', summarize: async () => { throw new Error('must not be called'); } };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false }
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('- Sacrament meeting starts at nine.');
+
+    assert.equal(ctx.state.transcriptItems.at(-1)?.text, 'Sacrament meeting starts at nine.');
+  });
+});
+
+test('#120: a passthrough-eligible run that duplicates a visible card still falls through to the summarizer (Cato, #120 review)', async () => {
+  // Passthrough skips the network call the dedupe guard used to ride along on -- it must not skip
+  // the guard itself. Without shouldAcceptModelLine gating the passthrough branch too, a repeated
+  // short utterance ("Amen." said twice) would land as two separate cards.
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: '' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptItems: [{ text: 'Amen.' }],
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Amen.'], 'a duplicate of a visible card must reach the existing dedupe path, not bypass it');
+  });
+});
