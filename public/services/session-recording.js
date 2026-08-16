@@ -79,6 +79,7 @@ export function buildSummaryRecord({
   error = null,
   latencyMs = null,
   wasShortened = false,
+  verbatim = false,
   discardedByCap = 0,
   discardedByCapClient = 0
 }) {
@@ -95,6 +96,7 @@ export function buildSummaryRecord({
     error: error || null,
     latencyMs: typeof latencyMs === 'number' ? latencyMs : null,
     wasShortened: Boolean(wasShortened),
+    verbatim: Boolean(verbatim),
     // Separate from wasShortened deliberately (#58). Shortening trims a line's characters and the line
     // still arrives; a discard means real speech never reached the reader. Three successive silent-loss
     // defects (#49, #63, #65) each looked like a clean call in this record because only the first of

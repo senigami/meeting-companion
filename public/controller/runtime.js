@@ -60,6 +60,7 @@ import {
   BUCKET_SETTLE_MS,
   TERMINAL_END,
   bucketText,
+  isPassthroughEligible,
   partitionBucket,
   removeConsumed,
   takeOldestModeRun,
@@ -1583,33 +1584,37 @@ export function createRuntime(ctx, deps = {}) {
 
     const summarizeStartedAt = nowFn();
     try {
-      const driver = await ensureSummarizationDriver();
-      const result = await driver.summarize({
-        mode: sendMode,
-        recentTranscript: recent,
-        // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
-        // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
-        // announcements the oldest card was already outside it and the model could restate it,
-        // with cleanModelLines unable to catch it either since it dedupes against this same list.
-        // And cards release one at a time, so anything still in cardReleaseQueue is not in
-        // transcriptItems yet and was invisible here regardless of the size. Those cards are going
-        // on screen, so the model has to be told about them.
-        visibleLines: [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
-          .slice(-DEDUPE_WINDOW_LINES)
-          .map((item) => item.text),
-        maxWords: ctx.state.summaryMaxWords,
-        // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
-        // words-per-card setting and the amount of compression can never disagree. Measured pace is
-        // about one word every two seconds, which puts the live path on brief.
-        // mode matters as much as the budget: information mode must never take brief, because brief
-        // keeps one line and a round of announcements then loses every fact after the first.
-        level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
-        // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
-        // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
-        // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
-        // the window is always relative to NOW rather than to whenever a card last landed.
-        history: ctx.state.summaryHistory.filter((turn) => nowFn() - turn.at < SUMMARY_HISTORY_WINDOW_MS)
-      });
+      const result = isPassthroughEligible(recent, ctx.state.readingBudget?.words)
+        ? { line: recent, verbatim: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 }
+        : await (async () => {
+            const driver = await ensureSummarizationDriver();
+            return driver.summarize({
+              mode: sendMode,
+              recentTranscript: recent,
+              // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
+              // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
+              // announcements the oldest card was already outside it and the model could restate it,
+              // with cleanModelLines unable to catch it either since it dedupes against this same list.
+              // And cards release one at a time, so anything still in cardReleaseQueue is not in
+              // transcriptItems yet and was invisible here regardless of the size. Those cards are going
+              // on screen, so the model has to be told about them.
+              visibleLines: [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
+                .slice(-DEDUPE_WINDOW_LINES)
+                .map((item) => item.text),
+              maxWords: ctx.state.summaryMaxWords,
+              // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
+              // words-per-card setting and the amount of compression can never disagree. Measured pace is
+              // about one word every two seconds, which puts the live path on brief.
+              // mode matters as much as the budget: information mode must never take brief, because brief
+              // keeps one line and a round of announcements then loses every fact after the first.
+              level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
+              // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
+              // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
+              // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
+              // the window is always relative to NOW rather than to whenever a card last landed.
+              history: ctx.state.summaryHistory.filter((turn) => nowFn() - turn.at < SUMMARY_HISTORY_WINDOW_MS)
+            });
+          })();
 
       // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
       // independent of the INV-11 consume/pause logic below -- a call that succeeded but landed
@@ -1625,10 +1630,11 @@ export function createRuntime(ctx, deps = {}) {
         hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: result.line || '',
-        provider: ctx.state.summarizationSource,
+        provider: result.verbatim ? 'passthrough' : ctx.state.summarizationSource,
         ok: true,
         latencyMs: nowFn() - summarizeStartedAt,
         wasShortened: result.wasShortened,
+        verbatim: result.verbatim,
         discardedByCap: result.discardedByCap,
         discardedByCapClient: result.discardedByCapClient
       }));

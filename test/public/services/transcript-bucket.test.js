@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bucketText,
+  isPassthroughEligible,
+  isSingleSentence,
   partitionBucket,
   removeConsumed,
   splitAtLastTerminator,
@@ -51,6 +53,50 @@ test('a settled unpunctuated final eventually drains', () => {
   const { consumable, remainder } = partitionBucket(chunks, { now: NOW, settleMs: 20000 });
   assert.equal(consumable.length, 1);
   assert.equal(remainder.length, 0);
+});
+
+test('isSingleSentence accepts one complete sentence', () => {
+  assert.equal(isSingleSentence('The closing hymn is number 152.'), true);
+});
+
+test('isSingleSentence rejects unpunctuated text', () => {
+  assert.equal(isSingleSentence('no punctuation here'), false);
+});
+
+test('isSingleSentence rejects two merged sentences', () => {
+  assert.equal(isSingleSentence('Yes. No.'), false);
+});
+
+test('isSingleSentence accepts a trailing close-quote via TERMINAL_END', () => {
+  assert.equal(isSingleSentence('He said "we\'re done."'), true);
+});
+
+test('isPassthroughEligible accepts a short single sentence', () => {
+  assert.equal(isPassthroughEligible('Amen.', 4), true);
+});
+
+test('isPassthroughEligible accepts a word count exactly at the budget', () => {
+  assert.equal(isPassthroughEligible('This sentence has exactly six words.', 6), true);
+});
+
+test('isPassthroughEligible rejects a word count one over budget', () => {
+  assert.equal(isPassthroughEligible('This sentence has exactly seven words total.', 6), false);
+});
+
+test('isPassthroughEligible rejects unpunctuated text', () => {
+  assert.equal(isPassthroughEligible('No period here', 10), false);
+});
+
+test('isPassthroughEligible rejects two sentences even within budget', () => {
+  assert.equal(isPassthroughEligible('Yes. No.', 10), false);
+});
+
+test('isPassthroughEligible rejects empty text', () => {
+  assert.equal(isPassthroughEligible('', 10), false);
+});
+
+test('isPassthroughEligible rejects a non-finite budget', () => {
+  assert.equal(isPassthroughEligible('Amen.', NaN), false);
 });
 
 test('only the complete leading sentences of the newest chunk are consumable', () => {

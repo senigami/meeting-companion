@@ -68,6 +68,33 @@ test('buildSummaryRecord defaults a failed call to ok:false with no returned tex
   assert.equal(record.wasShortened, false);
 });
 
+test('buildSummaryRecord defaults verbatim to false when not passed', () => {
+  const record = buildSummaryRecord({
+    at: Date.now(),
+    mode: 'speaker',
+    consumedIds: [],
+    sent: 'text',
+    provider: 'openai',
+    ok: true
+  });
+
+  assert.equal(record.verbatim, false);
+});
+
+test('buildSummaryRecord carries verbatim: true through when passed', () => {
+  const record = buildSummaryRecord({
+    at: Date.now(),
+    mode: 'speaker',
+    consumedIds: [],
+    sent: 'text',
+    provider: 'passthrough',
+    ok: true,
+    verbatim: true
+  });
+
+  assert.equal(record.verbatim, true);
+});
+
 test('buildHeaderRecord carries commit, prompt hash, word limit, provider and interval verbatim', () => {
   const record = buildHeaderRecord({
     at: Date.UTC(2026, 6, 29, 10, 0, 0),

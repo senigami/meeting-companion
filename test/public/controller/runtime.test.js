@@ -4358,3 +4358,94 @@ test('#56: the slider and the floor cannot drift apart when the interval itself 
     assert.equal(ctx.state.summaryIntervalSeconds, 5);
   });
 });
+
+// --- Verbatim passthrough eligibility in drainOnce (#120) -------------------
+
+test('#120: a passthrough-eligible run never calls the driver', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); throw new Error('must not be called'); }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, [], 'the driver must never be invoked for an eligible run');
+    assert.equal(ctx.state.transcriptItems.at(-1)?.text, 'Amen.');
+  });
+});
+
+test('#120: a passthrough-eligible run\'s card carries the original text untouched', async () => {
+  // addLine only ever receives result.line as a bare string -- verbatim/provider are not threaded
+  // any further yet (Task 003). The furthest today's harness can observe result.verbatim is the
+  // landed card's own text: exactly the spoken sentence, unshortened and unrephrased, since a
+  // driver call (the only thing that could have altered it) never happened.
+  const driver = {
+    id: 'openai',
+    summarize: async () => { throw new Error('must not be called'); }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    assert.equal(ctx.state.transcriptItems[0].text, 'Amen.');
+  });
+});
+
+test('#120: an over-budget run still calls the driver', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'Summarized card.' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 2, rawWords: 2, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'This sentence has plenty more than two words in it.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['This sentence has plenty more than two words in it.']);
+  });
+});
+
+test('#120: a multi-sentence run still calls the driver even within the word budget', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'Summarized card.' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 20, rawWords: 20, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Yes. No.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Yes. No.']);
+  });
+});
