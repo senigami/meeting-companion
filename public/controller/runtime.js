@@ -1573,10 +1573,9 @@ export function createRuntime(ctx, deps = {}) {
     // model's own reply was often display-side rejected by isNonAnswerLine ("Nothing was said.").
     // Verbatim passthrough (#120) skips the network call entirely for a short, punctuated run, so
     // that incidental filter no longer applies to it -- passthrough-eligible filler can now reach
-    // the display verbatim with no gate catching it. Flagged, not fixed here: whether filler should
-    // occupy a card at all is a reading-load call for Ansel or Steve, not something this comment or
-    // hasSubstantiveContent should quietly decide (Cato, #120 review, 2026-08-16). Left in the
-    // bucket, not consumed, either way: the same treatment an empty chunk already gets.
+    // the display verbatim, so the passthrough branch below gates it with isFillerLine (Steve's
+    // call, 2026-08-16). Left in the bucket, not consumed, either way: the same treatment an empty
+    // chunk already gets.
     if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) return false;
 
     ctx.state.summarizeInFlight = true;
