@@ -4358,3 +4358,159 @@ test('#56: the slider and the floor cannot drift apart when the interval itself 
     assert.equal(ctx.state.summaryIntervalSeconds, 5);
   });
 });
+
+// --- Verbatim passthrough eligibility in drainOnce (#120) -------------------
+
+test('#120: a passthrough-eligible run never calls the driver', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); throw new Error('must not be called'); }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, [], 'the driver must never be invoked for an eligible run');
+    assert.equal(ctx.state.transcriptItems.at(-1)?.text, 'Amen.');
+  });
+});
+
+test('#120: a passthrough-eligible run\'s card carries the original text untouched', async () => {
+  // addLine only ever receives result.line as a bare string -- verbatim/provider are not threaded
+  // any further yet (Task 003). The furthest today's harness can observe result.verbatim is the
+  // landed card's own text: exactly the spoken sentence, unshortened and unrephrased, since a
+  // driver call (the only thing that could have altered it) never happened.
+  const driver = {
+    id: 'openai',
+    summarize: async () => { throw new Error('must not be called'); }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    assert.equal(ctx.state.transcriptItems[0].text, 'Amen.');
+  });
+});
+
+test('#120: an over-budget run still calls the driver', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'Summarized card.' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 2, rawWords: 2, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'This sentence has plenty more than two words in it.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['This sentence has plenty more than two words in it.']);
+  });
+});
+
+test('#120: a multi-sentence run still calls the driver even within the word budget', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: 'Summarized card.' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 20, rawWords: 20, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Yes. No.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Yes. No.']);
+  });
+});
+
+test('#120: a bare filler word never lands as its own passthrough card (Steve, #120 review)', async () => {
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: '' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptChunks: [{ text: 'Okay.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Okay.'], 'filler must fall through to the summarizer path, not bypass it verbatim');
+  });
+});
+
+test('#120: a passthrough card displays the cleaned line, not raw markup around it (Warrick, #120 review)', async () => {
+  // Reachable via the paste-override path: summarizeCurrentText(text) sets recent = normalizeText(text)
+  // directly, skipping the bucket, so a manually pasted line with a bullet marker reaches the same
+  // passthrough branch a live speech run does. shouldAcceptModelLine already judges the CLEANED form;
+  // the displayed card must be that same string, not the raw one still carrying the marker.
+  const driver = { id: 'openai', summarize: async () => { throw new Error('must not be called'); } };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false }
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('- Sacrament meeting starts at nine.');
+
+    assert.equal(ctx.state.transcriptItems.at(-1)?.text, 'Sacrament meeting starts at nine.');
+  });
+});
+
+test('#120: a passthrough-eligible run that duplicates a visible card still falls through to the summarizer (Cato, #120 review)', async () => {
+  // Passthrough skips the network call the dedupe guard used to ride along on -- it must not skip
+  // the guard itself. Without shouldAcceptModelLine gating the passthrough branch too, a repeated
+  // short utterance ("Amen." said twice) would land as two separate cards.
+  const seen = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => { seen.push(recentTranscript); return { line: '' }; }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      readingBudget: { words: 10, rawWords: 10, belowFloor: false, marginal: false },
+      transcriptItems: [{ text: 'Amen.' }],
+      transcriptChunks: [{ text: 'Amen.', at: now - 30000 }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.deepEqual(seen, ['Amen.'], 'a duplicate of a visible card must reach the existing dedupe path, not bypass it');
+  });
+});

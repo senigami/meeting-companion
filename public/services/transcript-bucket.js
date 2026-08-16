@@ -29,6 +29,31 @@ export function splitAtLastTerminator(text) {
   return { complete: normalizeText(match[1]), tail: normalizeText(match[2]) };
 }
 
+function wordCount(text) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// True iff the run ends in TERMINAL_END and stripping that final match leaves no other
+// terminal-punctuation mark in the text -- catches two separate utterances that landed in the
+// same run ("Yes. No.") as ineligible, since that is two ideas, not one (#120).
+export function isSingleSentence(text) {
+  const clean = normalizeText(text);
+  if (!clean || !TERMINAL_END.test(clean)) return false;
+  const withoutTrailer = clean.replace(TERMINAL_END, '');
+  return !/[.!?…]/.test(withoutTrailer);
+}
+
+// A run is eligible for verbatim passthrough (#120) when it already fits the reader's card budget
+// and is a single complete sentence. maxWords is a plain number (the caller's readingBudget.words),
+// not a budget object -- this module has no dependency on reading-pace.js and should not gain one.
+export function isPassthroughEligible(text, maxWords) {
+  const clean = normalizeText(text);
+  if (!clean) return false;
+  if (!Number.isFinite(maxWords) || maxWords <= 0) return false;
+  if (wordCount(clean) > maxWords) return false;
+  return isSingleSentence(clean);
+}
+
 export function partitionBucket(chunks = [], { now = Date.now(), settleMs = BUCKET_SETTLE_MS } = {}) {
   const list = (Array.isArray(chunks) ? chunks : []).filter((chunk) => chunk && normalizeText(chunk.text));
   const consumable = [];
