@@ -18,6 +18,10 @@ const MANUAL_META = {
   icon: 'icon-human'
 };
 
+// Exploratory (#4, Steve unsure this earns its keep): flip to false to revert same-mode
+// speaker-change alternation with no other code change -- see renderDisplay/createTranscriptCard.
+const SPEAKER_ALTERNATION_ENABLED = true;
+
 const TRANSCRIPT_SCROLL_DURATION_MS = 1000;
 
 const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
@@ -246,11 +250,32 @@ export function renderDisplay(ctx) {
   // notice when it's different; making it disappear on a repeat forces them to remember who was
   // talking instead, which is more cognitive load, not less.
   const newNodes = [];
+  // Speaker-alternation toggle (exploratory #4, Steve unsure -- flip SPEAKER_ALTERNATION_ENABLED
+  // to false to revert with no other code changes needed): walked across the FULL renderItems list
+  // every render, not just the new-node slice below, so the toggle stays correctly sequenced even
+  // when earlier cards aren't being rebuilt this pass.
+  let speakerAltOn = false;
   renderItems.forEach((item, index) => {
     const speaker = typeof item.speaker === 'string' ? item.speaker.trim() : '';
     const showSpeaker = Boolean(speaker);
+    const previousItem = index > 0 ? renderItems[index - 1] : null;
+    const isModeBoundary = Boolean(previousItem) && previousItem.mode !== item.mode;
+
+    if (SPEAKER_ALTERNATION_ENABLED && item.mode === 'speaker' && previousItem && previousItem.mode === 'speaker') {
+      const previousSpeaker = typeof previousItem.speaker === 'string' ? previousItem.speaker.trim() : '';
+      if (previousSpeaker !== speaker) speakerAltOn = !speakerAltOn;
+    } else {
+      speakerAltOn = false;
+    }
+    const isSpeakerAlt = SPEAKER_ALTERNATION_ENABLED && item.mode === 'speaker' && speakerAltOn;
+
     if (previousIsPrefix && index < previousIds.length) return;
-    newNodes.push(createTranscriptCard(item, index === renderItems.length - 1, { showSpeaker, speaker }));
+    newNodes.push(createTranscriptCard(item, index === renderItems.length - 1, {
+      showSpeaker,
+      speaker,
+      isModeBoundary,
+      isSpeakerAlt
+    }));
   });
 
   // Issue #13: rebuilding every card on every arrival tore down and recreated cards that hadn't
@@ -845,7 +870,7 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
   }
 }
 
-function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '' } = {}) {
+function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', isModeBoundary = false, isSpeakerAlt = false } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
   // Song is the one mode meant to be typed, not heard (see runtime.js#setMode) -- a hand-typed hymn
@@ -855,7 +880,21 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   const visualMode = isManual && !isManualSong ? 'manual' : item.mode || 'speaker';
   const modeMeta = isManual && !isManualSong ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
-  article.className = `transcript-item transcript-item--${visualMode}${isManual ? ' transcript-item--manual' : ''}${isSample ? ' transcript-item--sample' : ''}`;
+  article.className = `transcript-item transcript-item--${visualMode}`
+    // isManualSong is excluded here too -- it already gets transcript-item--song from visualMode
+    // above, and adding --manual as well let its --card-accent win on source order (layout.css
+    // defines .transcript-item--manual after .transcript-item--song), silently overriding the
+    // song accent color the comment above says this card should have.
+    + `${isManual && !isManualSong ? ' transcript-item--manual' : ''}`
+    + `${isSample ? ' transcript-item--sample' : ''}`
+    // Issue: a mode change (operator clicks Speaker/Info/Song/Prayer) had no visual break at all
+    // between cards other than each card's own accent-bar color -- a reader scanning past the
+    // change had nothing telling them "something changed here." Marks the FIRST card of a new mode.
+    + `${isModeBoundary ? ' transcript-item--mode-boundary' : ''}`
+    // Exploratory (Steve unsure, easy to revert -- see SPEAKER_ALTERNATION_ENABLED in renderDisplay):
+    // same-mode speaker change within Speaker mode alone had no visual marker either, so consecutive
+    // speaker cards alternate between two accent shades whenever item.speaker changes.
+    + `${isSpeakerAlt ? ' transcript-item--speaker-alt' : ''}`;
   setDataAttribute(article, 'mode', visualMode);
   setDataAttribute(article, 'source', item.source || 'ai');
   setDataAttribute(article, 'active', String(active));

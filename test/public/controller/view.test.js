@@ -330,6 +330,64 @@ test('renderDisplay shows manual transcript cards with a human icon instead of t
   assert.equal(meta.children[1].textContent, 'Manual');
 });
 
+test('renderDisplay marks the first card after a mode change as a mode boundary, not the cards before or after it', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'one', mode: 'speaker', text: 'a', createdAt: 1, source: 'ai' },
+        { id: 'two', mode: 'speaker', text: 'b', createdAt: 2, source: 'ai' },
+        { id: 'three', mode: 'information', text: 'c', createdAt: 3, source: 'ai' },
+        { id: 'four', mode: 'information', text: 'd', createdAt: 4, source: 'ai' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const [first, second, third, fourth] = transcriptStack.children;
+  assert.equal(first.className.includes('transcript-item--mode-boundary'), false);
+  assert.equal(second.className.includes('transcript-item--mode-boundary'), false);
+  assert.equal(third.className.includes('transcript-item--mode-boundary'), true);
+  assert.equal(fourth.className.includes('transcript-item--mode-boundary'), false);
+});
+
+test('renderDisplay alternates the speaker-alt accent within a run of same-mode speaker cards, and resets outside speaker mode', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'one', mode: 'speaker', text: 'a', createdAt: 1, source: 'ai', speaker: 'Alice' },
+        { id: 'two', mode: 'speaker', text: 'b', createdAt: 2, source: 'ai', speaker: 'Alice' },
+        { id: 'three', mode: 'speaker', text: 'c', createdAt: 3, source: 'ai', speaker: 'Bob' },
+        { id: 'four', mode: 'information', text: 'd', createdAt: 4, source: 'ai' },
+        { id: 'five', mode: 'speaker', text: 'e', createdAt: 5, source: 'ai', speaker: 'Carol' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const [one, two, three, four, five] = transcriptStack.children;
+  assert.equal(one.className.includes('transcript-item--speaker-alt'), false);
+  assert.equal(two.className.includes('transcript-item--speaker-alt'), false);
+  assert.equal(three.className.includes('transcript-item--speaker-alt'), true);
+  assert.equal(four.className.includes('transcript-item--speaker-alt'), false);
+  // A new speaker follows an information-mode card, not a speaker-mode one, so the alternation
+  // sequence restarts rather than continuing Bob's toggled-on state across the mode switch.
+  assert.equal(five.className.includes('transcript-item--speaker-alt'), false);
+});
+
 // Issue #40: a speaker label reads as extra load for someone who reads roughly one word every two
 // seconds, so it must appear ONLY on the card where the speaker actually changed -- never repeated
 // on every card that follows, and never invented as "Unknown" when the operator left it blank.
