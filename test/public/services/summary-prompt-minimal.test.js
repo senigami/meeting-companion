@@ -43,6 +43,93 @@ test('prior context is folded into the system message as data, never as user/ass
   assert.equal(messages.at(-1).content, 'New words.');
 });
 
+// Real bug, 2026-08-16 recording: a history block established "Dr. Alexander Gilson"; a later block
+// that only said "Gilson will be our speaker" came back as "Dr. Gilson will speak" -- the model
+// pulled the title from history context rather than the current block's own text. The history clause
+// only forbade repeating WORDING, not pulling FACTS across, so this asserts the new, separate
+// constraint is present whenever history exists.
+test('the system prompt forbids pulling facts from history into the current summary', async () => {
+  const messages = buildMinimalSummarizeMessages({
+    recentTranscript: 'Gilson will be our speaker.',
+    mode: 'speaker',
+    maxWords: 10,
+    history: [{ spoken: 'We welcome Dr. Alexander Gilson.', shown: 'Dr. Alexander Gilson.' }]
+  });
+
+  assert.match(messages[0].content, /summarize only the Text below/i);
+  assert.match(messages[0].content, /if the Text does not say it, leave it out/i);
+});
+
+// Real bug, 2026-08-16 recording (#55): a tight maxWords budget kept "Jesus Christ has overcome
+// cancer, family drama, and cyberbullying" and dropped the scripture citation ("Alma 34") entirely.
+// ANTI_FABRICATION governed fidelity (don't distort a kept reference) but said nothing about which
+// content to keep when the budget forces a cut. Asserted across every mode/level branch that includes
+// ANTI_FABRICATION, since it is a shared clause.
+test('the prompt favors keeping a scripture reference when condensing multiple facts into one', async () => {
+  const { buildMinimalSummarizePrompt } = await import('../../../public/services/summary-prompt-minimal.js');
+  const cases = [
+    { mode: 'speaker', level: 'brief' },
+    { mode: 'prayer', level: 'brief' },
+    { mode: 'information', level: 'brief' },
+    { mode: 'speaker', level: 'condense' },
+    { mode: 'prayer', level: 'condense' },
+    { mode: 'information', level: 'condense' }
+  ];
+
+  for (const { mode, level } of cases) {
+    const prompt = buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: 10 });
+    assert.match(prompt, /favor keeping a scripture or verse reference, and what it\s+actually says, over other detail/i,
+      `missing for mode=${mode} level=${level}`);
+  }
+});
+
+// Real bug, speaker-mode session: 16 of 113 cards opened with the literal words "The person" once a
+// continuous talk ran past the point where a name was available to attach (NAME_ATTACHMENT only
+// attaches a name when one was actually said and the point needs it). Asserted everywhere THIRD_PERSON
+// applies -- prayer mode is exempt, since it never adopts a third-person subject at all.
+test('the prompt tells the model not to open every card with a generic placeholder subject', async () => {
+  const { buildMinimalSummarizePrompt } = await import('../../../public/services/summary-prompt-minimal.js');
+  const cases = [
+    { mode: 'speaker', level: 'brief' },
+    { mode: 'information', level: 'brief' },
+    { mode: 'speaker', level: 'condense' },
+    { mode: 'information', level: 'condense' }
+  ];
+
+  for (const { mode, level } of cases) {
+    const prompt = buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: 10 });
+    assert.match(prompt, /do not open every card with a generic stand-in subject/i,
+      `missing for mode=${mode} level=${level}`);
+  }
+});
+
+// 2026-08-17: measured against 575 real cards, raw input runs 1-114 words and a straight jump from
+// a long raw chunk to a tight card target lost meaning (reproduced live against OpenAI on a real
+// scripture chunk). Gated on word count so a short chunk -- most of them, per that measurement --
+// gets the unchanged, single-pass prompt. Asserted at the boundary: 30 words is still single-pass,
+// 31 gets the two-stage instruction.
+test('the two-stage compression instruction appears only once raw input exceeds 30 words', async () => {
+  const { buildMinimalSummarizePrompt } = await import('../../../public/services/summary-prompt-minimal.js');
+  const words = (n) => Array.from({ length: n }, () => 'word').join(' ');
+
+  const atThreshold = buildMinimalSummarizePrompt({ recentTranscript: words(30), mode: 'speaker', level: 'condense', maxWords: 10 });
+  assert.doesNotMatch(atThreshold, /two internal steps/i, 'exactly 30 words must stay single-pass');
+
+  const overThreshold = buildMinimalSummarizePrompt({ recentTranscript: words(31), mode: 'speaker', level: 'condense', maxWords: 10 });
+  assert.match(overThreshold, /two internal steps/i, '31 words must trigger the two-stage instruction');
+  assert.match(overThreshold, /about 27 words/i);
+});
+
+// BRIEF's tight budget can be reached from any raw input length (summary-level.js chooses it by
+// reading budget, not input length), so a long raw chunk landing on brief needs the same fix.
+test('the two-stage compression instruction also applies to the brief level', async () => {
+  const { buildMinimalSummarizePrompt } = await import('../../../public/services/summary-prompt-minimal.js');
+  const words = (n) => Array.from({ length: n }, () => 'word').join(' ');
+
+  const prompt = buildMinimalSummarizePrompt({ recentTranscript: words(31), mode: 'speaker', level: 'brief', maxWords: 10 });
+  assert.match(prompt, /two internal steps/i);
+});
+
 // Independent reimplementation of the same FNV-1a algorithm, applied directly to
 // buildMinimalSummarizePrompt's own output rather than going through computeSummaryPromptHash. This
 // is the check that the hash genuinely tracks the real prompt text (issue #4's requirement) rather
@@ -81,7 +168,25 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // Updated 2026-08-10 (third time same day): WORD_SELECTIVITY reworded to Steve's own phrasing
   // ("be frugal with your words -- include only the ones that meaningfully contribute to the
   // meaning being conveyed"), replacing the first draft's "be picky... add real information."
-  assert.equal(computeSummaryPromptHash(), 'faf8b7d2');
+  // Updated 2026-08-17: TRANSLATE made an unconditional, standalone rule and the anti-duplication
+  // clause reworded as a hard constraint, after two real transcription bugs (untranslated Thai
+  // segment; looping on prior phrasing with no named speaker).
+  // Updated 2026-08-17: ANTI_FABRICATION extended with a soft preference -- when condensing
+  // multiple facts into one, favor keeping a scripture/verse reference over other detail (real bug,
+  // #55: "Alma 34" dropped in favor of the surrounding sentence under a 10-word budget). Not a hard
+  // requirement -- Steve wants it a tiebreaker, not an added always-keep rule.
+  // Updated 2026-08-17: added NO_PLACEHOLDER_SUBJECT, generalizing NAME_ATTACHMENT's restraint to
+  // the unnamed case -- a real speaker-mode session measured 16 of 113 cards opening with "The
+  // person" once no name was left to attach. Also consolidated brief's own inline duplicate of the
+  // same idea into this shared constant.
+  // Updated 2026-08-17: the scripture-reference preference extended to cover what the reference
+  // actually says, not just the citation itself -- a live rerun of #93 ("...1 Nephi 11:21 says...
+  // Behold the Lamb of God") kept the citation but dropped what it revealed, saying only "felt
+  // something special."
+  // Updated 2026-08-17: NO_PLACEHOLDER_SUBJECT extended -- when a card truly needs an unnamed
+  // subject, use "they" instead of "the person"/"the speaker" (Steve: "'They' would be better than
+  // 'The Person'", framed as "keep personal identifiers compact").
+  assert.equal(computeSummaryPromptHash(), '4e52fefe');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {

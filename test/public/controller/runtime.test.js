@@ -597,6 +597,33 @@ test('switching to song mode auto-pauses listening, and switching away auto-resu
   });
 });
 
+test('entering song mode drops a visible "Music is playing" card on the display, not just a status message', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    startCount: 0,
+    stopCount: 0,
+    async start() { this.startCount += 1; },
+    async stop() { this.stopCount += 1; },
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { openAiReady: true },
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '' }) })
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.setMode('song');
+
+    const musicCard = ctx.state.transcriptItems[ctx.state.transcriptItems.length - 1];
+    assert.equal(musicCard.mode, 'song');
+    assert.equal(musicCard.source, 'manual', 'a status card, not something attributed to the AI');
+    assert.match(musicCard.text, /music is playing/i);
+  });
+});
+
 test('a manual pause press while in song mode is not overridden when leaving song mode', async () => {
   const driver = {
     id: 'browser',

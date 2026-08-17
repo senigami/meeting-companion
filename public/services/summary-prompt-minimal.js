@@ -55,10 +55,29 @@ ${WORD_SELECTIVITY}`;
 // and now also guarded against on the display side (isRefusalLine, summary-prompt.js). This is the
 // other half of that fix: telling the model what TO do with non-English speech, not just catching it
 // when it declines to.
-const TRANSLATE = `If the speaker is not speaking in English, translate the meaning into English --
-never refuse to summarize non-English speech, and never leave foreign words untranslated.`;
+//
+// 2026-08-17: strengthened to an absolute, standalone rule after a real Thai-language segment that
+// arrived as two blocks -- the second block translated correctly, the first came through untranslated.
+// Sitting as one clause among several apparently let the model comply inconsistently across blocks;
+// stating it as its own unconditional sentence is the fix.
+const TRANSLATE = `You must respond only in English. Under no circumstances output any non-English
+words, in any part of your response, for any block of input. If the speaker is not speaking in
+English, translate the meaning into English -- never refuse to summarize non-English speech, and
+never leave foreign words untranslated.`;
 
 const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
+
+// 2026-08-17: generalizes NAME_ATTACHMENT's restraint (below) to the case where there is no name at
+// all. A real speaker-mode session measured 16 of 113 cards opening with the literal words "The
+// person" -- with no name available to attach in later blocks of a continuous talk, the model reached
+// for a generic placeholder subject instead, and reading many cards in a row that all restate "The
+// person" is fatiguing for a reader going card by card. Same test as NAME_ATTACHMENT, just extended to
+// the unnamed case: don't reach for a subject just to have one.
+const NO_PLACEHOLDER_SUBJECT = `Do not open every card with a generic stand-in subject ("the person",
+"the speaker", "someone") just to have a subject. Lead with the point or action directly. Name who is
+being talked about only when the card's point genuinely depends on identifying them. Keep personal
+identifiers compact: when a card truly needs an unnamed subject, use "they" rather than "the person"
+or "the speaker".`;
 
 // 2026-08-09, consolidated: this used to be two separately-worded copies of the same invariant
 // (one on the brief/prayer path, one on the speaker/information path), which is exactly the drift
@@ -71,7 +90,9 @@ const THIRD_PERSON = `Write in the third person. Do not write as the speaker or 
 // review built to find one, so this line stays on every mode rather than being dropped on the
 // strength of a sample that never tried to break it.
 const ANTI_FABRICATION = `Keep names, dates, times, numbers, hymn numbers, and scripture references exactly as spoken, never paraphrased and never rounded.
-Never invent a name, number, date, or detail that was not said. Return only the text, with no preamble.`;
+Never invent a name, number, date, or detail that was not said. Return only the text, with no preamble.
+When condensing multiple facts into one, favor keeping a scripture or verse reference, and what it
+actually says, over other detail.`;
 
 // Reverted 2026-08-09 to the wording tested and confirmed working earlier the same day, after a
 // same-day edit ("never name the speaker at all") misread Steve's intent and was never what he
@@ -85,6 +106,27 @@ const NAME_ATTACHMENT = `Keep facts attached to whoever they are about: if a nam
 name did it, not the speaker. Name a person only when a name was actually said and the point
 depends on it.`;
 
+// 2026-08-17: measured against 575 real cards, raw input runs 1-114 words (median 26, p75 42, p90
+// 54). Compressing a long raw chunk straight to a tight card target in one jump lost meaning --
+// reproduced live against OpenAI on a real scripture chunk ("1 Nephi 11:21... Behold the Lamb of
+// God" came back "The person felt something special in 1 Nephi 11:21.", the verse's actual content
+// gone). Telling the model to condense in two internal steps within the same call, rather than
+// jumping straight to the target, fixed it: verified against 5 real chunks (1 scripture-heavy, 4
+// ordinary) with no regression and no added cost (still one call). Gated on the raw text actually
+// being long enough for a jump that large to matter -- below the threshold there is nothing to lose
+// by going straight to target, and BRIEF's tight budget can be reached from ANY raw length (see
+// summary-level.js: brief is chosen by reading budget, not input length), so this applies there too.
+const TWO_STAGE_WORD_THRESHOLD = 30;
+const TWO_STAGE_INTERMEDIATE_WORDS = 27;
+const TWO_STAGE_COMPRESSION = `Work in two internal steps, but return only the final result. First,
+condense the Text below to about ${TWO_STAGE_INTERMEDIATE_WORDS} words, keeping names, numbers, and
+what any cited scripture or verse actually says. Then condense that down further to the target word
+count above. Return only that final result.`;
+
+function wordCount(text) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 export function buildMinimalSummarizePrompt({
   recentTranscript = '',
   mode = 'speaker',
@@ -93,6 +135,7 @@ export function buildMinimalSummarizePrompt({
 } = {}) {
   const text = String(recentTranscript).trim();
   const cardWords = Number.isFinite(maxWords) && maxWords > 0 ? Math.round(maxWords) : CARD_WORDS;
+  const twoStage = text && wordCount(text) > TWO_STAGE_WORD_THRESHOLD ? `\n\n${TWO_STAGE_COMPRESSION}` : '';
 
   // BRIEF: one card, third person, the single most important thing. Chosen when the reading budget
   // is too small for anything else -- see summary-level.js for the measurement behind that.
@@ -115,7 +158,7 @@ export function buildMinimalSummarizePrompt({
     return `
 ${READER}
 
-${SIMPLE_RULES(cardWords)}
+${SIMPLE_RULES(cardWords)}${twoStage}
 
 ${TRANSLATE}
 
@@ -123,8 +166,7 @@ ${subject}
 
 ${THIRD_PERSON}
 
-Do not spend words on who is talking. Never say "the speaker", "someone", or "a member". Lead with
-the thing itself.
+${NO_PLACEHOLDER_SUBJECT}
 
 ${NAME_ATTACHMENT}
 
@@ -161,7 +203,7 @@ ${text}
     return `
 ${READER}
 
-${SIMPLE_RULES(cardWords)}
+${SIMPLE_RULES(cardWords)}${twoStage}
 
 ${TRANSLATE}
 
@@ -185,11 +227,13 @@ ${text}
     return `
 ${READER}
 
-${SIMPLE_RULES(cardWords)}
+${SIMPLE_RULES(cardWords)}${twoStage}
 
 ${TRANSLATE}
 
 ${THIRD_PERSON}
+
+${NO_PLACEHOLDER_SUBJECT}
 
 ${NAME_ATTACHMENT}
 
@@ -215,7 +259,7 @@ ${text}
   return `
 ${READER}
 
-${SIMPLE_RULES(cardWords)}
+${SIMPLE_RULES(cardWords)}${twoStage}
 
 ${TRANSLATE}
 
@@ -224,6 +268,8 @@ ${THIRD_PERSON}
 Pull out the most important information. If more than one announcement fits naturally in that
 length, that is fine -- the point is one card, not exactly one fact. Lead with the thing itself
 ("Working bee Saturday"), never with a clause about it ("If you are able to help...").
+
+${NO_PLACEHOLDER_SUBJECT}
 
 ${NAME_ATTACHMENT}
 
@@ -324,8 +370,13 @@ export function buildMinimalSummarizeMessages({
     contextLines.push(`Said: "${spoken}" / Shown: "${shown}"`);
   }
 
+  // 2026-08-17: strengthened after a real Thai-language segment (no named speaker) where the model
+  // got stuck restating/looping on a phrase from prior output before eventually recovering. This
+  // clause was already unconditional on speaker-naming (it only ever gated on contextLines.length,
+  // never on whether a name appeared), so the fix is wording it as a hard constraint rather than a
+  // note, not broadening when it applies.
   const system = contextLines.length
-    ? `${rules}\n\nFor context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, they are already on screen:\n${contextLines.join('\n')}`
+    ? `${rules}\n\nHard constraint, for context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, in whole or in part, for any reason, they are already on screen:\n${contextLines.join('\n')}\n\nHard constraint: summarize only the Text below. Never add a name, title, fact, or detail to the summary because it appeared in the context above -- if the Text does not say it, leave it out, even if the context does.`
     : rules;
 
   return [{ role: 'system', content: system }, { role: 'user', content: text }];

@@ -1791,6 +1791,12 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.songAutoPaused = true;
       void pauseAi();
       message = 'Song mode. Microphone paused -- type the hymn.';
+      // #3: entering song mode used to go silent on the card display itself -- the reader has no
+      // audio and no line-of-sight to the operator, so silence reads as "the app broke," not "music
+      // is playing." Reuses the same manual-line path an operator's own typed text goes through
+      // (source: 'manual'), so it renders through the ordinary song-mode card, not a separate
+      // display path -- see createTranscriptCard's isManualSong handling in view.js.
+      addLine('Music is playing.', { source: 'manual', mode: 'song', speaker: '' });
     } else if (leavingAutoPausedSong) {
       ctx.state.songAutoPaused = false;
       void resumeAi();

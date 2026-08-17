@@ -250,8 +250,33 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   transform: scale(0.992);
 }
 
+/*
+ * Speaker is the most-used mode in a real meeting (testimony), and rgba(255,255,255,0.28) against
+ * the card's own near-white border/gradient read as no accent at all -- the bug this fixes. Coral
+ * (a warm red-orange) is picked deliberately against the other four hues already in the palette:
+ * information is cool blue, song is cool teal, prayer is warm gold/yellow, manual is a pale
+ * blue-lavender near-neutral -- none of them land in red/orange, so coral can't be confused with
+ * any of them even at a glance. Alpha 0.78 matches prayer's, the other "strong" accent, so speaker
+ * reads with the same visibility as the rest instead of standing out as newly loud.
+ */
 .transcript-item--speaker {
-  --card-accent: rgba(255, 255, 255, 0.28);
+  --card-accent: rgba(255, 138, 105, 0.78);
+}
+
+/* Exploratory (#4): a lighter tint of the same coral, only ever applied to alternating cards
+ * within an uninterrupted run of Speaker-mode cards whose speaker name changed -- see
+ * SPEAKER_ALTERNATION_ENABLED in view.js. Revert by flipping that flag; this rule stays inert. */
+.transcript-item--speaker-alt {
+  --card-accent: rgba(255, 178, 158, 0.78);
+}
+
+/* #1: marks the first card after an operator mode change (Speaker/Info/Song/Prayer). A plain
+ * border-top + extra top margin on the card itself -- no new pseudo-element, so it isn't clipped
+ * by the card's own overflow:hidden -- reading as a break in the existing card language rather
+ * than a new one. */
+.transcript-item--mode-boundary {
+  margin-top: 1.75rem;
+  border-top: 2px solid rgba(255, 255, 255, 0.32);
 }
 
 .transcript-item--information {

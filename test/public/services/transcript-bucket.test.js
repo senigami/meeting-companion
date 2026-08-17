@@ -99,6 +99,18 @@ test('isPassthroughEligible rejects a non-finite budget', () => {
   assert.equal(isPassthroughEligible('Amen.', NaN), false);
 });
 
+test('isPassthroughEligible rejects a short punctuated Thai sentence', () => {
+  assert.equal(isPassthroughEligible('ฉันรู้ว่านี่เป็นความจริง.', 10), false);
+});
+
+test('isPassthroughEligible rejects a short punctuated Chinese sentence', () => {
+  assert.equal(isPassthroughEligible('我知道这是真的.', 10), false);
+});
+
+test('isPassthroughEligible still accepts Latin-script text with accents', () => {
+  assert.equal(isPassthroughEligible('Café is open.', 10), true);
+});
+
 test('only the complete leading sentences of the newest chunk are consumable', () => {
   const chunks = [{ text: 'We sang hymn 152. And then the bishop', at: NOW - 1000 }];
   const { consumable, remainder } = partitionBucket(chunks, { now: NOW });
