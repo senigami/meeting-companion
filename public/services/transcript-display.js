@@ -116,7 +116,10 @@ export function createTranscriptItems({
   // Display-only (issue #40): who was speaking when this card's text was captured. Never fed to
   // any summarization prompt -- see runtime.js's addLine callers for where this is captured at
   // creation time, not read from current state when a paced AI card is finally released.
-  speaker = ''
+  speaker = '',
+  // Operator-authored program-header card (Program tab send button): renders as icon + mode label
+  // + text only, no speaker/time -- see createTranscriptCard's isHeader branch in view.js.
+  isHeader = false
 } = {}) {
   // One model response is one card: an AI line is never sentence-split, only guarded against a
   // runaway length (see segmentAiResponseText above). Raw/manually-typed text still goes through
@@ -133,7 +136,8 @@ export function createTranscriptItems({
     text: segment,
     createdAt,
     source,
-    speaker: cleanSpeaker
+    speaker: cleanSpeaker,
+    ...(isHeader ? { isHeader: true } : {})
   }));
 }
 

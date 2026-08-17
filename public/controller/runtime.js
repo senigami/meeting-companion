@@ -54,7 +54,9 @@ import {
   syncViewerControls,
   setDisplayMarginGuidesVisible,
   updateSummaryIntervalControl,
-  updateSummaryMaxWordsControl
+  updateSummaryMaxWordsControl,
+  renderProgramPanel,
+  updateSpeakerDatalist
 } from './view.js';
 import {
   BUCKET_SETTLE_MS,
@@ -342,7 +344,7 @@ export function createRuntime(ctx, deps = {}) {
     return since >= ARRIVAL_SUMMARIZE_MIN_GAP_MS;
   }
 
-  function addLine(line, { source = 'manual', mode = ctx.state.mode, speaker = ctx.state.speakerName, paced = false } = {}) {
+  function addLine(line, { source = 'manual', mode = ctx.state.mode, speaker = ctx.state.speakerName, paced = false, isHeader = false } = {}) {
     // Normalized PER LINE, not across the whole string. normalizeText collapses /\s+/ to a single
     // space, which includes the newlines the server uses to separate cards -- so running it over
     // the whole reply flattened a multi-card result into one card before createTranscriptItems
@@ -359,7 +361,8 @@ export function createRuntime(ctx, deps = {}) {
       text: clean,
       mode,
       source,
-      speaker
+      speaker,
+      isHeader
     });
     if (!nextItems.length) return false;
     // Queued even for a single card when cards are already waiting, or a later result would
@@ -1785,6 +1788,9 @@ export function createRuntime(ctx, deps = {}) {
       transcriptionDriver.setMode(mode);
     }
     updateModeButtons(ctx);
+    // The program-tab datalist filters by the ACTIVE mode (Steve's spec: generic across all four),
+    // so a mode switch has to refresh it even when the program list itself hasn't changed.
+    updateSpeakerDatalist(ctx);
 
     let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
     if (enteringSong && ctx.state.listening && !ctx.state.paused) {
@@ -1820,6 +1826,37 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.dom.speakerNameInput && ctx.dom.speakerNameInput.value !== ctx.state.speakerName) {
       ctx.dom.speakerNameInput.value = ctx.state.speakerName;
     }
+  }
+
+  // Per-meeting program list (Steve's ruling: typed fresh each meeting, never persisted -- unlike
+  // audioDeviceId/transcriptionSource in the STORAGE map above). Add/remove are structural changes,
+  // so they rebuild the settings-tab rows; editing a row's own name is NOT re-rendered here (only
+  // the datalist is refreshed) so an operator mid-keystroke never has their own input torn down and
+  // rebuilt out from under their cursor.
+  function addProgramEntry() {
+    ctx.state.program = [...(ctx.state.program || []), { name: '', mode: 'speaker' }];
+    renderProgramPanel(ctx);
+    updateSpeakerDatalist(ctx);
+  }
+
+  function updateProgramEntry(index, patch) {
+    ctx.state.program = (ctx.state.program || []).map((entry, i) => (i === index ? { ...entry, ...patch } : entry));
+    updateSpeakerDatalist(ctx);
+  }
+
+  function removeProgramEntry(index) {
+    ctx.state.program = (ctx.state.program || []).filter((_, i) => i !== index);
+    renderProgramPanel(ctx);
+    updateSpeakerDatalist(ctx);
+  }
+
+  // Program-tab send button: pushes the speaker-name input's current text to the display as a
+  // header card (icon + mode label + text only, see createTranscriptCard's isHeader branch) in the
+  // ACTIVE mode -- same addLine/commitItems pipeline "Show now" and "Music is playing" use, not the
+  // summarizer. Deliberately does not clear the input or touch ctx.state.speakerName: that field is
+  // still the ordinary speaker nameplate for cards that follow.
+  function sendHeaderLine(text) {
+    return addLine(text, { source: 'manual', mode: ctx.state.mode, speaker: '', isHeader: true });
   }
 
   function setFontSize(nextSize) {
@@ -2514,6 +2551,10 @@ export function createRuntime(ctx, deps = {}) {
     setFontSize,
     setMode,
     setSpeakerName,
+    addProgramEntry,
+    updateProgramEntry,
+    removeProgramEntry,
+    sendHeaderLine,
     setPanelOpen: (open, options) => {
       if (!open) stopAudioLevelTest();
       else refreshMicReadiness();

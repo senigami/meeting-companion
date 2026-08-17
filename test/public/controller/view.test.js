@@ -388,6 +388,71 @@ test('renderDisplay alternates the speaker-alt accent within a run of same-mode 
   assert.equal(five.className.includes('transcript-item--speaker-alt'), false);
 });
 
+test('a header card (program-tab send button) renders only the icon, mode label, and text -- no speaker row, no timestamp', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        {
+          id: 'header-one',
+          mode: 'information',
+          text: 'Announcements',
+          createdAt: 5,
+          source: 'manual',
+          speaker: 'Announcements',
+          isHeader: true
+        }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const card = transcriptStack.children[0];
+  const meta = card.children[0];
+  const body = card.children[1];
+
+  assert.equal(card.className.includes('transcript-item--header'), true);
+  assert.equal(card.className.includes('transcript-item--information'), true, 'still carries its mode accent');
+  assert.equal(meta.children[0].className, 'transcript-icon icon-information');
+  assert.equal(meta.children[1].textContent, 'Information');
+  assert.equal(meta.children.length, 2, 'no speaker row, no timestamp -- icon and mode label only');
+  assert.equal(body.className, 'transcript-header-text', 'not the flowing-prose transcript-text class');
+  assert.equal(body.textContent, 'Announcements');
+});
+
+test('a mode-boundary divider fires correctly around a header card: into it and out of it', () => {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+
+  const ctx = {
+    state: {
+      transcriptItems: [
+        { id: 'one', mode: 'speaker', text: 'a', createdAt: 1, source: 'ai' },
+        { id: 'header', mode: 'information', text: 'Announcements', createdAt: 2, source: 'manual', isHeader: true },
+        { id: 'three', mode: 'prayer', text: 'c', createdAt: 3, source: 'ai' }
+      ],
+      stickToBottom: true,
+      prefersReducedMotion: true
+    },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  renderDisplay(ctx);
+
+  const [first, header, third] = transcriptStack.children;
+  assert.equal(first.className.includes('transcript-item--mode-boundary'), false);
+  assert.equal(header.className.includes('transcript-item--mode-boundary'), true,
+    'the header card itself differs in mode from what came before it');
+  assert.equal(third.className.includes('transcript-item--mode-boundary'), true,
+    'the card right after a header card in a different mode is also marked');
+});
+
 // Issue #40: a speaker label reads as extra load for someone who reads roughly one word every two
 // seconds, so it must appear ONLY on the card where the speaker actually changed -- never repeated
 // on every card that follows, and never invented as "Unknown" when the operator left it blank.

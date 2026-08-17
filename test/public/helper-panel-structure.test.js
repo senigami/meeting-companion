@@ -114,8 +114,8 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(settings, /class=(?:"[^"]*\bsettingsBody\b[^"]*"|'[^']*\bsettingsBody\b[^']*')/, '.settingsBody');
   assertContains(settings, /class=(?:"[^"]*\bsettingsNav\b[^"]*"|'[^']*\bsettingsNav\b[^']*')/, '.settingsNav');
   assertContains(settings, /class=(?:"[^"]*\bsettingsDetail\b[^"]*"|'[^']*\bsettingsDetail\b[^']*')/, '.settingsDetail');
-  assert.equal(countMatches(settings, /data-settings-nav=/g), 6, 'six settings nav items');
-  assert.equal(countMatches(settings, /data-settings-section=/g), 6, 'six settings detail sections');
+  assert.equal(countMatches(settings, /data-settings-nav=/g), 7, 'seven settings nav items');
+  assert.equal(countMatches(settings, /data-settings-section=/g), 7, 'seven settings detail sections');
   assertContains(settings, /id=(?:"summaryInterval"|'summaryInterval')/, '#summaryInterval');
   assertContains(settings, /id=(?:"status"|'status')/, '#status');
   assertContains(settings, /id=(?:"liveTranscript"|'liveTranscript')/, '#liveTranscript');
@@ -135,6 +135,13 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assert.ok(alertsMatch, 'Alerts card is missing');
   const alerts = alertsMatch[0];
   assertContains(alerts, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
+
+  const programMatch = settings.match(/<section\b[^>]*class=(?:"[^"]*\bprogramCard\b[^"]*"|'[^']*\bprogramCard\b[^']*')[^>]*[\s\S]*?<\/section>/i);
+  assert.ok(programMatch, 'Program card is missing');
+  const program = programMatch[0];
+  assertContains(program, /data-settings-section=(?:"program"|'program')/, 'program section marker');
+  assertContains(program, /id=(?:"programList"|'programList')/, '#programList');
+  assertContains(program, /id=(?:"programAddRow"|'programAddRow')/, '#programAddRow');
 
   const providerSections = countMatches(settings, /class=(?:"[^"]*\bproviderCard\b[^"]*"|'[^']*\bproviderCard\b[^']*')/g);
   assert.ok(providerSections >= 2, 'source sections should stay visible');

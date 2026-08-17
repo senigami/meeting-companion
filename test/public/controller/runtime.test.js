@@ -4541,3 +4541,69 @@ test('#120: a passthrough-eligible run that duplicates a visible card still fall
     assert.deepEqual(seen, ['Amen.'], 'a duplicate of a visible card must reach the existing dedupe path, not bypass it');
   });
 });
+
+test('sendHeaderLine pushes a header card in the active mode, and never touches the speaker-name field', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { mode: 'information', speakerName: 'Bro. Ashcroft' }
+  }, async ({ ctx, runtime }) => {
+    const sent = runtime.sendHeaderLine('Announcements');
+
+    assert.equal(sent, true);
+    assert.equal(ctx.state.transcriptItems.length, 1);
+    const card = ctx.state.transcriptItems[0];
+    assert.equal(card.text, 'Announcements');
+    assert.equal(card.mode, 'information');
+    assert.equal(card.source, 'manual', 'operator-authored, not attributed to the AI');
+    assert.equal(card.isHeader, true);
+    assert.equal(ctx.state.speakerName, 'Bro. Ashcroft', 'the send button must not clobber the ordinary speaker nameplate');
+  });
+});
+
+test('sendHeaderLine with blank text does nothing, same as any other empty manual line', async () => {
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    const sent = runtime.sendHeaderLine('   ');
+    assert.equal(sent, false);
+    assert.equal(ctx.state.transcriptItems.length, 0);
+  });
+});
+
+test('the program list is added to, edited, and removed from without touching localStorage (per-meeting only)', async () => {
+  await withRuntimeHarness({}, async ({ ctx, runtime }) => {
+    runtime.addProgramEntry();
+    assert.deepEqual(ctx.state.program, [{ name: '', mode: 'speaker' }]);
+
+    runtime.updateProgramEntry(0, { name: 'Opening hymn', mode: 'song' });
+    assert.deepEqual(ctx.state.program, [{ name: 'Opening hymn', mode: 'song' }]);
+
+    runtime.addProgramEntry();
+    assert.equal(ctx.state.program.length, 2);
+
+    runtime.removeProgramEntry(0);
+    assert.deepEqual(ctx.state.program, [{ name: '', mode: 'speaker' }]);
+  });
+});
+
+test('a mode change refreshes the speaker-name datalist to only the program entries in the new active mode', async () => {
+  const speakerNameDatalist = createElement();
+  const optionsSeen = [];
+  speakerNameDatalist.replaceChildren = (...options) => { optionsSeen.push(options.map((o) => o.value)); };
+
+  const driver = { id: 'browser', label: 'Browser', setMode() {} };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    elementOverrides: { speakerNameDatalist },
+    stateOverrides: {
+      mode: 'speaker',
+      program: [
+        { name: 'Opening hymn', mode: 'song' },
+        { name: 'Bro. Ashcroft', mode: 'speaker' }
+      ]
+    }
+  }, async ({ runtime }) => {
+    await runtime.setMode('song');
+
+    const lastOptions = optionsSeen.at(-1);
+    assert.deepEqual(lastOptions, ['Opening hymn']);
+  });
+});

@@ -18,13 +18,23 @@ const MANUAL_META = {
   icon: 'icon-human'
 };
 
+// Program-tab mode picker and speaker-name datalist filtering (per-meeting program list, issue TBD):
+// short labels distinct from MODE_META's card labels ("Info" not "Information") -- Steve's spec for
+// the settings tab names these exact four words.
+const PROGRAM_MODE_OPTIONS = [
+  { value: 'speaker', label: 'Speaker' },
+  { value: 'information', label: 'Info' },
+  { value: 'song', label: 'Song' },
+  { value: 'prayer', label: 'Prayer' }
+];
+
 // Exploratory (#4, Steve unsure this earns its keep): flip to false to revert same-mode
 // speaker-change alternation with no other code change -- see renderDisplay/createTranscriptCard.
 const SPEAKER_ALTERNATION_ENABLED = true;
 
 const TRANSCRIPT_SCROLL_DURATION_MS = 1000;
 
-const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'tools'];
+const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'program', 'tools'];
 const DEFAULT_SETTINGS_SECTION = 'timing';
 
 const RAIL_STATUS_WORDS = {
@@ -870,22 +880,113 @@ function renderReadyCheckRow(dot, fixNode, ready, { fix } = {}) {
   }
 }
 
+// Per-meeting program list (Steve's spec, 2026-08-17): typed fresh each meeting, no persistence --
+// see ctx.state.program in start-app.js. This module only renders rows from state; start-app.js
+// owns the delegated listeners (add/remove/edit), same split as the transcript-delete button below.
+export function renderProgramPanel(ctx) {
+  const container = ctx.dom.programList;
+  if (!container) return;
+  const entries = Array.isArray(ctx.state.program) ? ctx.state.program : [];
+  const rows = entries.map((entry, index) => buildProgramRow(entry, index));
+  if (typeof container.replaceChildren === 'function') {
+    container.replaceChildren(...rows);
+  } else {
+    container.children = rows;
+  }
+}
+
+function buildProgramRow(entry, index) {
+  const row = createNode('div');
+  row.className = 'programRow';
+  setDataAttribute(row, 'programIndex', index);
+
+  const nameInput = createNode('input');
+  nameInput.type = 'text';
+  nameInput.className = 'programRowName';
+  nameInput.value = entry.name || '';
+  nameInput.placeholder = 'Name';
+  if (typeof nameInput.setAttribute === 'function') {
+    nameInput.setAttribute('aria-label', 'Program entry name');
+  }
+
+  const modeSelect = createNode('select');
+  modeSelect.className = 'programRowMode';
+  if (typeof modeSelect.setAttribute === 'function') {
+    modeSelect.setAttribute('aria-label', 'Program entry mode');
+  }
+  const options = PROGRAM_MODE_OPTIONS.map((opt) => {
+    const option = createNode('option');
+    option.value = opt.value;
+    option.textContent = opt.label;
+    if (opt.value === entry.mode && typeof option.setAttribute === 'function') {
+      option.setAttribute('selected', '');
+    }
+    option.selected = opt.value === entry.mode;
+    return option;
+  });
+  if (typeof modeSelect.append === 'function') {
+    modeSelect.append(...options);
+  } else {
+    modeSelect.children = options;
+  }
+  modeSelect.value = entry.mode || 'speaker';
+
+  const removeBtn = createNode('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'programRowRemove';
+  removeBtn.textContent = 'Remove';
+  if (typeof removeBtn.setAttribute === 'function') {
+    removeBtn.setAttribute('aria-label', 'Remove program entry');
+  }
+
+  row.append(nameInput, modeSelect, removeBtn);
+  return row;
+}
+
+// Filtered by the CURRENT mode (Steve: generic across all four, no special-casing Info) -- refreshed
+// on every mode change and every program-list edit, never persisted alongside it. Native <datalist>
+// prefill only; selecting an option never sends anything on its own.
+export function updateSpeakerDatalist(ctx) {
+  const datalist = ctx.dom.speakerNameDatalist;
+  if (!datalist) return;
+  const entries = Array.isArray(ctx.state.program) ? ctx.state.program : [];
+  const options = entries
+    .filter((entry) => entry && entry.mode === ctx.state.mode && entry.name)
+    .map((entry) => {
+      const option = createNode('option');
+      option.value = entry.name;
+      return option;
+    });
+  if (typeof datalist.replaceChildren === 'function') {
+    datalist.replaceChildren(...options);
+  } else {
+    datalist.children = options;
+  }
+}
+
 function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', isModeBoundary = false, isSpeakerAlt = false } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
+  // Operator-authored header card (program-tab send button): icon + mode label + the text, and
+  // NOTHING else -- no timestamp, no speaker-name row, no flowing-prose body styling. Pushed through
+  // the same addLine/commitItems pipeline as any other manual card, distinguished only by this flag.
+  const isHeader = Boolean(item.isHeader);
   // Song is the one mode meant to be typed, not heard (see runtime.js#setMode) -- a hand-typed hymn
   // line should read as a song card, not fall back to the generic "Manual" badge every other
   // hand-typed mode gets to signal "a human wrote this, not the AI."
   const isManualSong = isManual && item.mode === 'song';
-  const visualMode = isManual && !isManualSong ? 'manual' : item.mode || 'speaker';
-  const modeMeta = isManual && !isManualSong ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
+  // A header card always shows its OWN mode (Speaker/Info/Song/Prayer), same reasoning as
+  // isManualSong above -- it is the operator naming what's coming next, not a generic "Manual" note.
+  const isManualException = isManualSong || isHeader;
+  const visualMode = isManual && !isManualException ? 'manual' : item.mode || 'speaker';
+  const modeMeta = isManual && !isManualException ? MANUAL_META : MODE_META[item.mode] || MODE_META.speaker;
   const article = createNode('article');
   article.className = `transcript-item transcript-item--${visualMode}`
-    // isManualSong is excluded here too -- it already gets transcript-item--song from visualMode
-    // above, and adding --manual as well let its --card-accent win on source order (layout.css
-    // defines .transcript-item--manual after .transcript-item--song), silently overriding the
-    // song accent color the comment above says this card should have.
-    + `${isManual && !isManualSong ? ' transcript-item--manual' : ''}`
+    // isManualException is excluded here too -- it already gets transcript-item--<mode> from
+    // visualMode above, and adding --manual as well let its --card-accent win on source order
+    // (layout.css defines .transcript-item--manual after the mode classes), silently overriding the
+    // mode accent color the comment above says this card should have.
+    + `${isManual && !isManualException ? ' transcript-item--manual' : ''}`
     + `${isSample ? ' transcript-item--sample' : ''}`
     // Issue: a mode change (operator clicks Speaker/Info/Song/Prayer) had no visual break at all
     // between cards other than each card's own accent-bar color -- a reader scanning past the
@@ -894,7 +995,8 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
     // Exploratory (Steve unsure, easy to revert -- see SPEAKER_ALTERNATION_ENABLED in renderDisplay):
     // same-mode speaker change within Speaker mode alone had no visual marker either, so consecutive
     // speaker cards alternate between two accent shades whenever item.speaker changes.
-    + `${isSpeakerAlt ? ' transcript-item--speaker-alt' : ''}`;
+    + `${isSpeakerAlt ? ' transcript-item--speaker-alt' : ''}`
+    + `${isHeader ? ' transcript-item--header' : ''}`;
   setDataAttribute(article, 'mode', visualMode);
   setDataAttribute(article, 'source', item.source || 'ai');
   setDataAttribute(article, 'active', String(active));
@@ -927,14 +1029,15 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   // -- a display attribute, not something the summarizer's text passed through. Only present at
   // all when this card is where the speaker changed (showSpeaker), computed by the caller so this
   // function stays a pure per-item renderer with no knowledge of what came before it.
-  if (showSpeaker && speaker) {
+  // A header card gets neither of these: icon + mode label + text and nothing else, per spec.
+  if (!isHeader && showSpeaker && speaker) {
     const speakerLabel = createNode('span');
     speakerLabel.className = 'transcript-speaker';
     speakerLabel.textContent = speaker;
     meta.append(speakerLabel);
   }
 
-  if (item.createdAt) {
+  if (!isHeader && item.createdAt) {
     const time = createNode('time');
     time.className = 'transcript-time';
     time.dateTime = new Date(item.createdAt).toISOString();
@@ -950,7 +1053,7 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   }
 
   const body = createNode('p');
-  body.className = 'transcript-text';
+  body.className = isHeader ? 'transcript-header-text' : 'transcript-text';
   body.textContent = item.text || '';
 
   article.append(meta, body);

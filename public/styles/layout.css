@@ -279,6 +279,15 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   border-top: 2px solid rgba(255, 255, 255, 0.32);
 }
 
+/* .transcript-item[data-active="true"] above sets border-color (all four sides) as a compound
+ * selector, which outranks the single-class rule above on specificity alone regardless of source
+ * order -- so the newest card, exactly the one on screen right when a mode change happens, was
+ * silently losing its divider color back to the faint active-card default. Matching specificity
+ * here is what makes the boundary color win on the card that matters most. */
+.transcript-item[data-active="true"].transcript-item--mode-boundary {
+  border-top-color: rgba(255, 255, 255, 0.32);
+}
+
 .transcript-item--information {
   --card-accent: rgba(120, 183, 255, 0.75);
 }
@@ -459,6 +468,18 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .transcript-item:not(:last-child) .transcript-text {
   opacity: 0.94;
+}
+
+/* Program-tab send button (Steve's spec): icon + mode label + the entered text, and NOTHING else --
+   deliberately plainer than .transcript-text, which is styled as flowing summary prose (balanced
+   wrap, tight tracking, drop shadow). A header card is a plain label, not a sentence to read. */
+.transcript-header-text {
+  margin: 0;
+  font-size: var(--font-size);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text);
 }
 
 html.is-rail-collapsed .meetingShell,

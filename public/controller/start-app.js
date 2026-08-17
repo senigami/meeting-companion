@@ -29,7 +29,9 @@ import {
   syncViewerControls,
   updateModeButtons,
   updatePauseButton,
-  updateSourceButtons
+  updateSourceButtons,
+  renderProgramPanel,
+  updateSpeakerDatalist
 } from './view.js';
 import { createRuntime } from './runtime.js';
 import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
@@ -87,6 +89,9 @@ export function startApp() {
       // label, never "Unknown" -- and deliberately never persisted: it names whoever is speaking
       // right now, not a setting to carry into the next meeting.
       speakerName: '',
+      // Per-meeting program list (Steve's explicit call): typed fresh each meeting, never persisted
+      // to localStorage like audioDeviceId/transcriptionSource above -- resets on reload.
+      program: [],
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
@@ -287,6 +292,10 @@ export function startApp() {
       replaySpeedSelect: $('replaySpeedSelect'),
       modeButtons: Array.from(document.querySelectorAll('.mode')),
       speakerNameInput: $('speakerNameInput'),
+      speakerNameDatalist: $('speakerNameDatalist'),
+      speakerHeaderSend: $('speakerHeaderSend'),
+      programList: $('programList'),
+      programAddRow: $('programAddRow'),
       transcriptionButtons: Array.from(document.querySelectorAll('[data-kind="transcription"]')),
       summarizationButtons: Array.from(document.querySelectorAll('[data-kind="summarization"]')),
       settingsNavButtons: Array.from(document.querySelectorAll('[data-settings-nav]')),
@@ -309,6 +318,7 @@ export function startApp() {
     bindQuickPanelSheet(ctx);
     bindTranscriptResize(ctx);
     bindModeAndSourceButtons(ctx, runtime);
+    bindProgramPanel(ctx, runtime);
     bindServiceRegistrationControls(ctx, runtime);
     bindSettingsNav(ctx);
     bindReadyCheck(ctx, runtime);
@@ -319,6 +329,8 @@ export function startApp() {
   updateModeButtons(ctx);
   updateSourceButtons(ctx);
   updatePauseButton(ctx);
+  renderProgramPanel(ctx);
+  updateSpeakerDatalist(ctx);
   syncViewerControls(ctx);
   runtime.saveViewerSettings();
   setSettingsOpen(ctx, false);
@@ -545,8 +557,47 @@ function bindModeAndSourceButtons(ctx, runtime) {
   ctx.dom.speakerNameInput?.addEventListener('input', (event) => {
     runtime.setSpeakerName(event.target.value);
   });
+  // Send/arrow button next to the speaker-name input: pushes its current text to the display as a
+  // header card in the active mode. Never clears the field -- see runtime.js#sendHeaderLine.
+  ctx.dom.speakerHeaderSend?.addEventListener('click', () => {
+    if (!runtime.sendHeaderLine(ctx.dom.speakerNameInput?.value)) return;
+  });
   ctx.dom.transcriptionButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
   ctx.dom.summarizationButtons.forEach((btn) => btn.addEventListener('click', () => handleSourceSelection(ctx, runtime, btn)));
+}
+
+// Program tab (settings): a simple list editor synced into ctx.state.program. Add/remove are
+// structural (rebuild the rows via renderProgramPanel); editing a row's own name/mode is NOT
+// re-rendered, so the operator's own keystroke/focus in that row survives the state update -- see
+// runtime.js#updateProgramEntry. One delegated listener each, same idiom as the transcript-delete
+// button (cards/rows are rebuilt wholesale, so per-row listeners would be thrown away constantly).
+function bindProgramPanel(ctx, runtime) {
+  ctx.dom.programAddRow?.addEventListener('click', () => runtime.addProgramEntry());
+
+  ctx.dom.programList?.addEventListener('input', (event) => {
+    if (!event.target.matches?.('.programRowName')) return;
+    const row = event.target.closest('[data-program-index]');
+    const index = Number(row?.dataset?.programIndex);
+    if (!Number.isInteger(index)) return;
+    runtime.updateProgramEntry(index, { name: event.target.value });
+  });
+
+  ctx.dom.programList?.addEventListener('change', (event) => {
+    if (!event.target.matches?.('.programRowMode')) return;
+    const row = event.target.closest('[data-program-index]');
+    const index = Number(row?.dataset?.programIndex);
+    if (!Number.isInteger(index)) return;
+    runtime.updateProgramEntry(index, { mode: event.target.value });
+  });
+
+  ctx.dom.programList?.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest?.('.programRowRemove');
+    if (!removeBtn) return;
+    const row = removeBtn.closest('[data-program-index]');
+    const index = Number(row?.dataset?.programIndex);
+    if (!Number.isInteger(index)) return;
+    runtime.removeProgramEntry(index);
+  });
 }
 
 function bindSettingsNav(ctx) {
