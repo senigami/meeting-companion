@@ -1791,6 +1791,12 @@ export function createRuntime(ctx, deps = {}) {
     // The program-tab datalist filters by the ACTIVE mode (Steve's spec: generic across all four),
     // so a mode switch has to refresh it even when the program list itself hasn't changed.
     updateSpeakerDatalist(ctx);
+    // The mode-change divider used to wait for the first card actually landing in the new mode --
+    // sometimes a real wait, if the operator switches ahead of the speaker starting. Steve, live: he
+    // wants the line the moment he clicks, not on first item push. renderDisplay computes a pending
+    // divider off ctx.state.mode alone when it differs from the last real card's mode, so calling it
+    // here (ctx.state.mode is already updated above) is what makes that immediate.
+    renderDisplay(ctx);
 
     let message = changed ? `Mode changed to ${mode}. Starting fresh.` : `Starting fresh in ${mode} mode.`;
     if (enteringSong && ctx.state.listening && !ctx.state.paused) {

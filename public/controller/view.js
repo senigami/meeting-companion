@@ -229,6 +229,24 @@ export function flashRailNote(ctx, text, { setTimeoutFn = setTimeout, clearTimeo
 export function renderDisplay(ctx) {
   if (!ctx.dom.transcriptStack || !ctx.dom.transcriptViewport) return;
 
+  // A mode click (Speaker/Info/Song/Prayer) used to change nothing on screen until content actually
+  // arrived in the new mode -- sometimes not for a while, if the operator switched ahead of the
+  // speaker actually starting. Steve, live: "I would like the glowing line to appear as soon as I
+  // change modes, not on first item push." This pending marker is not a real card and carries no
+  // item id, so it is stripped before the id-based diff below runs, then re-added after if it is
+  // still owed -- it must never be mistaken for "the previous last card" by that diff.
+  const existingChildren = ctx.dom.transcriptStack.children;
+  const previousTrailingNode = existingChildren && existingChildren.length
+    ? existingChildren[existingChildren.length - 1]
+    : null;
+  if (previousTrailingNode?.className?.includes?.('transcript-mode-divider--pending')) {
+    if (typeof previousTrailingNode.remove === 'function') {
+      previousTrailingNode.remove();
+    } else if (Array.isArray(ctx.dom.transcriptStack.children)) {
+      ctx.dom.transcriptStack.children.pop();
+    }
+  }
+
   const items = Array.isArray(ctx.state.transcriptItems) ? ctx.state.transcriptItems : [];
   const renderItems = items.length
     ? items
@@ -316,6 +334,20 @@ export function renderDisplay(ctx) {
     ctx.dom.transcriptStack.children = [...newNodes];
   }
   ctx.state.transcriptRenderedIds = renderIds;
+
+  // Only against a REAL last item, never the synthetic sample-text placeholder (items, not
+  // renderItems) -- nothing to separate a mode click from yet if the meeting hasn't produced a
+  // single real card, and the settings-preview placeholder isn't content to draw a boundary against.
+  const lastRealItem = items.length ? items[items.length - 1] : null;
+  if (lastRealItem && ctx.state.mode && lastRealItem.mode !== ctx.state.mode) {
+    const pendingDivider = createModeDividerNode(ctx.state.mode);
+    pendingDivider.className += ' transcript-mode-divider--pending';
+    if (typeof ctx.dom.transcriptStack.append === 'function') {
+      ctx.dom.transcriptStack.append(pendingDivider);
+    } else if (Array.isArray(ctx.dom.transcriptStack.children)) {
+      ctx.dom.transcriptStack.children.push(pendingDivider);
+    }
+  }
 
   if (shouldStick) {
     scrollTranscriptToBottom(ctx, { reducedMotion });
