@@ -55,8 +55,15 @@ ${WORD_SELECTIVITY}`;
 // and now also guarded against on the display side (isRefusalLine, summary-prompt.js). This is the
 // other half of that fix: telling the model what TO do with non-English speech, not just catching it
 // when it declines to.
-const TRANSLATE = `If the speaker is not speaking in English, translate the meaning into English --
-never refuse to summarize non-English speech, and never leave foreign words untranslated.`;
+//
+// 2026-08-17: strengthened to an absolute, standalone rule after a real Thai-language segment that
+// arrived as two blocks -- the second block translated correctly, the first came through untranslated.
+// Sitting as one clause among several apparently let the model comply inconsistently across blocks;
+// stating it as its own unconditional sentence is the fix.
+const TRANSLATE = `You must respond only in English. Under no circumstances output any non-English
+words, in any part of your response, for any block of input. If the speaker is not speaking in
+English, translate the meaning into English -- never refuse to summarize non-English speech, and
+never leave foreign words untranslated.`;
 
 const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
 
@@ -324,8 +331,13 @@ export function buildMinimalSummarizeMessages({
     contextLines.push(`Said: "${spoken}" / Shown: "${shown}"`);
   }
 
+  // 2026-08-17: strengthened after a real Thai-language segment (no named speaker) where the model
+  // got stuck restating/looping on a phrase from prior output before eventually recovering. This
+  // clause was already unconditional on speaker-naming (it only ever gated on contextLines.length,
+  // never on whether a name appeared), so the fix is wording it as a hard constraint rather than a
+  // note, not broadening when it applies.
   const system = contextLines.length
-    ? `${rules}\n\nFor context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, they are already on screen:\n${contextLines.join('\n')}`
+    ? `${rules}\n\nHard constraint, for context only, so you know who has been talking and what has already been shown -- do not repeat or imitate the wording of these, in whole or in part, for any reason, they are already on screen:\n${contextLines.join('\n')}\n\nHard constraint: summarize only the Text below. Never add a name, title, fact, or detail to the summary because it appeared in the context above -- if the Text does not say it, leave it out, even if the context does.`
     : rules;
 
   return [{ role: 'system', content: system }, { role: 'user', content: text }];

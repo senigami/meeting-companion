@@ -43,6 +43,18 @@ export function isSingleSentence(text) {
   return !/[.!?…]/.test(withoutTrailer);
 }
 
+// Passthrough means "already exactly what should be shown", which is only true for text that needs
+// no translation -- the summarizer's English-translation instruction lives in its own system prompt
+// (summary-prompt-minimal.js) and passthrough skips that call entirely. Any letter outside Latin/
+// Latin-Extended script is treated as non-English and disqualifies the run from passthrough.
+const NON_LATIN_LETTER = /\p{Letter}/u;
+function hasNonLatinLetter(text) {
+  for (const ch of text) {
+    if (NON_LATIN_LETTER.test(ch) && !/\p{Script=Latin}/u.test(ch)) return true;
+  }
+  return false;
+}
+
 // A run is eligible for verbatim passthrough (#120) when it already fits the reader's card budget
 // and is a single complete sentence. maxWords is a plain number (the caller's readingBudget.words),
 // not a budget object -- this module has no dependency on reading-pace.js and should not gain one.
@@ -51,6 +63,7 @@ export function isPassthroughEligible(text, maxWords) {
   if (!clean) return false;
   if (!Number.isFinite(maxWords) || maxWords <= 0) return false;
   if (wordCount(clean) > maxWords) return false;
+  if (hasNonLatinLetter(clean)) return false;
   return isSingleSentence(clean);
 }
 

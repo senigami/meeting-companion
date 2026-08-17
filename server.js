@@ -10,6 +10,7 @@ import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
 import { createSessionRecorder } from './server/session-recorder.js';
+import { buildSessionListHtml, buildSessionReviewHtml } from './server/session-review.js';
 import { createReadingPaceStore } from './server/reading-pace-store.js';
 import { resolveAppCommit } from './server/app-commit.js';
 
@@ -322,6 +323,36 @@ export function createApp({
     } catch (error) {
       console.error(safeErrorDetail(error));
       res.status(500).json({ error: 'Reading recording failed.', detail: safeErrorDetail(error) });
+    }
+  });
+
+  // Human-facing HTML views over the same two recorder methods as the /api/recording/* routes
+  // above -- for auditing a past session by eye (summary next to the raw text it was built from)
+  // rather than fetching raw ndjson and parsing it by hand. Same privacy reasoning as those routes
+  // (this is recorded transcript content, so it stays behind the same loopback gate) and the same
+  // guard instance, so a third read route here inherits it rather than quietly bypassing it.
+  app.use('/sessions', refuseUnlessLoopback);
+
+  app.get('/sessions', async (req, res) => {
+    try {
+      const recordings = await sessionRecorder.listRecordings();
+      res.type('html').send(buildSessionListHtml(recordings));
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).send('Listing recorded sessions failed.');
+    }
+  });
+
+  app.get('/sessions/:id/review', async (req, res) => {
+    try {
+      const contents = await sessionRecorder.readRecording(req.params.id);
+      if (contents === null) {
+        return res.status(404).send('Recording not found.');
+      }
+      res.type('html').send(buildSessionReviewHtml(req.params.id, contents));
+    } catch (error) {
+      console.error(safeErrorDetail(error));
+      res.status(500).send('Rendering session review failed.');
     }
   });
 

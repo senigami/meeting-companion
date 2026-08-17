@@ -43,6 +43,23 @@ test('prior context is folded into the system message as data, never as user/ass
   assert.equal(messages.at(-1).content, 'New words.');
 });
 
+// Real bug, 2026-08-16 recording: a history block established "Dr. Alexander Gilson"; a later block
+// that only said "Gilson will be our speaker" came back as "Dr. Gilson will speak" -- the model
+// pulled the title from history context rather than the current block's own text. The history clause
+// only forbade repeating WORDING, not pulling FACTS across, so this asserts the new, separate
+// constraint is present whenever history exists.
+test('the system prompt forbids pulling facts from history into the current summary', async () => {
+  const messages = buildMinimalSummarizeMessages({
+    recentTranscript: 'Gilson will be our speaker.',
+    mode: 'speaker',
+    maxWords: 10,
+    history: [{ spoken: 'We welcome Dr. Alexander Gilson.', shown: 'Dr. Alexander Gilson.' }]
+  });
+
+  assert.match(messages[0].content, /summarize only the Text below/i);
+  assert.match(messages[0].content, /if the Text does not say it, leave it out/i);
+});
+
 // Independent reimplementation of the same FNV-1a algorithm, applied directly to
 // buildMinimalSummarizePrompt's own output rather than going through computeSummaryPromptHash. This
 // is the check that the hash genuinely tracks the real prompt text (issue #4's requirement) rather
@@ -81,7 +98,10 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // Updated 2026-08-10 (third time same day): WORD_SELECTIVITY reworded to Steve's own phrasing
   // ("be frugal with your words -- include only the ones that meaningfully contribute to the
   // meaning being conveyed"), replacing the first draft's "be picky... add real information."
-  assert.equal(computeSummaryPromptHash(), 'faf8b7d2');
+  // Updated 2026-08-17: TRANSLATE made an unconditional, standalone rule and the anti-duplication
+  // clause reworded as a hard constraint, after two real transcription bugs (untranslated Thai
+  // segment; looping on prior phrasing with no named speaker).
+  assert.equal(computeSummaryPromptHash(), 'c64c32b6');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {
