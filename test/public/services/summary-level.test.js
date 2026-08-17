@@ -65,8 +65,10 @@ test('the brief prompt targets a word count, third person, and focuses on the ma
   // ten words is what put words in people's mouths.
   assert.doesNotMatch(prompt, /must still read as them talking/);
   // "The speaker knows the Church is true" was the first live brief output: two of ten words spent
-  // on a label the reader can already see. Third person must not become a per-card tax.
-  assert.match(prompt, /Do not spend words on who is talking/);
+  // on a label the reader can already see. Third person must not become a per-card tax. This
+  // instruction was consolidated 2026-08-17 into the shared NO_PLACEHOLDER_SUBJECT constant, worded
+  // to also cover the generic-subject drift ("The person...") measured in a real speaker-mode session.
+  assert.match(prompt, /do not open every card with a generic stand-in subject/i);
 });
 
 test('the condense prompt is third person too now, but still a distinct prompt from brief', () => {
