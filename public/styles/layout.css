@@ -474,14 +474,28 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
    so a one-word name rendered as its own huge line below the label instead of sitting compactly
    beside it). Steve caught it live: "That divider doesn't look like a divider."
 
-   Sized like .transcript-speaker just above, not at .transcript-meta's tiny chrome scale -- Ansel's
-   2026-08-04 ruling (issue #52) applies here too: this is content the reader is reading (a name, a
-   song title), not chrome describing the card, so it must not shrink to illegible meta scale. */
+   Second version fixed the LAYOUT (one row, not a separate paragraph) but copied .transcript-speaker's
+   plain-case, muted-relative styling wholesale -- right for a nameplate sitting beside real body prose
+   it needs to contrast against, wrong here, where there is no body text and the value IS the card's
+   only content. Steve, live: "it still looks like body text." This is a header, so it reads like one:
+   the same uppercase/tracking/weight treatment as the label beside it, just larger.
+
+   Sized like .transcript-speaker, not .transcript-meta's tiny chrome scale -- Ansel's 2026-08-04
+   ruling (issue #52) still applies: this is content the reader is reading (a name, a song title), so
+   it must not shrink to illegible meta scale even while looking like header chrome. */
 .transcript-meta-value {
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text);
   font-size: max(1.35rem, calc(var(--font-size) * 0.4));
+  /* Uppercase/tracking/weight inherited from .transcript-meta -- that's the "look like the header"
+     part. Color overridden back to full contrast: unlike the label word itself, the value is actual
+     content the reader needs to read, not decoration, so it must not wash out to --muted. */
+  color: var(--text);
+}
+
+/* Larger than the base 1.5rem icon everywhere else -- Steve's spec for the header-only card, where
+   the icon is doing more visual work (there is no body text underneath it to carry the card). */
+.transcript-item--header .transcript-icon {
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 html.is-rail-collapsed .meetingShell,
