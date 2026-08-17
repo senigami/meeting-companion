@@ -232,7 +232,7 @@ test('renderDisplay renders transcript cards and scrolls to the latest item', as
       state: {
         transcriptItems: [
           { id: 'one', mode: 'speaker', text: 'First thought.', createdAt: 1, source: 'ai' },
-          { id: 'two', mode: 'information', text: 'Second thought.', createdAt: 2, source: 'manual' }
+          { id: 'two', mode: 'speaker', text: 'Second thought.', createdAt: 2, source: 'manual' }
         ],
         stickToBottom: true,
         prefersReducedMotion: false
@@ -350,11 +350,16 @@ test('renderDisplay marks the first card after a mode change as a mode boundary,
 
   renderDisplay(ctx);
 
-  const [first, second, third, fourth] = transcriptStack.children;
-  assert.equal(first.className.includes('transcript-item--mode-boundary'), false);
-  assert.equal(second.className.includes('transcript-item--mode-boundary'), false);
-  assert.equal(third.className.includes('transcript-item--mode-boundary'), true);
-  assert.equal(fourth.className.includes('transcript-item--mode-boundary'), false);
+  const children = [...transcriptStack.children];
+  assert.equal(children.length, 5, 'four cards plus one standalone divider before the mode change');
+  assert.equal(children[0].className.includes('transcript-mode-divider'), false);
+  assert.equal(children[1].className.includes('transcript-mode-divider'), false);
+  assert.equal(children[2].className.includes('transcript-mode-divider'), true,
+    'the divider sits between the last speaker card and the first information card');
+  assert.equal(children[2].className.includes('transcript-item--information'), true,
+    'colored to the mode being entered, not the one being left');
+  assert.equal(children[3].className.includes('transcript-mode-divider'), false);
+  assert.equal(children[4].className.includes('transcript-mode-divider'), false);
 });
 
 test('renderDisplay alternates the speaker-alt accent within a run of same-mode speaker cards, and resets outside speaker mode', () => {
@@ -378,7 +383,10 @@ test('renderDisplay alternates the speaker-alt accent within a run of same-mode 
 
   renderDisplay(ctx);
 
-  const [one, two, three, four, five] = transcriptStack.children;
+  // Mode-change dividers are now standalone sibling nodes (not a class on the card), so filter them
+  // out here -- this test is about which CARDS get the alternation class, not about divider placement.
+  const cards = [...transcriptStack.children].filter((el) => !el.className.includes('transcript-mode-divider'));
+  const [one, two, three, four, five] = cards;
   assert.equal(one.className.includes('transcript-item--speaker-alt'), false);
   assert.equal(two.className.includes('transcript-item--speaker-alt'), false);
   assert.equal(three.className.includes('transcript-item--speaker-alt'), true);
@@ -415,15 +423,15 @@ test('a header card (program-tab send button) renders only the icon, mode label,
 
   const card = transcriptStack.children[0];
   const meta = card.children[0];
-  const body = card.children[1];
 
   assert.equal(card.className.includes('transcript-item--header'), true);
   assert.equal(card.className.includes('transcript-item--information'), true, 'still carries its mode accent');
   assert.equal(meta.children[0].className, 'transcript-icon icon-information');
   assert.equal(meta.children[1].textContent, 'Information');
-  assert.equal(meta.children.length, 2, 'no speaker row, no timestamp -- icon and mode label only');
-  assert.equal(body.className, 'transcript-header-text', 'not the flowing-prose transcript-text class');
-  assert.equal(body.textContent, 'Announcements');
+  assert.equal(meta.children[2].className, 'transcript-meta-value', 'text sits in the label row, not a separate body');
+  assert.equal(meta.children[2].textContent, 'Announcements');
+  assert.equal(meta.children.length, 3, 'icon, mode label, and the text value -- no speaker row, no timestamp');
+  assert.equal(card.children.length, 2, 'no separate body paragraph -- meta row and the delete button only');
 });
 
 test('a mode-boundary divider fires correctly around a header card: into it and out of it', () => {
@@ -445,12 +453,17 @@ test('a mode-boundary divider fires correctly around a header card: into it and 
 
   renderDisplay(ctx);
 
-  const [first, header, third] = transcriptStack.children;
-  assert.equal(first.className.includes('transcript-item--mode-boundary'), false);
-  assert.equal(header.className.includes('transcript-item--mode-boundary'), true,
-    'the header card itself differs in mode from what came before it');
-  assert.equal(third.className.includes('transcript-item--mode-boundary'), true,
-    'the card right after a header card in a different mode is also marked');
+  const children = [...transcriptStack.children];
+  assert.equal(children.length, 5, 'three cards plus a divider before the header and a divider after it');
+  assert.equal(children[0].className.includes('transcript-mode-divider'), false);
+  assert.equal(children[1].className.includes('transcript-mode-divider'), true,
+    'a divider precedes the header card, since it differs in mode from what came before it');
+  assert.equal(children[1].className.includes('transcript-item--information'), true);
+  assert.equal(children[2].className.includes('transcript-item--header'), true);
+  assert.equal(children[3].className.includes('transcript-mode-divider'), true,
+    'a divider also precedes the card right after the header card, since that one differs in mode too');
+  assert.equal(children[3].className.includes('transcript-item--prayer'), true);
+  assert.equal(children[4].className.includes('transcript-mode-divider'), false);
 });
 
 // Issue #40: a speaker label reads as extra load for someone who reads roughly one word every two

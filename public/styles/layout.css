@@ -270,22 +270,20 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   --card-accent: rgba(255, 178, 158, 0.78);
 }
 
-/* #1: marks the first card after an operator mode change (Speaker/Info/Song/Prayer). A plain
- * border-top + extra top margin on the card itself -- no new pseudo-element, so it isn't clipped
- * by the card's own overflow:hidden -- reading as a break in the existing card language rather
- * than a new one. */
-.transcript-item--mode-boundary {
-  margin-top: 1.75rem;
-  border-top: 2px solid rgba(255, 255, 255, 0.32);
-}
-
-/* .transcript-item[data-active="true"] above sets border-color (all four sides) as a compound
- * selector, which outranks the single-class rule above on specificity alone regardless of source
- * order -- so the newest card, exactly the one on screen right when a mode change happens, was
- * silently losing its divider color back to the faint active-card default. Matching specificity
- * here is what makes the boundary color win on the card that matters most. */
-.transcript-item[data-active="true"].transcript-item--mode-boundary {
-  border-top-color: rgba(255, 255, 255, 0.32);
+/* #1: marks an operator mode change (Speaker/Info/Song/Prayer) with a genuine standalone line, its
+ * own sibling in the stack -- not a border on the card that follows. A border-top read as "this
+ * card's own edge is slightly brighter," easy to miss against these translucent, blurred
+ * backgrounds, and lost a specificity fight with .transcript-item[data-active="true"]'s border-color
+ * on top of that. Steve, live, after both: "there's still no clear separation... I was hoping that
+ * there would be a line drawn on the page." Colored via --card-accent (the same per-mode variable
+ * every card sets, inherited here through the transcript-item--<mode> class the divider also
+ * carries) so the line previews the mode being entered, not just that something changed. */
+.transcript-mode-divider {
+  height: 4px;
+  margin: 1.5rem 0.4rem;
+  border-radius: 999px;
+  background: var(--card-accent, rgba(255, 255, 255, 0.6));
+  box-shadow: 0 0 16px 2px var(--card-accent, rgba(255, 255, 255, 0.4));
 }
 
 .transcript-item--information {
@@ -470,16 +468,20 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   opacity: 0.94;
 }
 
-/* Program-tab send button (Steve's spec): icon + mode label + the entered text, and NOTHING else --
-   deliberately plainer than .transcript-text, which is styled as flowing summary prose (balanced
-   wrap, tight tracking, drop shadow). A header card is a plain label, not a sentence to read. */
-.transcript-header-text {
-  margin: 0;
-  font-size: var(--font-size);
-  line-height: 1.15;
-  font-weight: 700;
+/* Program-tab send button (Steve's spec): icon + mode label + the entered text, in the meta row
+   itself -- NOT a separate paragraph at the card's giant reading-scale font. First version got this
+   wrong (a .transcript-header-text <p> sharing --font-size with a normal card's flowing body text,
+   so a one-word name rendered as its own huge line below the label instead of sitting compactly
+   beside it). Steve caught it live: "That divider doesn't look like a divider."
+
+   Sized like .transcript-speaker just above, not at .transcript-meta's tiny chrome scale -- Ansel's
+   2026-08-04 ruling (issue #52) applies here too: this is content the reader is reading (a name, a
+   song title), not chrome describing the card, so it must not shrink to illegible meta scale. */
+.transcript-meta-value {
+  text-transform: none;
   letter-spacing: 0;
   color: var(--text);
+  font-size: max(1.35rem, calc(var(--font-size) * 0.4));
 }
 
 html.is-rail-collapsed .meetingShell,

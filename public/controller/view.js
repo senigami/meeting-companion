@@ -280,10 +280,15 @@ export function renderDisplay(ctx) {
     const isSpeakerAlt = SPEAKER_ALTERNATION_ENABLED && item.mode === 'speaker' && speakerAltOn;
 
     if (previousIsPrefix && index < previousIds.length) return;
+    // A genuine standalone line between cards, not a border on the card itself -- a border-top read
+    // as "this card's own edge is slightly brighter," easy to miss against these translucent, blurred
+    // backgrounds. Steve, live: "there's still no clear separation... I was hoping that there would be
+    // a line drawn on the page." Colored to the mode being ENTERED (reusing --card-accent the same way
+    // every card already does) so the line also previews what's coming, not just that something changed.
+    if (isModeBoundary) newNodes.push(createModeDividerNode(item.mode));
     newNodes.push(createTranscriptCard(item, index === renderItems.length - 1, {
       showSpeaker,
       speaker,
-      isModeBoundary,
       isSpeakerAlt
     }));
   });
@@ -964,7 +969,20 @@ export function updateSpeakerDatalist(ctx) {
   }
 }
 
-function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', isModeBoundary = false, isSpeakerAlt = false } = {}) {
+// A standalone line marking a mode change, inserted as its own sibling in the stack rather than a
+// border on the card that follows it -- see the call site in renderDisplay for why. Reuses the same
+// per-mode --card-accent custom property every card already sets (transcript-item--<mode> in
+// layout.css), via the class the divider carries, rather than a second color system to keep in sync.
+function createModeDividerNode(mode) {
+  const divider = createNode('div');
+  divider.className = `transcript-mode-divider transcript-item--${mode || 'speaker'}`;
+  if (typeof divider.setAttribute === 'function') {
+    divider.setAttribute('aria-hidden', 'true');
+  }
+  return divider;
+}
+
+function createTranscriptCard(item, active = false, { showSpeaker = false, speaker = '', isSpeakerAlt = false } = {}) {
   const isManual = item.source === 'manual';
   const isSample = Boolean(item.sample);
   // Operator-authored header card (program-tab send button): icon + mode label + the text, and
@@ -988,10 +1006,6 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
     // mode accent color the comment above says this card should have.
     + `${isManual && !isManualException ? ' transcript-item--manual' : ''}`
     + `${isSample ? ' transcript-item--sample' : ''}`
-    // Issue: a mode change (operator clicks Speaker/Info/Song/Prayer) had no visual break at all
-    // between cards other than each card's own accent-bar color -- a reader scanning past the
-    // change had nothing telling them "something changed here." Marks the FIRST card of a new mode.
-    + `${isModeBoundary ? ' transcript-item--mode-boundary' : ''}`
     // Exploratory (Steve unsure, easy to revert -- see SPEAKER_ALTERNATION_ENABLED in renderDisplay):
     // same-mode speaker change within Speaker mode alone had no visual marker either, so consecutive
     // speaker cards alternate between two accent shades whenever item.speaker changes.
@@ -1025,6 +1039,19 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
   label.textContent = modeMeta.label;
   meta.append(label);
 
+  // A header card folds its text into the label row itself ("Speaker  James Lovett"), at the same
+  // compact meta scale as the label -- not a separate paragraph at the giant reading-card font size.
+  // The first version of this got that wrong: it rendered item.text as its own <p> body element
+  // sharing --font-size with a normal summary card's flowing text, so a one-word name came out at
+  // full display scale below the label instead of sitting compactly beside it. Steve caught this
+  // live: "That divider doesn't look like a divider."
+  if (isHeader && item.text) {
+    const value = createNode('span');
+    value.className = 'transcript-meta-value';
+    value.textContent = item.text;
+    meta.append(value);
+  }
+
   // Issue #40: rendered as its own node alongside the mode label, never woven into transcript-text
   // -- a display attribute, not something the summarizer's text passed through. Only present at
   // all when this card is where the speaker changed (showSpeaker), computed by the caller so this
@@ -1052,11 +1079,15 @@ function createTranscriptCard(item, active = false, { showSpeaker = false, speak
     meta.append(time);
   }
 
-  const body = createNode('p');
-  body.className = isHeader ? 'transcript-header-text' : 'transcript-text';
-  body.textContent = item.text || '';
-
-  article.append(meta, body);
+  // Header cards have no body at all -- their text lives in the meta row's value span above.
+  if (isHeader) {
+    article.append(meta);
+  } else {
+    const body = createNode('p');
+    body.className = 'transcript-text';
+    body.textContent = item.text || '';
+    article.append(meta, body);
+  }
 
   // The sample placeholder isn't a real captured line -- nothing to delete. Every other card gets
   // a delete button; it stays visually hidden until the card is hovered/focused (see layout.css),
