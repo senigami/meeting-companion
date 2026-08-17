@@ -1825,11 +1825,16 @@ export function createRuntime(ctx, deps = {}) {
   // Display-only (issue #40): stored so it can be captured onto the next chunk/card, never fed to
   // any summarization prompt. Empty is a valid, ordinary value -- it means no label, never
   // "Unknown" -- so this deliberately does nothing beyond a trim; it must not invent a name.
-  function setSpeakerName(name) {
+  function setSpeakerName(name, { syncInput = true } = {}) {
     ctx.state.speakerName = String(name || '').trim();
     // Keep the rail input in sync when the name changes from somewhere other than the operator
     // typing into it directly -- currently only a replay driving its recorded speaker changes.
-    if (ctx.dom.speakerNameInput && ctx.dom.speakerNameInput.value !== ctx.state.speakerName) {
+    // syncInput: false is what makes that true: the input's own 'input' listener passes it,
+    // because trimming on every keystroke and writing the trimmed result straight back into the
+    // live DOM value fought the operator typing a space -- "James " differs from trimmed "James",
+    // so the field snapped back to "James" the instant the space key was pressed, silently eating
+    // it. Real bug, caught live: "I am not able to enter a space character into that textbox."
+    if (syncInput && ctx.dom.speakerNameInput && ctx.dom.speakerNameInput.value !== ctx.state.speakerName) {
       ctx.dom.speakerNameInput.value = ctx.state.speakerName;
     }
   }

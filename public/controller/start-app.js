@@ -555,7 +555,9 @@ function bindModeAndSourceButtons(ctx, runtime) {
   // As fast as changing mode (issue #40's own requirement): plain 'input', no Enter/blur to commit
   // -- the very next card created after a keystroke already carries the new name.
   ctx.dom.speakerNameInput?.addEventListener('input', (event) => {
-    runtime.setSpeakerName(event.target.value);
+    // syncInput: false -- this IS the operator typing directly into the field; writing a trimmed
+    // value back into the live input mid-keystroke is what ate space characters (runtime.js).
+    runtime.setSpeakerName(event.target.value, { syncInput: false });
   });
   // Send/arrow button next to the speaker-name input: pushes its current text to the display as a
   // header card in the active mode. Never clears the field -- see runtime.js#sendHeaderLine.
