@@ -367,7 +367,11 @@ export function startApp() {
 
 function bindManualEntry(ctx, runtime) {
   const submitManualLine = () => {
-    if (!runtime.addLine(ctx.dom.manualInput.value)) return;
+    // Explicit speaker: '' -- addLine defaults to ctx.state.speakerName, which exists so an AI card
+    // (or a header-card send) picks up the name sitting in that separate box. A quick note typed
+    // here has nothing to do with it: Steve, live, after a leftover name in that box silently
+    // attached itself to an unrelated manual line pushed through this one.
+    if (!runtime.addLine(ctx.dom.manualInput.value, { speaker: '' })) return;
     ctx.dom.manualInput.value = '';
     ctx.dom.manualInput.focus();
   };
