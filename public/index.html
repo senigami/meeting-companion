@@ -126,7 +126,11 @@
 
           <div class="speakerNameRow">
             <label class="speakerNameLabel" for="speakerNameInput">Speaker</label>
-            <input id="speakerNameInput" type="text" class="speakerNameInput" placeholder="Type who's talking" autocomplete="off" />
+            <input id="speakerNameInput" type="text" class="speakerNameInput" placeholder="Type who's talking" autocomplete="off" list="speakerNameDatalist" />
+            <datalist id="speakerNameDatalist"></datalist>
+            <button id="speakerHeaderSend" type="button" class="iconButton speakerHeaderSend" aria-label="Show as header card" title="Show as header card">
+              <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+            </button>
           </div>
         </section>
 
@@ -206,6 +210,7 @@
           <button type="button" class="settingsNavItem" data-settings-nav="transcription" aria-current="false">Transcription</button>
           <button type="button" class="settingsNavItem" data-settings-nav="summaries" aria-current="false">Summaries</button>
           <button type="button" class="settingsNavItem" data-settings-nav="services" aria-current="false">AI services</button>
+          <button type="button" class="settingsNavItem" data-settings-nav="program" aria-current="false">Program</button>
           <button type="button" class="settingsNavItem" data-settings-nav="tools" aria-current="false">Tools</button>
         </nav>
 
@@ -375,6 +380,15 @@
             </div>
           </section>
 
+          <section class="settingsCard programCard" data-settings-section="program">
+            <div class="section-label">Program</div>
+            <p class="field-note">Type the order of service for this meeting -- name and mode -- so the speaker-name field above suggests them and the send button can show one as a header card. Per-meeting only; nothing here is saved between meetings.</p>
+            <div id="programList" class="programList"></div>
+            <div class="button-grid button-grid-secondary">
+              <button id="programAddRow" type="button">Add entry</button>
+            </div>
+          </section>
+
           <section class="settingsCard settingsDiagnosticsCard" data-settings-section="tools">
             <div class="section-label">Ready check</div>
             <div class="readyCheck" role="group" aria-label="Ready check">
@@ -524,6 +538,10 @@
       <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
       <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
       <path d="M8 6v8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24">
+      <path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m13 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-prayer" viewBox="0 0 24 24">
       <path d="m11 14 2 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>

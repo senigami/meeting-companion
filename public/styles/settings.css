@@ -235,6 +235,35 @@ dialog.settingsOverlay[hidden] {
   min-height: 0;
 }
 
+.programList {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.programRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.programRowName {
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--chrome-separator);
+  background: var(--chrome-bg-control);
+  color: inherit;
+}
+
+.programRowMode {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--chrome-separator);
+  background: var(--chrome-bg-control);
+  color: inherit;
+}
+
 .micTestGroup {
   display: grid;
   gap: 0.5rem;

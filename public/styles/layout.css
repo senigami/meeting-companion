@@ -270,13 +270,20 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   --card-accent: rgba(255, 178, 158, 0.78);
 }
 
-/* #1: marks the first card after an operator mode change (Speaker/Info/Song/Prayer). A plain
- * border-top + extra top margin on the card itself -- no new pseudo-element, so it isn't clipped
- * by the card's own overflow:hidden -- reading as a break in the existing card language rather
- * than a new one. */
-.transcript-item--mode-boundary {
-  margin-top: 1.75rem;
-  border-top: 2px solid rgba(255, 255, 255, 0.32);
+/* #1: marks an operator mode change (Speaker/Info/Song/Prayer) with a genuine standalone line, its
+ * own sibling in the stack -- not a border on the card that follows. A border-top read as "this
+ * card's own edge is slightly brighter," easy to miss against these translucent, blurred
+ * backgrounds, and lost a specificity fight with .transcript-item[data-active="true"]'s border-color
+ * on top of that. Steve, live, after both: "there's still no clear separation... I was hoping that
+ * there would be a line drawn on the page." Colored via --card-accent (the same per-mode variable
+ * every card sets, inherited here through the transcript-item--<mode> class the divider also
+ * carries) so the line previews the mode being entered, not just that something changed. */
+.transcript-mode-divider {
+  height: 4px;
+  margin: 1.5rem 0.4rem;
+  border-radius: 999px;
+  background: var(--card-accent, rgba(255, 255, 255, 0.6));
+  box-shadow: 0 0 16px 2px var(--card-accent, rgba(255, 255, 255, 0.4));
 }
 
 .transcript-item--information {
@@ -381,24 +388,16 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
    identifying a person by, not chrome describing the card, so it reads in the card's own text
    color rather than the muted meta color.
 
-   Issue #52: it must also SCALE with the card, which it did not. Setting no font-size here meant it
-   inherited .transcript-meta's clamp() -- the operator chrome scale -- so it measured 12.48px
-   against 84px card text, a 6.7x difference, on the one surface whose whole purpose is being
-   readable by a reader with low vision. The part of the card that says WHO was the part he was
-   least able to read, and it did not move when he changed the font-size control.
-
-   Ansel's ruling, 2026-08-04, and his numbers rather than mine. 0.4 of the card text: this string
-   is the context he needs BEFORE deciding whether to spend effort on the line under it, so
-   undersizing it defeats that ordering. Plus an absolute 1.35rem floor, because the fraction alone
-   fails at his smaller calibration settings -- at a 32px card, 0.4 would be 12.8px and straight back
-   to unreadable. The mode chip beside it deliberately stays at chrome scale: it is operator status,
-   not content, and he was asked directly whether the size mismatch on that row bothered him. It does
-   not. */
+   Ansel's 2026-08-04 ruling (issue #52) scaled this with the card -- max(1.35rem, --font-size*0.4)
+   -- reasoning the name was context the reader needs before the line under it, so it must not be
+   the least-readable part of the card. Reversed 2026-08-17, Steve's direct call, made with that
+   ruling and its tradeoff stated plainly first: back to inheriting .transcript-meta's own chrome
+   scale, same as the mode label beside it. If this needs revisiting, the numbers above are exactly
+   what it used to be. */
 .transcript-speaker {
   text-transform: none;
   letter-spacing: 0;
   color: var(--text);
-  font-size: max(1.35rem, calc(var(--font-size) * 0.4));
 }
 
 .transcript-time {
@@ -459,6 +458,40 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .transcript-item:not(:last-child) .transcript-text {
   opacity: 0.94;
+}
+
+/* Program-tab send button (Steve's spec): icon + mode label + the entered text, in the meta row
+   itself -- NOT a separate paragraph at the card's giant reading-scale font. First version got this
+   wrong (a .transcript-header-text <p> sharing --font-size with a normal card's flowing body text,
+   so a one-word name rendered as its own huge line below the label instead of sitting compactly
+   beside it). Steve caught it live: "That divider doesn't look like a divider."
+
+   Second version fixed the LAYOUT (one row, not a separate paragraph) but copied .transcript-speaker's
+   plain-case, muted-relative styling wholesale -- right for a nameplate sitting beside real body prose
+   it needs to contrast against, wrong here, where there is no body text and the value IS the card's
+   only content. Steve, live: "it still looks like body text." This is a header, so it reads like one:
+   the same uppercase/tracking/weight treatment as the label beside it, just larger.
+
+   Sized like .transcript-speaker, not .transcript-meta's tiny chrome scale -- Ansel's 2026-08-04
+   ruling (issue #52) still applies: this is content the reader is reading (a name, a song title), so
+   it must not shrink to illegible meta scale even while looking like header chrome.
+
+   Text-transform overridden back to none, though -- Steve, live: forcing a name or song title into
+   all-caps makes it harder to read, not easier, so only the weight/tracking carry the "header" look,
+   never the casing. Keep the case it was actually written in. */
+.transcript-meta-value {
+  font-size: max(1.35rem, calc(var(--font-size) * 0.4));
+  text-transform: none;
+  /* Color overridden back to full contrast: unlike the label word itself, the value is actual
+     content the reader needs to read, not decoration, so it must not wash out to --muted. */
+  color: var(--text);
+}
+
+/* Larger than the base 1.5rem icon everywhere else -- Steve's spec for the header-only card, where
+   the icon is doing more visual work (there is no body text underneath it to carry the card). */
+.transcript-item--header .transcript-icon {
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 html.is-rail-collapsed .meetingShell,

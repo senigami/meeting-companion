@@ -588,7 +588,7 @@ html.is-rail-collapsed .operatorRail.is-paused #pauseAi {
    than in Settings -- typed on the fly between speakers, never pre-configured. */
 .speakerNameRow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.6rem;
   margin-top: 0.6rem;
