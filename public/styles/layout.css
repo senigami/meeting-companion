@@ -482,11 +482,15 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
    Sized like .transcript-speaker, not .transcript-meta's tiny chrome scale -- Ansel's 2026-08-04
    ruling (issue #52) still applies: this is content the reader is reading (a name, a song title), so
-   it must not shrink to illegible meta scale even while looking like header chrome. */
+   it must not shrink to illegible meta scale even while looking like header chrome.
+
+   Text-transform overridden back to none, though -- Steve, live: forcing a name or song title into
+   all-caps makes it harder to read, not easier, so only the weight/tracking carry the "header" look,
+   never the casing. Keep the case it was actually written in. */
 .transcript-meta-value {
   font-size: max(1.35rem, calc(var(--font-size) * 0.4));
-  /* Uppercase/tracking/weight inherited from .transcript-meta -- that's the "look like the header"
-     part. Color overridden back to full contrast: unlike the label word itself, the value is actual
+  text-transform: none;
+  /* Color overridden back to full contrast: unlike the label word itself, the value is actual
      content the reader needs to read, not decoration, so it must not wash out to --muted. */
   color: var(--text);
 }
