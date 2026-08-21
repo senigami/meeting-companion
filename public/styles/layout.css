@@ -314,6 +314,35 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   font-style: italic;
 }
 
+/* Click-to-edit-in-place (#125): contenteditable lands directly on .transcript-text/
+   .transcript-meta-value, so the caret and selection get the UA's default blue unless themed --
+   pull both from the card's own --card-accent (already set per-mode above) so the edit affordance
+   reads as part of this card, not a generic browser text field. */
+.transcript-item [contenteditable] {
+  caret-color: var(--card-accent, #fff);
+}
+
+.transcript-item [contenteditable]::selection {
+  background: var(--card-accent, rgba(255, 255, 255, 0.4));
+  color: rgba(0, 0, 0, 0.87);
+}
+
+/* The UA focus ring flashes in with its own transition, which reads as an accidental blink rather
+   than a deliberate "you're editing this" state -- replaced with a static outline, present the
+   instant contenteditable is set, in the same accent as the caret/selection above. */
+.transcript-item [contenteditable]:focus {
+  outline: 2px solid var(--card-accent, #fff);
+  outline-offset: 2px;
+  transition: none;
+}
+
+/* A card being actively edited must not play the arrival animation if a NEW card lands elsewhere
+   in the stack while this one still has focus -- renderDisplay's fast path never touches an
+   already-rendered card's DOM node, but this guards the case where it did. */
+.transcript-item--editing {
+  animation: none;
+}
+
 /* Hidden until the operator is actually pointed at this card -- a delete button visible on every
    card at all times would be one more thing competing with the transcript for attention on a
    display this dense. :focus-within (not just :hover) keeps it reachable by keyboard. */

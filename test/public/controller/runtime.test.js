@@ -4607,3 +4607,35 @@ test('a mode change refreshes the speaker-name datalist to only the program entr
     assert.deepEqual(lastOptions, ['Opening hymn']);
   });
 });
+
+test('updateItemText overwrites a card\'s text verbatim, in place, with no re-render (#125)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [
+        { id: 'a', text: 'original text' },
+        { id: 'b', text: 'other card' }
+      ]
+    }
+  }, async ({ runtime, ctx }) => {
+    const itemsBefore = ctx.state.transcriptItems;
+
+    runtime.updateItemText('a', 'corrected text');
+
+    assert.equal(ctx.state.transcriptItems[0].text, 'corrected text');
+    assert.equal(ctx.state.transcriptItems[1].text, 'other card');
+    // Same array reference: no rebuild/replace of transcriptItems, just the one field mutated.
+    assert.equal(ctx.state.transcriptItems, itemsBefore);
+  });
+});
+
+test('updateItemText on an unknown id is a no-op', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptItems: [{ id: 'a', text: 'original text' }]
+    }
+  }, async ({ runtime, ctx }) => {
+    runtime.updateItemText('missing', 'corrected text');
+
+    assert.equal(ctx.state.transcriptItems[0].text, 'original text');
+  });
+});
