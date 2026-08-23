@@ -57,6 +57,19 @@ PORT=3000
 
 The app stays local. It does not save audio or transcripts unless you add that later. Provider keys are stored on the local server for the running session, not in browser storage.
 
+### Push gates (one-time, per clone)
+
+Git will not run hooks it fetched from a repo, so this is opt-in and you have to do it once after
+cloning:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That turns on `.githooks/pre-push`, which runs the test suite and the code-map queue check before
+anything leaves your machine. Each gate runs separately, so a failure in one cannot hide the other.
+`--no-verify` still skips the whole hook if you really need it to.
+
 ## Sunday use
 
 1. Start the app before the meeting and open it fullscreen.
