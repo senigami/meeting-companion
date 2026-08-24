@@ -47,7 +47,10 @@ export function escapeHtml(value) {
 }
 
 const PAGE_STYLE = `
-  body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+  /* The background is explicit because the text colour is: on a dark-themed browser a transparent
+     body paints near-black behind #1a1a1a text and the whole table becomes unreadable. Every colour
+     on this page is chosen for a light ground, so it states the ground rather than inheriting one. */
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; background: #fff; }
   h1 { font-size: 1.25rem; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; vertical-align: top; }
@@ -56,6 +59,9 @@ const PAGE_STYLE = `
   td.meta .row-num { font-weight: 700; }
   td.meta .mode-badge { text-transform: capitalize; color: #555; }
   td.meta .timestamp { margin-top: 0.15rem; margin-left: 1.25rem; font-size: 0.78em; font-family: monospace; color: #555; }
+  td.meta .typed-badge { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.04em; color: #2d5a3d; border: 1px solid #b6cfbe; border-radius: 3px; padding: 0 0.25rem; }
+  tr.manual td { background: #f4f9f5; }
+  .not-sent { color: #888; font-style: italic; }
   tr.failed td { background: #fdecea; }
   tr.mode-change td { border-top: 3px solid #333; }
   tr.corrected td { color: #888; text-decoration: line-through; }
@@ -96,7 +102,13 @@ ${items}
 export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false } = {}) {
   const { records, unparseable } = parseRecordingLines(ndjsonText);
   const header = records.find((record) => record.t === 'header') || null;
-  const summaries = records.filter((record) => record.t === 'summary');
+  // Manual lines sit in the same sequence as summaries rather than in a table of their own: what a
+  // reader of this report is reconstructing is the wall as it actually looked, and the operator's
+  // cards were on it (#135). Merged by `at` and not by file order, because a manual record is
+  // appended the instant the card lands while a summary record waits on a provider round-trip, so
+  // file order can put a summary before a manual card the reader saw first.
+  const summaries = [...records.filter((record) => record.t === 'summary'), ...records.filter((record) => record.t === 'manual')]
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const corrections = records.filter((record) => record.t === 'correction');
   const speakerBreaks = records.filter((record) => record.t === 'speaker-break');
   const speakerBreakAts = new Set(speakerBreaks.map((b) => b.targetAt).filter(Boolean));
@@ -129,7 +141,11 @@ export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false
   }
 
   function buildRow(summary, index, { corrected = false } = {}) {
-    const failedClass = summary.ok ? '' : ' failed';
+    // A manual row has no provider call behind it, so `ok` is absent rather than false -- reading it
+    // as a failure would paint the one kind of card that cannot fail red.
+    const isManual = summary.t === 'manual';
+    const failedClass = isManual || summary.ok ? '' : ' failed';
+    const manualClass = isManual ? ' manual' : '';
     const correctedClass = corrected ? ' corrected' : '';
     // A row gets the mode-change break when its mode actually differs from the row right above it
     // in the SAME visible set -- a row hidden by default must not leave a phantom break in the
@@ -138,20 +154,20 @@ export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false
     // people inside one long "speaker" block needs a human-placed marker, not a data comparison.
     const modeChanged = index === 0 || summary.mode !== visibleSummaries[index - 1]?.mode;
     const forcedBreak = speakerBreakAts.has(summary.at);
-    const rowClass = `${failedClass}${(modeChanged || forcedBreak) && !corrected ? ' mode-change' : ''}${correctedClass}`.trim();
+    const rowClass = `${failedClass}${manualClass}${(modeChanged || forcedBreak) && !corrected ? ' mode-change' : ''}${correctedClass}`.trim();
     const trAttr = rowClass ? ` class="${rowClass}"` : '';
-    const errorLine = summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
+    const errorLine = isManual || summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
     // #, type, and time share one narrow column -- what a reader actually scans this table for is
     // the summary and the raw text beside it, not any of these three, so they're stacked out of
     // the way rather than each claiming a full-width column of their own. Steve's layout: number
     // and type on one line, time indented on the line below.
     return `<tr${trAttr}>
   <td class="meta">
-    <div class="row-line"><span class="row-num">${index + 1}</span> <span class="mode-badge">${escapeHtml(summary.mode || '')}</span></div>
+    <div class="row-line"><span class="row-num">${index + 1}</span> <span class="mode-badge">${escapeHtml(summary.mode || '')}</span>${isManual ? ' <span class="typed-badge">typed</span>' : ''}</div>
     <div class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</div>
   </td>
-  <td>${escapeHtml(summary.returned || '')}${errorLine}</td>
-  <td>${escapeHtml(summary.sent || '')}</td>
+  <td>${escapeHtml(isManual ? summary.text || '' : summary.returned || '')}${errorLine}</td>
+  <td>${isManual ? '<span class="not-sent">typed by the operator, never sent to a provider</span>' : escapeHtml(summary.sent || '')}</td>
 </tr>`;
   }
 

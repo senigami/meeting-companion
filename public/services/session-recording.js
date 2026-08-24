@@ -137,3 +137,21 @@ export function buildSpeakerBreakRecord({ at = Date.now(), targetAt }) {
     targetAt: targetAt ? new Date(targetAt).toISOString() : null
   };
 }
+
+// A line the operator typed rather than one the app heard: "Show now", a program header send, and
+// the fixed "Music is playing." line all land here. Until #135 these left no trace in the recording
+// at all -- not logged imperfectly, logged nowhere -- so a session review or a replay showed only
+// what the AI produced and silently omitted everything a human put on the wall beside it. That is
+// the one class of card guaranteed to be correct, and it was the one class missing from the record.
+// `text` is stored exactly as addLine normalized it (newline-separated when one send produced
+// several cards), because what is worth keeping is what the reader actually saw.
+export function buildManualLineRecord({ at = Date.now(), mode, text, speaker = null, isHeader = false }) {
+  return {
+    t: 'manual',
+    at: new Date(at).toISOString(),
+    mode: mode || null,
+    speaker: speaker || null,
+    text: text || '',
+    isHeader: Boolean(isHeader)
+  };
+}
