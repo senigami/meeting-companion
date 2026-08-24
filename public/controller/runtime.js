@@ -418,6 +418,22 @@ export function createRuntime(ctx, deps = {}) {
     flashRailNote(ctx, text, { setTimeoutFn, clearTimeoutFn });
   }
 
+  // Click-to-edit-in-place (#125): the operator hand-corrects a card's text via contenteditable
+  // directly on the card, and start-app.js's focusout handler calls this with the sanitized result.
+  // Deliberately does NOT re-run segmentTranscriptText/segmentAiResponseText on the corrected text --
+  // re-segmenting a hand-corrected card risks silently re-splitting/re-merging it into different
+  // cards than the one the operator just edited. Also deliberately does NOT call renderDisplay: the
+  // edit is already visually correct on screen (the operator typed it directly into the DOM node),
+  // and renderDisplay's fast path (view.js, previousIsPrefix) skips any item whose id already
+  // rendered, so calling it here would silently no-op the very update this function exists to make.
+  // Only ctx.state needs to sync, so a FUTURE full rebuild (a new card arriving) doesn't clobber the
+  // edit with stale text.
+  function updateItemText(id, text) {
+    const item = ctx.state.transcriptItems.find((entry) => entry.id === id);
+    if (!item) return;
+    item.text = text;
+  }
+
   function armClear() {
     ctx.state.clearArmed = true;
     updateClearButton(ctx);
@@ -2591,6 +2607,7 @@ export function createRuntime(ctx, deps = {}) {
     togglePauseAi,
     undoLine,
     removeItem,
+    updateItemText,
     updatePauseButton: () => updatePauseButton(ctx),
     toggleSettingsOpen: () => {
       const next = !(ctx.state.settingsOpen ?? ctx.state.panelOpen);

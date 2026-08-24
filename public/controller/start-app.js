@@ -37,6 +37,7 @@ import { createRuntime } from './runtime.js';
 import { isDemoModeEnabled, startDemoFeed } from './demo-feed.js';
 import { createRecordingSessionId } from '../services/session-recording.js';
 import { normalizeReplaySpeed } from '../services/transcription/replay.js';
+import { sanitizeEditedText } from '../services/sanitize-edited-text.js';
 
 // 2026-08-09: a real session had demo cards appear unprompted mid-meeting with a real OpenAI key
 // configured and selected in Settings the whole time -- traced to a stray `?demo` left in the URL
@@ -394,6 +395,118 @@ function bindTranscriptSummaries(ctx, runtime) {
   $('summarizeOnce').addEventListener('click', () => runtime.summarizeCurrentText(ctx.dom.pasteTranscript.value));
 }
 
+// `plaintext-only` (Chromium/Firefox) blocks a paste or an Enter press from inserting real markup
+// (a <div>/<br>) into the card, which is exactly what sanitizeEditedText exists to clean up after
+// on browsers that don't support it -- so prefer it, and fall back to `true` where it's absent
+// (older WebKit) rather than leaving the card uneditable.
+const PLAINTEXT_ONLY_SUPPORTED = (() => {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return false;
+  try {
+    const probe = document.createElement('div');
+    probe.contentEditable = 'plaintext-only';
+    return probe.contentEditable === 'plaintext-only';
+  } catch {
+    return false;
+  }
+})();
+
+function beginCardEdit(node, card) {
+  // Already editing this node (a second click while the caret is inside it) -- do nothing, and
+  // critically don't re-stash textContent, which would overwrite the original with whatever's
+  // been typed so far and break Escape's restore.
+  if (!node || node.getAttribute?.('contenteditable')) return;
+  node.dataset.originalText = node.textContent || '';
+  node.setAttribute('contenteditable', PLAINTEXT_ONLY_SUPPORTED ? 'plaintext-only' : 'true');
+  node.spellcheck = false;
+  card?.classList?.add('transcript-item--editing');
+  node.focus?.();
+  const selection = globalThis.getSelection?.();
+  if (selection && typeof document !== 'undefined' && document.createRange) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+}
+
+function endCardEdit(node, card) {
+  node.removeAttribute('contenteditable');
+  card?.classList?.remove('transcript-item--editing');
+}
+
+// Click-to-edit-in-place (#125), same delegation idiom as transcript-delete above: cards are
+// replaced wholesale on every render, so one listener on the stack (keyed by the id/class view.js
+// stamps onto each card) survives that churn instead of being re-attached every tick.
+function bindTranscriptCardEditing(ctx, runtime) {
+  const stack = ctx.dom.transcriptStack;
+  if (!stack) return;
+
+  stack.addEventListener('click', (event) => {
+    const target = event.target?.closest?.('.transcript-text, .transcript-meta-value');
+    if (!target) return;
+    const card = target.closest?.('.transcript-item');
+    // The sample placeholder isn't a real captured line -- nothing to correct, same exclusion the
+    // delete button already applies.
+    if (!card || card.dataset?.sample === 'true') return;
+    beginCardEdit(target, card);
+  });
+
+  // `plaintext-only` blocks a rich paste from inserting real markup, but where it's unsupported
+  // (older WebKit) contenteditable="true" inserts the browser's OWN pasted HTML live -- an
+  // <img onerror=...> in the clipboard fires the instant it lands, before sanitizeEditedText or
+  // any commit handler ever runs. Feature-detecting our way out of that (relying on plaintext-only
+  // where available) leaves the fallback with no defense at all. Intercept paste unconditionally,
+  // on every browser, and insert only the plain-text payload -- confirmed live: without this,
+  // execCommand('insertHTML', ..., '<img onerror=...>') executes the handler immediately.
+  stack.addEventListener('paste', (event) => {
+    const target = event.target?.closest?.('[contenteditable]');
+    if (!target) return;
+    event.preventDefault();
+    const plain = event.clipboardData?.getData('text/plain') ?? '';
+    const selection = globalThis.getSelection?.();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(plain));
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      target.textContent += plain;
+    }
+  });
+
+  stack.addEventListener('keydown', (event) => {
+    const target = event.target?.closest?.('[contenteditable]');
+    if (!target) return;
+    if (event.key === 'Enter') {
+      // Funnel into the same commit path focusout uses below, rather than committing here too --
+      // one path, not two.
+      event.preventDefault();
+      target.blur?.();
+      return;
+    }
+    if (event.key === 'Escape') {
+      // Restore the exact stashed string, not a re-normalized version of it, and drop
+      // contenteditable BEFORE blur so the focusout handler below (filtered to nodes that still
+      // carry contenteditable) never sees this as a commit.
+      target.textContent = target.dataset.originalText ?? '';
+      endCardEdit(target, target.closest?.('.transcript-item'));
+      target.blur?.();
+    }
+  });
+
+  stack.addEventListener('focusout', (event) => {
+    const target = event.target?.closest?.('[contenteditable]');
+    if (!target) return;
+    const card = target.closest?.('.transcript-item');
+    const id = card?.dataset?.itemId;
+    const cleanText = sanitizeEditedText(target.textContent);
+    endCardEdit(target, card);
+    if (id) runtime.updateItemText(id, cleanText);
+  });
+}
+
 function bindControlButtons(ctx, runtime) {
   ctx.dom.startListening.addEventListener('click', runtime.startListening);
   ctx.dom.stopListening.addEventListener('click', () => {
@@ -417,6 +530,7 @@ function bindControlButtons(ctx, runtime) {
     const id = card?.dataset?.itemId;
     if (id) runtime.removeItem(id);
   });
+  bindTranscriptCardEditing(ctx, runtime);
   const fullscreenButton = ctx.dom.fullscreen || $('fullscreen');
   const syncFullscreenButton = () => {
     const active = Boolean(document.fullscreenElement);
