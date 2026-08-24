@@ -54,9 +54,8 @@ const PAGE_STYLE = `
   th { background: #f2f2f2; }
   td.meta { white-space: nowrap; width: 1%; }
   td.meta .row-num { font-weight: 700; }
-  td.meta .mode-time { margin-top: 0.15rem; font-size: 0.78em; color: #555; }
-  td.meta .mode-badge { text-transform: uppercase; letter-spacing: 0.03em; }
-  td.meta .timestamp { font-family: monospace; }
+  td.meta .mode-badge { text-transform: capitalize; color: #555; }
+  td.meta .timestamp { margin-top: 0.15rem; margin-left: 1.25rem; font-size: 0.78em; font-family: monospace; color: #555; }
   tr.failed td { background: #fdecea; }
   tr.mode-change td { border-top: 3px solid #333; }
   tr.corrected td { color: #888; text-decoration: line-through; }
@@ -99,6 +98,8 @@ export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false
   const header = records.find((record) => record.t === 'header') || null;
   const summaries = records.filter((record) => record.t === 'summary');
   const corrections = records.filter((record) => record.t === 'correction');
+  const speakerBreaks = records.filter((record) => record.t === 'speaker-break');
+  const speakerBreakAts = new Set(speakerBreaks.map((b) => b.targetAt).filter(Boolean));
 
   // A correction is additive (buildCorrectionRecord's own comment explains why): the summary it
   // targets is never removed from the file, only from what renders here by default. `targetAt` is
@@ -130,20 +131,24 @@ export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false
   function buildRow(summary, index, { corrected = false } = {}) {
     const failedClass = summary.ok ? '' : ' failed';
     const correctedClass = corrected ? ' corrected' : '';
-    // A row gets the mode-change break only when its mode actually differs from the row right
-    // above it in the SAME visible set -- a row hidden by default must not leave a phantom break
-    // in the sequence a reader actually sees.
+    // A row gets the mode-change break when its mode actually differs from the row right above it
+    // in the SAME visible set -- a row hidden by default must not leave a phantom break in the
+    // sequence a reader actually sees -- OR when a speaker-break record marks it directly: the
+    // recorded mode is one of four generic buckets, never who is talking, so a handoff between two
+    // people inside one long "speaker" block needs a human-placed marker, not a data comparison.
     const modeChanged = index === 0 || summary.mode !== visibleSummaries[index - 1]?.mode;
-    const rowClass = `${failedClass}${modeChanged && !corrected ? ' mode-change' : ''}${correctedClass}`.trim();
+    const forcedBreak = speakerBreakAts.has(summary.at);
+    const rowClass = `${failedClass}${(modeChanged || forcedBreak) && !corrected ? ' mode-change' : ''}${correctedClass}`.trim();
     const trAttr = rowClass ? ` class="${rowClass}"` : '';
     const errorLine = summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
     // #, type, and time share one narrow column -- what a reader actually scans this table for is
     // the summary and the raw text beside it, not any of these three, so they're stacked out of
-    // the way rather than each claiming a full-width column of their own.
+    // the way rather than each claiming a full-width column of their own. Steve's layout: number
+    // and type on one line, time indented on the line below.
     return `<tr${trAttr}>
   <td class="meta">
-    <div class="row-num">${index + 1}</div>
-    <div class="mode-time"><span class="mode-badge">${escapeHtml(summary.mode || '')}</span> <span class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</span></div>
+    <div class="row-line"><span class="row-num">${index + 1}</span> <span class="mode-badge">${escapeHtml(summary.mode || '')}</span></div>
+    <div class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</div>
   </td>
   <td>${escapeHtml(summary.returned || '')}${errorLine}</td>
   <td>${escapeHtml(summary.sent || '')}</td>

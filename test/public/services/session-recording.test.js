@@ -6,7 +6,8 @@ import {
   buildChunkRecord,
   buildSummaryRecord,
   buildHeaderRecord,
-  buildCorrectionRecord
+  buildCorrectionRecord,
+  buildSpeakerBreakRecord
 } from '../../../public/services/session-recording.js';
 
 test('session id is derived from a timestamp and contains only filesystem/URL-safe characters', () => {
@@ -149,5 +150,17 @@ test('buildCorrectionRecord points at the corrected summary by its own timestamp
 test('buildCorrectionRecord defaults reason to empty string and targetAt to null, never undefined', () => {
   const record = buildCorrectionRecord({});
   assert.equal(record.reason, '');
+  assert.equal(record.targetAt, null);
+});
+
+test('buildSpeakerBreakRecord points at the summary starting the new speaker, same targetAt idiom as a correction', () => {
+  const targetAt = Date.UTC(2026, 7, 23, 16, 50, 24, 863);
+  const record = buildSpeakerBreakRecord({ at: Date.UTC(2026, 7, 24, 2, 0, 0), targetAt });
+  assert.equal(record.t, 'speaker-break');
+  assert.equal(record.targetAt, new Date(targetAt).toISOString());
+});
+
+test('buildSpeakerBreakRecord defaults targetAt to null, never undefined', () => {
+  const record = buildSpeakerBreakRecord({});
   assert.equal(record.targetAt, null);
 });

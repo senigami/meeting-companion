@@ -210,8 +210,8 @@ test('a corrected summary is hidden from the default review, renumbering around 
   assert.match(response.body, /Real two\./);
   assert.doesNotMatch(response.body, /Godzina/);
   // Renumbered around the hidden row: two visible summaries, rows 1 and 2, not 1 and 3.
-  assert.match(response.body, /row-num">1<\/div>[\s\S]*Real one\./);
-  assert.match(response.body, /row-num">2<\/div>[\s\S]*Real two\./);
+  assert.match(response.body, /row-num">1<\/span>[\s\S]*Real one\./);
+  assert.match(response.body, /row-num">2<\/span>[\s\S]*Real two\./);
   assert.match(response.body, /1 correction\(s\) applied/);
   assert.match(response.body, /corrections=1/);
 });
@@ -238,4 +238,31 @@ test('?corrections=1 reveals a corrected row, struck through, with the other two
   assert.match(response.body, /Godzina/);
   assert.match(response.body, /class="corrected"/);
   assert.match(response.body, /hide them again/);
+});
+
+test('a speaker-break record forces a divider inside one long same-mode block, where mode alone would not', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'header', at: '2026-08-23T16:00:00.000Z', appCommit: 'abc', promptHash: 'ph', maxWords: 10, provider: 'openai', intervalSeconds: 20 }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:01:00.000Z', mode: 'speaker', consumedIds: [], sent: 'first speaker line', returned: 'First speaker line.', ok: true }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:02:00.000Z', mode: 'speaker', consumedIds: [], sent: 'second speaker line', returned: 'Second speaker line.', ok: true }),
+    JSON.stringify({ t: 'speaker-break', at: '2026-08-24T02:00:00.000Z', targetAt: '2026-08-23T16:02:00.000Z' })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  assert.equal(response.statusCode, 200);
+  // Row 1 (no mode change, index 0) always gets the class as the top of the table; the real check
+  // is that row 2 -- same mode as row 1, which alone would NOT trigger a break -- gets it too,
+  // because the speaker-break record forces it.
+  const rows = response.body.split('<tr');
+  const row2 = rows.find((r) => r.includes('Second speaker line'));
+  assert.match(row2, /class="mode-change"/);
 });

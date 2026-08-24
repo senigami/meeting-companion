@@ -123,3 +123,17 @@ export function buildCorrectionRecord({ at = Date.now(), targetAt, reason = '' }
     reason: reason || ''
   };
 }
+
+// The recorded "mode" is one of four generic buckets (speaker/information/song/prayer), never who
+// is actually talking -- speaker identity isn't captured on a summary record at all (only on a
+// chunk, and only when the operator typed a name). Two different people can talk back-to-back
+// inside one long "speaker" mode block with nothing in the data to mark the handoff, so a human who
+// was actually in the room is the only source for where those breaks belong. Same targetAt idiom as
+// buildCorrectionRecord, for the same reason: a row number shifts, a record's own timestamp doesn't.
+export function buildSpeakerBreakRecord({ at = Date.now(), targetAt }) {
+  return {
+    t: 'speaker-break',
+    at: new Date(at).toISOString(),
+    targetAt: targetAt ? new Date(targetAt).toISOString() : null
+  };
+}
