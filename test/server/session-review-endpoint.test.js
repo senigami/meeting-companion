@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable, Duplex } from 'node:stream';
 
 import { createApp } from '../../server.js';
+import { formatDisplayTime } from '../../server/session-review.js';
 
 // Same req/res fakes as test/server/recording-endpoint.test.js -- see that file for the reasoning
 // behind each piece (kept local rather than shared, since that file does not export them either).
@@ -132,7 +133,12 @@ test('GET /sessions/:id/review lines up raw text sent and the summary returned, 
   const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
 
   assert.equal(response.statusCode, 200);
-  assert.match(response.body, /2026-07-29T10:00:05\.000Z/);
+  // Compact display time (America/New_York, this repo's own meeting timezone -- see
+  // formatDisplayTime), no AM/PM, not the raw UTC "at" -- but the exact instant still appears, in
+  // the cell's title attribute, so nothing is actually lost.
+  assert.match(response.body, />6:00:05</);
+  assert.doesNotMatch(response.body, /6:00:05\s*[AP]M/);
+  assert.match(response.body, /title="2026-07-29T10:00:05\.000Z"/);
   assert.match(response.body, /A neighbor was forgiven\./);
   assert.match(response.body, /A neighbor is forgiven\./);
 });
@@ -167,4 +173,15 @@ test('GET /sessions/:id/review is refused for a non-loopback remote address', as
   });
 
   assert.equal(response.statusCode, 403);
+});
+
+test('formatDisplayTime renders the room\'s wall clock (America/New_York), no AM/PM, not raw UTC', () => {
+  // Summer: EDT (UTC-4).
+  assert.equal(formatDisplayTime('2026-07-29T10:00:05.000Z'), '6:00:05');
+  // Winter: EST (UTC-5) -- the offset itself must be date-aware, not a fixed hour subtraction.
+  assert.equal(formatDisplayTime('2026-01-15T10:00:05.000Z'), '5:00:05');
+  // Noon must read "12", never "0" or "24" -- the one hour a 12-hour clock can get wrong.
+  assert.equal(formatDisplayTime('2026-01-15T17:00:05.000Z'), '12:00:05');
+  // Malformed input falls back to returning it unchanged rather than rendering "Invalid Date".
+  assert.equal(formatDisplayTime('not a date'), 'not a date');
 });

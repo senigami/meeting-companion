@@ -9,6 +9,34 @@
 
 import { parseRecordingLines } from '../scripts/lib/recording-summary.js';
 
+// Recorded timestamps are UTC ("at" always ends in Z); the room they describe is not. Hardcoded to
+// this repo's own meeting timezone (every commit in this repo's own history is -04:00/-05:00, i.e.
+// America/New_York) rather than the server's ambient TZ, so the rendered time is deterministic
+// regardless of where this runs, and actually matches the wall clock in the room the report is
+// about -- a recipient reading "16:24" for a meeting that happened at noon would be genuinely
+// misled, not just inconvenienced.
+const DISPLAY_TIME_ZONE = 'America/New_York';
+// hour12 still picks the 12-hour clock (so noon reads "12:xx", not "0:xx" or "24:00"), but the
+// dayPeriod part (AM/PM) is dropped below -- Steve's call: nobody reading a report about an actual
+// room event mistakes what it's showing for midnight.
+const DISPLAY_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: DISPLAY_TIME_ZONE,
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: true
+});
+
+export function formatDisplayTime(isoTimestamp) {
+  const date = new Date(isoTimestamp);
+  if (Number.isNaN(date.getTime())) return String(isoTimestamp);
+  return DISPLAY_TIME_FORMATTER.formatToParts(date)
+    .filter((part) => part.type !== 'dayPeriod')
+    .map((part) => part.value)
+    .join('')
+    .trim();
+}
+
 export function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -91,7 +119,7 @@ export function buildSessionReviewHtml(id, ndjsonText) {
           const errorLine = summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
           return `<tr${trAttr}>
   <td class="row-num">${index + 1}</td>
-  <td class="timestamp">${escapeHtml(summary.at)}</td>
+  <td class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</td>
   <td class="mode">${escapeHtml(summary.mode || '')}</td>
   <td>${escapeHtml(summary.returned || '')}${errorLine}</td>
   <td>${escapeHtml(summary.sent || '')}</td>
@@ -108,7 +136,7 @@ export function buildSessionReviewHtml(id, ndjsonText) {
 <p><a href="/sessions">&larr; all sessions</a></p>
 ${noteRows.join('\n')}
 <table>
-<thead><tr><th>#</th><th>Timestamp</th><th>Type</th><th>Summary returned</th><th>Raw text sent</th></tr></thead>
+<thead><tr><th>#</th><th>Timestamp</th><th>Type</th><th>Summary displayed</th><th>Raw text sent</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
