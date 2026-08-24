@@ -468,6 +468,23 @@
               </div>
               <input id="displayMargin" class="sliderInput" type="range" min="0" max="40" step="0.5" />
             </div>
+            <div class="range-field" id="fontFamilyField">
+              <div class="range-head">
+                <label for="fontFamily">Typeface</label>
+              </div>
+              <select id="fontFamily">
+                <option value="system">Default</option>
+                <option value="atkinson-hyperlegible-next">Atkinson Hyperlegible Next (low vision)</option>
+              </select>
+              <div class="field-note">Atkinson Hyperlegible Next is built by the Braille Institute specifically for low vision reading.</div>
+            </div>
+            <div class="range-field" id="fontWeightField">
+              <div class="range-head">
+                <label for="fontWeight">Thickness</label>
+                <output id="fontWeightValue" for="fontWeight"></output>
+              </div>
+              <input id="fontWeight" class="sliderInput" type="range" min="300" max="800" step="10" />
+            </div>
           </div>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import {
   clampSummaryMaxWordsOverride,
-  sliderPositionFromFontSize
+  sliderPositionFromFontSize,
+  FONT_FAMILY_CSS_VALUES
 } from '../services/view-settings.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
 import { usableIntervalFloor } from '../services/reading-pace.js';
@@ -803,6 +804,15 @@ export function syncViewerControls(ctx) {
   ctx.dom.displayMarginInput.value = String(ctx.state.displayMargin);
   ctx.dom.displayMarginValue.textContent = `${ctx.state.displayMargin.toFixed(1)}%`;
   updateSliderFill(ctx.dom.displayMarginInput);
+  if (ctx.dom.fontFamilySelect) {
+    ctx.dom.fontFamilySelect.value = ctx.state.fontFamily;
+  }
+  if (ctx.dom.fontWeightInput) {
+    ctx.dom.fontWeightInput.value = String(ctx.state.fontWeight);
+    ctx.dom.fontWeightInput.setAttribute('aria-valuetext', String(ctx.state.fontWeight));
+    ctx.dom.fontWeightValue.textContent = String(ctx.state.fontWeight);
+    updateSliderFill(ctx.dom.fontWeightInput);
+  }
   updateSummaryIntervalControl(ctx);
   updateSummaryMaxWordsControl(ctx);
   updateDisplayMarginGuides(ctx);
@@ -811,6 +821,11 @@ export function syncViewerControls(ctx) {
 export function applyViewerSettings(ctx) {
   document.documentElement.style.setProperty('--font-size', `${ctx.state.fontSize}px`);
   document.documentElement.style.setProperty('--display-margin', `${ctx.state.displayMargin}%`);
+  document.documentElement.style.setProperty(
+    '--font-family',
+    FONT_FAMILY_CSS_VALUES[ctx.state.fontFamily] || FONT_FAMILY_CSS_VALUES.system
+  );
+  document.documentElement.style.setProperty('--font-weight', String(ctx.state.fontWeight));
   updateDisplayMarginGuides(ctx);
 }
 

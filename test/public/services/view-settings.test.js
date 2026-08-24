@@ -5,6 +5,12 @@ import assert from 'node:assert/strict';
 import {
   clampDisplayMargin,
   clampFontSize,
+  clampFontFamily,
+  clampFontWeight,
+  fontFamilyOptions,
+  FONT_FAMILY_CSS_VALUES,
+  FONT_WEIGHT_MIN,
+  FONT_WEIGHT_MAX,
   clampSummaryIntervalSeconds,
   clampSummaryMaxWords,
   SUMMARY_INTERVAL_MIN_SECONDS,
@@ -33,6 +39,23 @@ test('view settings clamp to safe display ranges', () => {
   assert.equal(clampSummaryMaxWords(99), 17);
   assert.equal(clampSummaryMaxWords('garbage'), 14);
   assert.equal(clampSummaryMaxWords(undefined), 14);
+  assert.equal(clampFontWeight(100), FONT_WEIGHT_MIN);
+  assert.equal(clampFontWeight(999), FONT_WEIGHT_MAX);
+  assert.equal(clampFontWeight(575), 580);
+  assert.equal(clampFontFamily('garbage'), 'system');
+  assert.equal(clampFontFamily(undefined), 'system');
+  assert.equal(clampFontFamily('atkinson-hyperlegible-next'), 'atkinson-hyperlegible-next');
+});
+
+test('font family ids each resolve to a real CSS value ending in the shared system stack', () => {
+  for (const id of fontFamilyOptions) {
+    const value = FONT_FAMILY_CSS_VALUES[id];
+    assert.ok(value, `missing CSS value for font family id "${id}"`);
+    assert.ok(value.includes('sans-serif'), `"${id}" has no system fallback: ${value}`);
+  }
+  // The one thing this whole feature is FOR: picking the low-vision option must actually change
+  // the value, not silently resolve to the same string as the default.
+  assert.notEqual(FONT_FAMILY_CSS_VALUES.system, FONT_FAMILY_CSS_VALUES['atkinson-hyperlegible-next']);
 });
 
 test('summary interval spans 2s to 30s', () => {

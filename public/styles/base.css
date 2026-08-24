@@ -1,6 +1,23 @@
+/* Braille Institute of America, OFL-1.1 licensed -- vendored so the reading display never depends
+   on a font CDN staying up mid-meeting. Static-instance range 300-800 (see FONT_WEIGHT_MIN/MAX in
+   view-settings.js); this is the one variable-font file that covers the whole range, not six files. */
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('../assets/fonts/AtkinsonHyperlegibleNext-Variable.woff2') format('woff2-variations');
+}
+
 :root {
   --font-size: 84px;
   --display-margin: 4.5%;
+  /* Only .transcript-text (the reading line itself) consumes these -- chrome text (labels, buttons,
+     settings) stays on the system stack regardless of what's picked here. 'system' is the same stack
+     base.css already uses for body text, so choosing it changes nothing for anyone who never opens
+     this setting. */
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-weight: 600;
   --operator-rail-width: 220px;
   --line-gap: 0.28em;
   --bg: #0a0b10;

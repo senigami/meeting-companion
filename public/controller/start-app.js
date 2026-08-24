@@ -1,6 +1,8 @@
 import {
   clampDisplayMargin,
   clampFontSize,
+  clampFontFamily,
+  clampFontWeight,
   clampSummaryIntervalSeconds,
   fontSizeFromSliderPosition,
   clampAudioProcessingPreset,
@@ -51,6 +53,8 @@ let cancelDemoFeed = () => {};
 const STORAGE = {
   fontSize: 'fontSize',
   displayMargin: 'displayMargin',
+  fontFamily: 'fontFamily',
+  fontWeight: 'fontWeight',
   summaryInterval: 'summaryIntervalSeconds',
   summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
@@ -96,6 +100,8 @@ export function startApp() {
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
+      fontFamily: clampFontFamily(localStorage.getItem(STORAGE.fontFamily) || 'system'),
+      fontWeight: clampFontWeight(localStorage.getItem(STORAGE.fontWeight) || 600),
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
@@ -231,6 +237,10 @@ export function startApp() {
       displayMarginInput: $('displayMargin'),
       displayMarginValue: $('displayMarginValue'),
       displayMarginField: $('displayMarginField'),
+      fontFamilySelect: $('fontFamily'),
+      fontWeightInput: $('fontWeight'),
+      fontWeightValue: $('fontWeightValue'),
+      fontWeightField: $('fontWeightField'),
       summaryIntervalInput: $('summaryInterval'),
       summaryIntervalValue: $('summaryIntervalValue'),
       summaryIntervalField: $('summaryIntervalField'),
@@ -635,6 +645,12 @@ function bindViewerControls(ctx, runtime) {
     runtime.setFontSize(fontSizeFromSliderPosition(e.target.value, ctx.state.fontSize));
   });
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
+  ctx.dom.fontFamilySelect?.addEventListener('change', (e) => {
+    runtime.setFontFamily(e.target.value);
+  });
+  ctx.dom.fontWeightInput?.addEventListener('input', (e) => {
+    runtime.setFontWeight(e.target.value);
+  });
   ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
     runtime.setSummaryInterval(e.target.value);
   });
@@ -651,6 +667,9 @@ function bindViewerControls(ctx, runtime) {
   });
 
   bindDragFade(ctx.dom.fontSizeInput, ctx.dom.fontSizeField);
+  if (ctx.dom.fontWeightInput && ctx.dom.fontWeightField) {
+    bindDragFade(ctx.dom.fontWeightInput, ctx.dom.fontWeightField);
+  }
 
   bindDragFade(ctx.dom.displayMarginInput, ctx.dom.displayMarginField, {
     onDragStart: () => {

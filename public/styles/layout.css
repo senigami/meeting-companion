@@ -478,7 +478,8 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   margin: 0;
   font-size: var(--font-size);
   line-height: 1.08;
-  font-weight: 600;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight, 600);
   letter-spacing: -0.045em;
   text-wrap: balance;
   color: var(--text);

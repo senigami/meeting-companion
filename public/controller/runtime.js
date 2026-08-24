@@ -16,6 +16,8 @@ import {
   AUDIO_SETTINGS_KEYS,
   clampDisplayMargin,
   clampFontSize,
+  clampFontFamily,
+  clampFontWeight,
   clampSummaryIntervalSeconds,
   clampSummaryMaxWordsOverride
 } from '../services/view-settings.js';
@@ -81,6 +83,8 @@ import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 const STORAGE = {
   fontSize: 'fontSize',
   displayMargin: 'displayMargin',
+  fontFamily: 'fontFamily',
+  fontWeight: 'fontWeight',
   summaryInterval: 'summaryIntervalSeconds',
   summaryMaxWords: 'summaryMaxWords',
   // A POINTER, not the measurement itself (issue #44): the measured pace stays on disk under
@@ -1903,6 +1907,18 @@ export function createRuntime(ctx, deps = {}) {
     syncViewerControls(ctx);
   }
 
+  function setFontFamily(nextFamily) {
+    ctx.state.fontFamily = clampFontFamily(nextFamily, ctx.state.fontFamily);
+    saveViewerSettings(ctx);
+    syncViewerControls(ctx);
+  }
+
+  function setFontWeight(nextWeight) {
+    ctx.state.fontWeight = clampFontWeight(nextWeight, ctx.state.fontWeight);
+    saveViewerSettings(ctx);
+    syncViewerControls(ctx);
+  }
+
   function beginDisplayMarginAdjustment() {
     ctx.state.displayMarginAdjusting = true;
     clearDisplayMarginGuideTimer(ctx, { clearTimeoutFn });
@@ -2576,6 +2592,8 @@ export function createRuntime(ctx, deps = {}) {
     loadRuntimeConfig,
     setDisplayMargin,
     setFontSize,
+    setFontFamily,
+    setFontWeight,
     setMode,
     setSpeakerName,
     addProgramEntry,

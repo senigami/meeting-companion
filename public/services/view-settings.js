@@ -30,6 +30,24 @@ export const SUMMARY_INTERVAL_MAX_SECONDS = 30;
 // consumed by the label. 11 is now the floor.
 export const summaryMaxWordsOptions = [11, 14, 17];
 export const summaryMaxWordsSliderMax = summaryMaxWordsOptions.length - 1;
+// Real weights the vendored Atkinson Hyperlegible Next variable font actually renders distinctly
+// (300-800 is its published static-instance range); a value outside that just gets the nearest end
+// of the axis from the browser, so clamping here matches what the reader would see anyway.
+export const FONT_WEIGHT_MIN = 300;
+export const FONT_WEIGHT_MAX = 800;
+// 'system' keeps today's default stack (base.css's existing font-family); the low-vision option is
+// the one thing Steve chose from the actual reader's own complaint ("too thick") -- both are real,
+// named ids rather than raw CSS strings so a stored value can't inject an arbitrary font-family.
+export const fontFamilyOptions = ['system', 'atkinson-hyperlegible-next'];
+// The actual CSS font-family value for each id above -- kept next to the id list so the two can
+// never drift apart. Always ends in the same system stack base.css already uses everywhere else,
+// so a script this font doesn't cover (the app already sees Korean, Arabic, Japanese mixed into
+// English speech, see #130) still falls back to a readable glyph per character instead of tofu.
+const SYSTEM_FONT_STACK = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
+export const FONT_FAMILY_CSS_VALUES = {
+  system: SYSTEM_FONT_STACK,
+  'atkinson-hyperlegible-next': `'Atkinson Hyperlegible Next', ${SYSTEM_FONT_STACK}`
+};
 export const AUDIO_HIGH_PASS_HZ_MIN = 50;
 export const AUDIO_HIGH_PASS_HZ_MAX = 150;
 export const audioProcessingPresetOptions = ['off', 'gentle', 'normal'];
@@ -70,6 +88,14 @@ export function sliderPositionFromFontSize(size, fallback = 84) {
 
 export function clampDisplayMargin(value, fallback = 4.5) {
   return roundToStep(clampNumber(value, DISPLAY_MARGIN_MIN, DISPLAY_MARGIN_MAX, fallback), 0.5);
+}
+
+export function clampFontWeight(value, fallback = 600) {
+  return roundToStep(clampNumber(value, FONT_WEIGHT_MIN, FONT_WEIGHT_MAX, fallback), 10);
+}
+
+export function clampFontFamily(value, fallback = 'system') {
+  return fontFamilyOptions.includes(value) ? value : fallback;
 }
 
 export function clampSummaryIntervalSeconds(value, fallback = 5) {

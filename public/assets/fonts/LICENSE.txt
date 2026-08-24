@@ -1,0 +1,9 @@
+Atkinson Hyperlegible Next
+Copyright Braille Institute of America, Inc.
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license text: https://openfontlicense.org
+
+Source: Google Fonts (fonts.google.com/specimen/Atkinson+Hyperlegible+Next)
+Vendored locally (2026-08-23) so the meeting display never depends on a font
+CDN staying reachable mid-meeting.
