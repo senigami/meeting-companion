@@ -5,7 +5,8 @@ import {
   createRecordingSessionId,
   buildChunkRecord,
   buildSummaryRecord,
-  buildHeaderRecord
+  buildHeaderRecord,
+  buildCorrectionRecord
 } from '../../../public/services/session-recording.js';
 
 test('session id is derived from a timestamp and contains only filesystem/URL-safe characters', () => {
@@ -130,4 +131,23 @@ test('buildHeaderRecord never carries transcript text or any key material -- met
   });
   const keys = Object.keys(record).sort();
   assert.deepEqual(keys, ['appCommit', 'at', 'intervalSeconds', 'maxWords', 'promptHash', 'provider', 't']);
+});
+
+test('buildCorrectionRecord points at the corrected summary by its own timestamp, and carries the reason', () => {
+  const targetAt = Date.UTC(2026, 7, 23, 17, 2, 18, 839);
+  const record = buildCorrectionRecord({
+    at: Date.UTC(2026, 7, 24, 2, 0, 0),
+    targetAt,
+    reason: 'setup noise, not real meeting content'
+  });
+  assert.equal(record.t, 'correction');
+  assert.equal(record.targetAt, new Date(targetAt).toISOString());
+  assert.equal(record.reason, 'setup noise, not real meeting content');
+  assert.equal(record.at, new Date(Date.UTC(2026, 7, 24, 2, 0, 0)).toISOString());
+});
+
+test('buildCorrectionRecord defaults reason to empty string and targetAt to null, never undefined', () => {
+  const record = buildCorrectionRecord({});
+  assert.equal(record.reason, '');
+  assert.equal(record.targetAt, null);
 });

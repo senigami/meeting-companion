@@ -185,3 +185,57 @@ test('formatDisplayTime renders the room\'s wall clock (America/New_York), no AM
   // Malformed input falls back to returning it unchanged rather than rendering "Invalid Date".
   assert.equal(formatDisplayTime('not a date'), 'not a date');
 });
+
+test('a corrected summary is hidden from the default review, renumbering around the gap', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'header', at: '2026-08-23T16:00:00.000Z', appCommit: 'abc', promptHash: 'ph', maxWords: 10, provider: 'openai', intervalSeconds: 20 }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:01:00.000Z', mode: 'information', consumedIds: [], sent: 'real one', returned: 'Real one.', ok: true }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:02:00.000Z', mode: 'information', consumedIds: [], sent: 'Godzina.', returned: 'Godzina.', ok: true }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:03:00.000Z', mode: 'information', consumedIds: [], sent: 'real two', returned: 'Real two.', ok: true }),
+    JSON.stringify({ t: 'correction', at: '2026-08-24T02:00:00.000Z', targetAt: '2026-08-23T16:02:00.000Z', reason: 'setup noise' })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Real one\./);
+  assert.match(response.body, /Real two\./);
+  assert.doesNotMatch(response.body, /Godzina/);
+  // Renumbered around the hidden row: two visible summaries, rows 1 and 2, not 1 and 3.
+  assert.match(response.body, /row-num">1<\/div>[\s\S]*Real one\./);
+  assert.match(response.body, /row-num">2<\/div>[\s\S]*Real two\./);
+  assert.match(response.body, /1 correction\(s\) applied/);
+  assert.match(response.body, /corrections=1/);
+});
+
+test('?corrections=1 reveals a corrected row, struck through, with the other two unaffected', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'header', at: '2026-08-23T16:00:00.000Z', appCommit: 'abc', promptHash: 'ph', maxWords: 10, provider: 'openai', intervalSeconds: 20 }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:01:00.000Z', mode: 'information', consumedIds: [], sent: 'real one', returned: 'Real one.', ok: true }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:02:00.000Z', mode: 'information', consumedIds: [], sent: 'Godzina.', returned: 'Godzina.', ok: true }),
+    JSON.stringify({ t: 'correction', at: '2026-08-24T02:00:00.000Z', targetAt: '2026-08-23T16:02:00.000Z', reason: 'setup noise' })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review?corrections=1' });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Godzina/);
+  assert.match(response.body, /class="corrected"/);
+  assert.match(response.body, /hide them again/);
+});

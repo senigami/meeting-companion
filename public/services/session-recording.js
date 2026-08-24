@@ -107,3 +107,19 @@ export function buildSummaryRecord({
     discardedByCapClient: Number(discardedByCapClient) || 0
   };
 }
+
+// A correction is additive, never destructive: the summary record it targets stays in the file
+// exactly as recorded, and this is the only durable trace that a human later decided it didn't
+// belong in the report. `targetAt` is the corrected summary record's own `at` (already unique per
+// summary, same idiom buildChunkRecord's `id` uses against a chunk) -- a row NUMBER would break the
+// moment an earlier correction shifted the numbering, so this points at the record itself, not its
+// position. `reason` is free text because "why" is exactly the fact this record exists to keep;
+// recording the removal with no reason would just be a second, less honest way to delete a line.
+export function buildCorrectionRecord({ at = Date.now(), targetAt, reason = '' }) {
+  return {
+    t: 'correction',
+    at: new Date(at).toISOString(),
+    targetAt: targetAt ? new Date(targetAt).toISOString() : null,
+    reason: reason || ''
+  };
+}

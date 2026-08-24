@@ -349,7 +349,7 @@ export function createApp({
       if (contents === null) {
         return res.status(404).send('Recording not found.');
       }
-      res.type('html').send(buildSessionReviewHtml(req.params.id, contents));
+      res.type('html').send(buildSessionReviewHtml(req.params.id, contents, { showCorrections: req.query.corrections === '1' }));
     } catch (error) {
       console.error(safeErrorDetail(error));
       res.status(500).send('Rendering session review failed.');

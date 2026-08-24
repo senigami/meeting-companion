@@ -52,10 +52,15 @@ const PAGE_STYLE = `
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; vertical-align: top; }
   th { background: #f2f2f2; }
-  td.timestamp { white-space: nowrap; font-family: monospace; font-size: 0.85em; color: #555; }
-  td.failed { background: #fdecea; }
-  td.mode { white-space: nowrap; font-size: 0.85em; color: #555; text-transform: capitalize; }
+  td.meta { white-space: nowrap; width: 1%; }
+  td.meta .row-num { font-weight: 700; }
+  td.meta .mode-time { margin-top: 0.15rem; font-size: 0.78em; color: #555; }
+  td.meta .mode-badge { text-transform: uppercase; letter-spacing: 0.03em; }
+  td.meta .timestamp { font-family: monospace; }
+  tr.failed td { background: #fdecea; }
   tr.mode-change td { border-top: 3px solid #333; }
+  tr.corrected td { color: #888; text-decoration: line-through; }
+  tr.corrected td.meta { text-decoration: none; }
   ul.recording-list { list-style: none; padding: 0; }
   ul.recording-list li { margin: 0.25rem 0; }
 `;
@@ -89,10 +94,19 @@ ${items}
 // sent to the provider, not the individual chunks, since that is what the summarizer actually saw)
 // and renders one row per pair, in file order (already chronological -- ADR-0004 records are
 // appended as they happen).
-export function buildSessionReviewHtml(id, ndjsonText) {
+export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false } = {}) {
   const { records, unparseable } = parseRecordingLines(ndjsonText);
   const header = records.find((record) => record.t === 'header') || null;
   const summaries = records.filter((record) => record.t === 'summary');
+  const corrections = records.filter((record) => record.t === 'correction');
+
+  // A correction is additive (buildCorrectionRecord's own comment explains why): the summary it
+  // targets is never removed from the file, only from what renders here by default. `targetAt` is
+  // the corrected summary's own `at`, the same idiom consumedIds already uses to point at a chunk
+  // without a second id scheme -- and the reason it survives a re-numbering that a row position
+  // would not.
+  const correctedAts = new Set(corrections.map((c) => c.targetAt).filter(Boolean));
+  const visibleSummaries = showCorrections ? summaries : summaries.filter((s) => !correctedAts.has(s.at));
 
   const noteRows = [];
   if (!header) {
@@ -105,28 +119,42 @@ export function buildSessionReviewHtml(id, ndjsonText) {
   if (unparseable > 0) {
     noteRows.push(`<p>NOTE: ${unparseable} line(s) could not be parsed and are not shown below.</p>`);
   }
+  if (corrections.length > 0) {
+    const toggleHref = showCorrections ? `/sessions/${encodeURIComponent(id)}/review` : `/sessions/${encodeURIComponent(id)}/review?corrections=1`;
+    const toggleLabel = showCorrections ? 'hide them again' : 'show what was removed and why';
+    noteRows.push(
+      `<p>${corrections.length} correction(s) applied -- entries removed from the default view below, not from the recording. <a href="${toggleHref}">${toggleLabel}</a>.</p>`
+    );
+  }
 
-  const rows = summaries.length
-    ? summaries
-        .map((summary, index) => {
-          const failedClass = summary.ok ? ' ' : ' class="failed" ';
-          // A row gets the mode-change break only when its mode actually differs from the row
-          // right above it -- back-to-back speaker (or info, or prayer) rows stay flush together,
-          // since the break is meant to mark a change of kind, not just a change of card.
-          const modeChanged = index === 0 || summary.mode !== summaries[index - 1].mode;
-          const rowClass = `${failedClass}${modeChanged ? 'mode-change' : ''}`.trim();
-          const trAttr = rowClass ? ` class="${rowClass}"` : '';
-          const errorLine = summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
-          return `<tr${trAttr}>
-  <td class="row-num">${index + 1}</td>
-  <td class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</td>
-  <td class="mode">${escapeHtml(summary.mode || '')}</td>
+  function buildRow(summary, index, { corrected = false } = {}) {
+    const failedClass = summary.ok ? '' : ' failed';
+    const correctedClass = corrected ? ' corrected' : '';
+    // A row gets the mode-change break only when its mode actually differs from the row right
+    // above it in the SAME visible set -- a row hidden by default must not leave a phantom break
+    // in the sequence a reader actually sees.
+    const modeChanged = index === 0 || summary.mode !== visibleSummaries[index - 1]?.mode;
+    const rowClass = `${failedClass}${modeChanged && !corrected ? ' mode-change' : ''}${correctedClass}`.trim();
+    const trAttr = rowClass ? ` class="${rowClass}"` : '';
+    const errorLine = summary.ok ? '' : `<br><em>FAILED: ${escapeHtml(summary.error || 'unknown error')}</em>`;
+    // #, type, and time share one narrow column -- what a reader actually scans this table for is
+    // the summary and the raw text beside it, not any of these three, so they're stacked out of
+    // the way rather than each claiming a full-width column of their own.
+    return `<tr${trAttr}>
+  <td class="meta">
+    <div class="row-num">${index + 1}</div>
+    <div class="mode-time"><span class="mode-badge">${escapeHtml(summary.mode || '')}</span> <span class="timestamp" title="${escapeHtml(summary.at)}">${escapeHtml(formatDisplayTime(summary.at))}</span></div>
+  </td>
   <td>${escapeHtml(summary.returned || '')}${errorLine}</td>
   <td>${escapeHtml(summary.sent || '')}</td>
 </tr>`;
-        })
+  }
+
+  const rows = visibleSummaries.length
+    ? visibleSummaries
+        .map((summary, index) => buildRow(summary, index, { corrected: showCorrections && correctedAts.has(summary.at) }))
         .join('\n')
-    : '<tr><td colspan="5">No summary records in this session.</td></tr>';
+    : '<tr><td colspan="3">No summary records in this session.</td></tr>';
 
   return `<!doctype html>
 <html>
@@ -136,7 +164,7 @@ export function buildSessionReviewHtml(id, ndjsonText) {
 <p><a href="/sessions">&larr; all sessions</a></p>
 ${noteRows.join('\n')}
 <table>
-<thead><tr><th>#</th><th>Timestamp</th><th>Type</th><th>Summary displayed</th><th>Raw text sent</th></tr></thead>
+<thead><tr><th>#/Type/Time</th><th>Summary displayed</th><th>Raw text sent</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
