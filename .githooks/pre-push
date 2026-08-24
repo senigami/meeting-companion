@@ -1,0 +1,50 @@
+#!/bin/bash
+# Gates that must pass before anything leaves this machine. Enable per clone with:
+#   git config core.hooksPath .githooks
+#
+# Each gate runs as its own command and its status is captured separately. They are deliberately
+# NOT &&-chained: a chain stops at the first failure while still printing a status, so a gate that
+# never ran looks exactly like one that passed.
+#
+# `--no-verify` skips this hook by design. That is a speed bump against forgetting, not a wall
+# against deciding. If you use it, say so out loud rather than letting it imply the gates ran.
+set -uo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root" || exit 1
+
+failed=0
+
+echo "pre-push [1/2] npm test"
+npm test
+test_status=$?
+if [ $test_status -ne 0 ]; then
+  echo "pre-push: FAIL  npm test exited $test_status"
+  failed=1
+else
+  echo "pre-push: pass  npm test"
+fi
+
+echo "pre-push [2/2] code-map changelog-queue guard"
+# queue-guard.sh speaks the Stop-hook protocol: it always exits 0 and signals a block by emitting
+# {"decision":"block"} on stdout. Read the verdict, do not read the exit code.
+guard_out=$(bash .agent/code-map/tools/queue-guard.sh 2>/dev/null)
+guard_status=$?
+if [ $guard_status -ne 0 ]; then
+  echo "pre-push: FAIL  queue guard itself errored (exit $guard_status), treating as a failure"
+  failed=1
+elif printf '%s' "$guard_out" | grep -q '"decision"[[:space:]]*:[[:space:]]*"block"'; then
+  echo "pre-push: FAIL  mapped source changed with no code-map queue entry naming it"
+  printf '%s\n' "$guard_out"
+  failed=1
+else
+  echo "pre-push: pass  code-map queue"
+fi
+
+if [ $failed -ne 0 ]; then
+  echo "pre-push: refusing to push. Fix the gates above, or push with --no-verify and say that you did."
+  exit 1
+fi
+
+echo "pre-push: all gates passed"
+exit 0
