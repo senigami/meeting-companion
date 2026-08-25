@@ -696,7 +696,13 @@ export function updateModeButtons(ctx) {
 }
 
 export function updateSourceButtons(ctx) {
-  const locked = Boolean(ctx.state.listening);
+  // #62, Steve 2026-08-08: "in progress" means the microphone is LIVE, not `listening` alone --
+  // paused with the mic stopped is a safe moment to change a provider. ctx.state.meetingInProgress
+  // is computed in runtime.js (activeTranscriptionStatusLevel() === 'listening', the same helper
+  // that already answers this question everywhere else) and kept current at every point that can
+  // change it: start, stop, and pause. Demo/Replay are never "live" by this measure, so rehearsing
+  // never locks anything, which is the point -- nothing real is happening.
+  const locked = Boolean(ctx.state.meetingInProgress);
 
   ctx.dom.transcriptionButtons.forEach((btn) => {
     const active = btn.dataset.source === ctx.state.transcriptionSource;
@@ -730,7 +736,8 @@ export function updateSourceButtons(ctx) {
 // syncServiceRegistration), so this is the sole owner of both -- nothing else will fight it for the
 // property.
 export function applyMeetingInProgressLock(ctx) {
-  const locked = Boolean(ctx.state.listening);
+  // See the comment on ctx.state.meetingInProgress in updateSourceButtons above.
+  const locked = Boolean(ctx.state.meetingInProgress);
 
   for (const el of [ctx.dom.audioDeviceSelect, ctx.dom.recordingEnabledInput]) {
     if (!el) continue;
@@ -762,8 +769,9 @@ export function syncServiceRegistration(ctx) {
       ? 'Configured locally'
       : 'Needs key';
   // #62: provider keys change what the pipeline does, so registering or replacing one is locked
-  // for the same reason as the source buttons above.
-  const locked = Boolean(ctx.state.listening);
+  // for the same reason as the source buttons above. See the comment on ctx.state.meetingInProgress
+  // in updateSourceButtons above.
+  const locked = Boolean(ctx.state.meetingInProgress);
 
   updateRegistrationButton(ctx.dom.serviceRegistrationOpenAi, ctx, 'openai', provider, locked);
   updateRegistrationButton(ctx.dom.serviceRegistrationClaude, ctx, 'claude', provider, locked);
@@ -1366,7 +1374,11 @@ function updateProviderOptionLabel(button, ctx, kind, source, options = {}) {
   button.dataset.configured = String(state.configured);
   button.dataset.origin = state.origin;
   if (kind === 'transcription' && source === 'browser') {
-    button.disabled = !browserSpeechAvailable();
+    // Cato, PR #149: this ran AFTER updateSourceButtons set `disabled` (OR'd with the meeting lock)
+    // and unconditionally overwrote it with only the browser-unsupported reason, silently dropping
+    // the lock on the one button that ships active by default. Verified live: the button was
+    // clickable mid-meeting and switching source drove the rail to "Problem". OR it here too.
+    button.disabled = !browserSpeechAvailable() || Boolean(ctx.state.meetingInProgress);
   }
 }
 

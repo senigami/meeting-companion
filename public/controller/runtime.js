@@ -2243,6 +2243,23 @@ export function createRuntime(ctx, deps = {}) {
     applyLastReadingPaceProfile();
   }
 
+  // #62, Steve 2026-08-08 on the issue thread (not the 2026-08-25 comment, which only settled which
+  // control "the recording toggle" meant): "in progress" is the microphone being LIVE, not
+  // `listening` alone -- "AI paused with the mic stopped is a safe moment to change a provider."
+  // activeTranscriptionStatusLevel()'s 'listening' is a STATIC per-driver-type flag (isLive: true
+  // for browser/openai, false for demo/replay, set once at driver creation and never flipped by
+  // stop()), so it alone cannot detect a pause -- pauseActiveTranscription() calls driver.stop()
+  // without discarding the driver reference, so the type flag would still read 'listening' after a
+  // pause. `paused` is the actual stop signal here; the type flag only rules out demo/replay, which
+  // are never "live" regardless of pause state, so rehearsing never locks anything.
+  function syncMeetingLock() {
+    ctx.state.meetingInProgress = Boolean(
+      ctx.state.listening && !ctx.state.paused && activeTranscriptionStatusLevel() === 'listening'
+    );
+    syncSettingsPanel(ctx);
+    applyMeetingInProgressLock(ctx);
+  }
+
   async function startListening({ force = false } = {}) {
     if (ctx.state.listening && !force) return;
     if (ctx.state.transcriptionSource === 'openai' && !ctx.state.openAiReady) {
@@ -2267,10 +2284,7 @@ export function createRuntime(ctx, deps = {}) {
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
       // #62: freeze controls that change what the pipeline does, not just how the result looks.
-      // Gated on ctx.state.listening alone, deliberately including a pause -- see the comment on
-      // MEETING_IN_PROGRESS_LOCK_REASON in view.js.
-      syncSettingsPanel(ctx);
-      applyMeetingInProgressLock(ctx);
+      syncMeetingLock();
       // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
       // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
       if (!force) ctx.state.awaitingNewSpeakerArrival = true;
@@ -2327,8 +2341,7 @@ export function createRuntime(ctx, deps = {}) {
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
     // #62: releases the freeze applied in startListening.
-    syncSettingsPanel(ctx);
-    applyMeetingInProgressLock(ctx);
+    syncMeetingLock();
     if (!ctx.state.paused) {
       updateStatus(ctx, 'Manual mode.', { level: 'manual' });
     }
@@ -2349,6 +2362,8 @@ export function createRuntime(ctx, deps = {}) {
     if (wasListening) {
       await pauseActiveTranscription();
     }
+    // #62: releases the freeze the moment the mic genuinely stops, per `paused` above.
+    syncMeetingLock();
     return wasLiveCapture;
   }
 

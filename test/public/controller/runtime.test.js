@@ -864,6 +864,7 @@ test('stopping active transcription returns the rail indicator to manual', async
 test('starting to listen freezes the controls that change what the pipeline does, and stopping releases them', async () => {
   const driver = {
     id: 'browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -871,11 +872,19 @@ test('starting to listen freezes the controls that change what the pipeline does
 
   await withRuntimeHarness({
     createTranscriptionDriverFn: () => driver,
-    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    // Cato, PR #149: browserSpeechAvailable() true here on purpose. updateProviderOptionLabel used
+    // to run AFTER updateSourceButtons and unconditionally overwrite the browser button's `disabled`
+    // with only the browser-availability reason, silently dropping the meeting lock on exactly the
+    // button that ships active by default -- verified live, clicking it mid-meeting switched the
+    // source and drove the rail to "Problem". Making the button otherwise-available here means the
+    // only thing that can explain `disabled: true` below is the lock itself.
+    windowValue: { SpeechRecognition: function () {} }
   }, async ({ elements, runtime, transcriptionButtons, summarizationButtons }) => {
-    const [, transcriptionOpenAi] = transcriptionButtons;
+    const [transcriptionBrowser, transcriptionOpenAi] = transcriptionButtons;
     const [summaryOpenAi, summaryClaude] = summarizationButtons;
     const lockable = [
+      transcriptionBrowser,
       transcriptionOpenAi,
       summaryOpenAi,
       summaryClaude,
@@ -913,6 +922,7 @@ test('starting to listen freezes the controls that change what the pipeline does
 test('the freeze never un-disables a control that has its own, unrelated reason to be disabled', async () => {
   const driver = {
     id: 'browser',
+    isLive: true,
     async start() {},
     async stop() {},
     setMode() {}
@@ -934,6 +944,57 @@ test('the freeze never un-disables a control that has its own, unrelated reason 
 
     await runtime.stopListening();
     assert.equal(transcriptionBrowser.disabled, true, 'still disabled after Stop -- its own reason never went away');
+  });
+});
+
+// #62, Steve on the issue thread, 2026-08-08: "in progress" is the microphone being LIVE, not
+// `listening` alone -- pausing with the mic stopped is a safe moment to change a provider.
+test('pausing with a live driver releases the freeze, and resuming re-engages it', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+    assert.equal(summaryOpenAi.disabled, true, 'locked while genuinely listening');
+
+    await runtime.togglePauseAi();
+    assert.equal(summaryOpenAi.disabled, false, 'released once paused -- the driver is stopped');
+
+    await runtime.togglePauseAi();
+    assert.equal(summaryOpenAi.disabled, true, 'locked again on resume');
+  });
+});
+
+test('a rehearsal source (demo, not live) never locks anything, even while "listening"', async () => {
+  const driver = {
+    id: 'demo',
+    isLive: false,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+
+    assert.equal(summaryOpenAi.disabled, false, 'demo is never "live", so nothing should lock during a rehearsal');
+    assert.equal(elements.audioDeviceSelect.disabled, false);
+    assert.equal(elements.recordingEnabledInput.disabled, false);
   });
 });
 
