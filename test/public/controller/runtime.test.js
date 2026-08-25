@@ -1033,6 +1033,39 @@ test('switching transcription source while paused swaps the source without endin
   });
 });
 
+// Cato, PR #149 round 3: stopListening() never reset `paused`, so this exact sequence -- pause once,
+// then decide to stop rather than resume, then start a fresh meeting later -- left `paused` stuck
+// true across the Stop boundary. The next syncMeetingLock() (inside the second startListening())
+// read that stale value, computed meetingInProgress as false, and left every lockable control
+// unlocked with a live microphone actually running for the rest of the session.
+test('pausing, then stopping, then starting again locks the controls -- paused does not leak across Stop', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.stopListening();
+
+    assert.equal(ctx.state.paused, false, 'Stop always ends any pause too -- nothing can be paused when nothing is running');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false, 'the pause button must not still read paused after Stop');
+
+    await runtime.startListening();
+
+    assert.equal(summaryOpenAi.disabled, true, 'a fresh meeting is genuinely running -- must lock, not stay unlocked from the stale pause');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {

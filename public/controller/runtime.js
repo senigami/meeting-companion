@@ -2340,11 +2340,21 @@ export function createRuntime(ctx, deps = {}) {
     setSpeakerName('');
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
+    // Cato, PR #149 round 3: stopListening() never reset `paused`, so Start -> Pause -> Stop ->
+    // Start left it stuck true across the boundary. Before #62 that was a narrower cosmetic gap
+    // (the Pause button kept reading "Resume", and the "Manual mode." status below never fired).
+    // Since #62 it is a real hole: syncMeetingLock()'s `!ctx.state.paused` term reads the stale
+    // value at the SECOND Start, computes meetingInProgress as false, and every lockable control
+    // stays unlocked with a live microphone actually running. Stop is unambiguously "the meeting
+    // is over" -- nothing can be paused when nothing is running, so this resets it here rather
+    // than leaving it for the next pause/resume cycle to correct by accident.
+    ctx.state.paused = false;
+    updatePauseButton(ctx);
     // #62: releases the freeze applied in startListening.
     syncMeetingLock();
-    if (!ctx.state.paused) {
-      updateStatus(ctx, 'Manual mode.', { level: 'manual' });
-    }
+    // The `!ctx.state.paused` guard this used to carry is gone now that paused is always false by
+    // this point -- Stop always means the rail says "Manual mode.", not just an unpaused Stop.
+    updateStatus(ctx, 'Manual mode.', { level: 'manual' });
   }
 
   async function pauseAi() {
