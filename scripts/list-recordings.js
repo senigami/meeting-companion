@@ -93,7 +93,7 @@ async function main() {
 
   console.log(`${rows.length} recording(s) in ${dir}\n`);
   console.log(
-    `${pad('session', 26)} ${padLeft('mins', 5)} ${padLeft('chunks', 6)} ${padLeft('calls', 5)} ${padLeft('failed', 6)} ${padLeft('short', 5)} ${padLeft('lost', 5)}  ${pad('commit', 16)} prompt`
+    `${pad('session', 26)} ${padLeft('mins', 5)} ${padLeft('chunks', 6)} ${padLeft('calls', 5)} ${padLeft('typed', 5)} ${padLeft('failed', 6)} ${padLeft('short', 5)} ${padLeft('lost', 5)}  ${pad('commit', 16)} prompt`
   );
 
   for (const row of rows) {
@@ -110,7 +110,7 @@ async function main() {
     const stale = header?.appCommit && header.appCommit !== 'unknown' && currentCommit !== 'unknown' && header.appCommit !== currentCommit;
 
     console.log(
-      `${pad(session, 26)} ${padLeft(formatDuration(row.firstAt, row.lastAt), 5)} ${padLeft(row.chunkCount, 6)} ${padLeft(row.summaryCount, 5)} ${padLeft(row.failedCount, 6)} ${padLeft(row.shortenedCount, 5)} ${padLeft(formatLoss(row), 5)}  ${pad(commit + (stale ? '*' : ''), 16)} ${header?.promptHash || 'unknown'}`
+      `${pad(session, 26)} ${padLeft(formatDuration(row.firstAt, row.lastAt), 5)} ${padLeft(row.chunkCount, 6)} ${padLeft(row.summaryCount, 5)} ${padLeft(row.manualCount, 5)} ${padLeft(row.failedCount, 6)} ${padLeft(row.shortenedCount, 5)} ${padLeft(formatLoss(row), 5)}  ${pad(commit + (stale ? '*' : ''), 16)} ${header?.promptHash || 'unknown'}`
     );
 
     if (row.unparseable > 0) {

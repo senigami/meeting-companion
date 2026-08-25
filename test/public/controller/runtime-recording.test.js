@@ -372,3 +372,130 @@ test('a manual line that lands no card leaves no record behind', async () => {
     assert.equal(ctx.state.recordingQueue.length, 0);
   });
 });
+
+// --- #138: nothing drained the queue outside the summarize loop --------------------------------
+//
+// The loop only runs while listening, and it is the only caller of flushRecordingQueue. Anything
+// queued outside that window sat in memory until the tab closed, and was then simply gone.
+
+function createManualClock() {
+  const pending = new Map();
+  let nextId = 1;
+  return {
+    setTimeoutFn(callback, delay) {
+      const id = nextId++;
+      pending.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeoutFn(id) { pending.delete(id); },
+    pendingCount: () => pending.size,
+    // Fires everything currently scheduled. Deliberately does NOT fire timers that those callbacks
+    // schedule in turn, so a test can tell one flush from a chain of them.
+    async runPending() {
+      const due = [...pending.entries()];
+      pending.clear();
+      for (const [, timer] of due) await timer.callback();
+    }
+  };
+}
+
+test('a typed line in a session that never starts listening still reaches disk', async () => {
+  const clock = createManualClock();
+  const requests = [];
+  await withRuntimeHarness({
+    stateOverrides: baseState({ loopHandle: null }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({}) };
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('Ward council moved to five o clock.');
+
+    assert.equal(requests.length, 0, 'nothing is written immediately -- the write is debounced');
+    assert.ok(ctx.state.recordingQueue.length > 0);
+
+    await clock.runPending();
+
+    assert.equal(requests.length, 1, 'the queued records must be written without the loop ever running');
+    const body = JSON.parse(requests[0].options.body);
+    assert.ok(body.records.some((r) => r.t === 'manual' && r.text === 'Ward council moved to five o clock.'));
+    assert.equal(ctx.state.recordingQueue.length, 0);
+  });
+});
+
+// The costliest case, and not the one the issue was filed for: stopListening clears the loop and
+// THEN runs its final summarize, so the closing summary of every meeting was queued with nothing
+// left alive to write it. A meeting that ended with Stop and a closed tab lost its last card.
+test('the final summary queued after Stop is written, not stranded with the loop already cleared', async () => {
+  const clock = createManualClock();
+  const requests = [];
+  await withRuntimeHarness({
+    stateOverrides: baseState({ loopHandle: null }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      async summarize() { return { line: 'The closing remarks.' }; }
+    }),
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({}) };
+    }
+  }, async ({ ctx, runtime }) => {
+    // Exactly the state stopListening leaves behind: loop cleared, then a summarize runs.
+    await runtime.summarizeCurrentText('And that is the whole of it, brothers and sisters.');
+
+    await clock.runPending();
+
+    const written = requests.flatMap((r) => JSON.parse(r.options.body).records);
+    assert.ok(
+      written.some((r) => r.t === 'summary' && r.returned === 'The closing remarks.'),
+      'the closing summary must reach the recording'
+    );
+  });
+});
+
+test('a burst of typed cards is one write, not one per card', async () => {
+  const clock = createManualClock();
+  const requests = [];
+  await withRuntimeHarness({
+    stateOverrides: baseState({ loopHandle: null }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({}) };
+    }
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('First announcement.');
+    runtime.addLine('Second announcement.');
+    runtime.addLine('Third announcement.');
+
+    assert.equal(clock.pendingCount(), 1, 'each card must reset one timer, never stack three');
+
+    await clock.runPending();
+
+    assert.equal(requests.length, 1);
+    const body = JSON.parse(requests[0].options.body);
+    assert.equal(body.records.filter((r) => r.t === 'manual').length, 3, 'all three in the one write');
+  });
+});
+
+// While the loop is running it already drains every tick, so a second clock would be redundant work
+// on the machine driving a live meeting.
+test('nothing extra is scheduled while the summarize loop is running and already draining', async () => {
+  const clock = createManualClock();
+  await withRuntimeHarness({
+    stateOverrides: baseState({ loopHandle: 'a-running-loop' }),
+    setTimeoutFn: clock.setTimeoutFn,
+    clearTimeoutFn: clock.clearTimeoutFn
+  }, async ({ ctx, runtime }) => {
+    const before = clock.pendingCount();
+    runtime.addLine('A line during a live meeting.');
+
+    assert.equal(clock.pendingCount(), before, 'the loop owns the drain; no second timer');
+    assert.ok(ctx.state.recordingQueue.length > 0, 'but the record is still queued for that loop');
+  });
+});

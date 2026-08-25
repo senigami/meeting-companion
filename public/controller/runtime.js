@@ -133,6 +133,10 @@ const ARRIVAL_SUMMARIZE_MIN_GAP_MS = 3000;
 // for text, this controls how fast a reader is asked to absorb it. They answer different questions
 // and coupling them would make the words-per-card and interval sliders fight each other.
 const CARD_RELEASE_INTERVAL_MS = 5000;
+// How long the recorder waits before writing records queued while the summarize loop is NOT running
+// (#138). Long enough that a run of typed cards batches into one write, short enough that closing
+// the tab shortly after Stop still finds the closing summary already on disk.
+const UNLOOPED_RECORDING_FLUSH_MS = 1200;
 // The cross-call dedupe window, derived rather than picked: it has to hold at least everything a
 // single call can return, or a card falls out of it before the next call is even made (#61).
 const DEDUPE_WINDOW_LINES = RUNAWAY_LINE_GUARD;
@@ -1399,10 +1403,33 @@ export function createRuntime(ctx, deps = {}) {
     try {
       ensureRecordingHeaderQueued();
       ctx.state.recordingQueue.push(build());
+      scheduleUnloopedFlush();
     } catch (_error) {
       // Deliberately silent: a recorder that cannot even shape a record has nothing useful to say to
       // the operator mid-meeting, and the flush indicator already reports whether writes are landing.
     }
+  }
+
+  // #138. The summarize loop is the only thing that drains the recording queue, and it only runs
+  // while listening -- so anything queued outside that window sat in memory until the tab closed and
+  // was then simply gone. Three ways in, and the second is the one that costs the most:
+  //
+  //   A session where the operator only ever types (never presses Start) writes nothing at all.
+  //   stopListening() clears the loop and THEN runs its final summarize, so the closing summary of
+  //     every meeting -- the one you would most want -- was queued with nothing left to write it.
+  //   Anything queued while paused waits for a resume that may never come.
+  //
+  // Debounced rather than immediate so a burst of typed cards is one write, not one per card. If the
+  // loop is running it already owns the drain, so this stays out of its way. A double flush is
+  // harmless regardless: flushRecordingQueue splices the queue empty synchronously, so whichever
+  // call arrives second finds nothing to send.
+  function scheduleUnloopedFlush() {
+    if (ctx.state.loopHandle) return;
+    if (ctx.state.recordingFlushTimer) clearTimeoutFn(ctx.state.recordingFlushTimer);
+    ctx.state.recordingFlushTimer = setTimeoutFn(() => {
+      ctx.state.recordingFlushTimer = null;
+      flushRecordingQueue();
+    }, UNLOOPED_RECORDING_FLUSH_MS);
   }
 
   async function flushRecordingQueue() {

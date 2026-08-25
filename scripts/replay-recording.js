@@ -102,10 +102,17 @@ async function main() {
   // printing the same numbers from two implementations is how they come to disagree, and the cheap
   // one is the one people trust.
   const counts = summarizeRecording(records, { unparseable });
-  const { chunkCount, summaryCount, failedCount, shortenedCount, linesLost, clientLost } = counts;
+  const { chunkCount, summaryCount, manualCount, failedCount, shortenedCount, linesLost, clientLost } = counts;
   const lossText = counts.countWasRecorded ? `${linesLost} line(s) DISCARDED` : 'discards NOT RECORDED (predates this field)';
 
   console.log(`${chunkCount} chunk(s), ${summaryCount} summarize call(s), ${failedCount} failed, ${shortenedCount} shortened, ${lossText}.\n`);
+  // Counted and named, but deliberately NOT replayed (#139). A manual line never went through the
+  // pipeline this tool replays -- the operator typed it straight onto the wall -- so feeding it back
+  // through the summarizer would invent a call that never happened. Saying so is the point: a replay
+  // that silently omitted them read as a complete account of the meeting, and was not one.
+  if (manualCount > 0) {
+    console.log(`NOTE: ${manualCount} line(s) were typed by the operator. They are in the recording but are not replayed, because they never went through the summarizer.\n`);
+  }
   if (linesLost > 0) {
     console.log(`WARNING: ${linesLost} line(s) of real speech never reached the display, dropped by a line cap.\n`);
   }
