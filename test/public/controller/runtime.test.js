@@ -860,6 +860,286 @@ test('stopping active transcription returns the rail indicator to manual', async
   });
 });
 
+// #62: "anything that should not be changed while transcription in progress should be disabled."
+test('starting to listen freezes the controls that change what the pipeline does, and stopping releases them', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    // Cato, PR #149: browserSpeechAvailable() true here on purpose. updateProviderOptionLabel used
+    // to run AFTER updateSourceButtons and unconditionally overwrite the browser button's `disabled`
+    // with only the browser-availability reason, silently dropping the meeting lock on exactly the
+    // button that ships active by default -- verified live, clicking it mid-meeting switched the
+    // source and drove the rail to "Problem". Making the button otherwise-available here means the
+    // only thing that can explain `disabled: true` below is the lock itself.
+    windowValue: { SpeechRecognition: function () {} }
+  }, async ({ elements, runtime, transcriptionButtons, summarizationButtons }) => {
+    const [transcriptionBrowser, transcriptionOpenAi] = transcriptionButtons;
+    const [summaryOpenAi, summaryClaude] = summarizationButtons;
+    const lockable = [
+      transcriptionBrowser,
+      transcriptionOpenAi,
+      summaryOpenAi,
+      summaryClaude,
+      elements.serviceRegistrationOpenAi,
+      elements.serviceRegistrationClaude,
+      elements.serviceRegistrationKeyInput,
+      elements.serviceRegistrationSave,
+      elements.serviceRegistrationTest,
+      elements.audioDeviceSelect,
+      elements.recordingEnabledInput
+    ];
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, false, 'unlocked before the meeting starts');
+    }
+
+    await runtime.startListening();
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, true, 'frozen while listening');
+      assert.equal(el.title, 'Stop the meeting to change this.');
+    }
+    // Start/stop is explicitly exempt -- Steve on #62: "we still need to be able to stop."
+    assert.equal(elements.stopListening.disabled, false);
+
+    await runtime.stopListening();
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, false, 'released once the meeting stops');
+      assert.equal(el.title, '');
+    }
+  });
+});
+
+test('the freeze never un-disables a control that has its own, unrelated reason to be disabled', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, transcriptionButtons }) => {
+    // No globalThis.window in this harness, so browserSpeechAvailable() is false and the browser
+    // transcription button has its own, unrelated reason to be disabled once anything syncs it.
+    // Proving the OR rather than a stale pre-state: it must still read disabled once the meeting-in-
+    // progress lock releases -- unlocking must not be read as "clear every disabled flag this
+    // control has ever had."
+    const [transcriptionBrowser] = transcriptionButtons;
+
+    await runtime.startListening();
+    assert.equal(transcriptionBrowser.disabled, true, 'disabled while listening (locked, and also its own reason)');
+
+    await runtime.stopListening();
+    assert.equal(transcriptionBrowser.disabled, true, 'still disabled after Stop -- its own reason never went away');
+  });
+});
+
+// #62, Steve on the issue thread, 2026-08-08: "in progress" is the microphone being LIVE, not
+// `listening` alone -- pausing with the mic stopped is a safe moment to change a provider.
+test('pausing with a live driver releases the freeze, and resuming re-engages it', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+    assert.equal(summaryOpenAi.disabled, true, 'locked while genuinely listening');
+
+    await runtime.togglePauseAi();
+    assert.equal(summaryOpenAi.disabled, false, 'released once paused -- the driver is stopped');
+
+    await runtime.togglePauseAi();
+    assert.equal(summaryOpenAi.disabled, true, 'locked again on resume');
+  });
+});
+
+test('a rehearsal source (demo, not live) never locks anything, even while "listening"', async () => {
+  const driver = {
+    id: 'demo',
+    isLive: false,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+
+    assert.equal(summaryOpenAi.disabled, false, 'demo is never "live", so nothing should lock during a rehearsal');
+    assert.equal(elements.audioDeviceSelect.disabled, false);
+    assert.equal(elements.recordingEnabledInput.disabled, false);
+  });
+});
+
+// Cato, PR #149 B3: pausing releases the transcription-source lock (correctly, per the test above),
+// but setTranscriptionSource's old guard stopped whenever `listening` was true and only restarted
+// when also `!paused` -- so a switch made while paused ran stopListening()'s full teardown and never
+// restarted, silently ending the meeting while the rail still read "Paused" and Resume did nothing.
+// Pre-existing in setTranscriptionSource itself, not something #62 introduced -- #62 only made it
+// reachable through the UI while paused, since these buttons were never locked at all before today.
+test('switching transcription source while paused swaps the source without ending the meeting', async () => {
+  const demoStarts = [];
+  const drivers = {
+    browser: { id: 'browser', isLive: true, async start() {}, async stop() {}, setMode() {} },
+    demo: { id: 'demo', isLive: false, async start() { demoStarts.push(true); }, async stop() {}, setMode() {} }
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source) => drivers[source],
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+    assert.equal(ctx.state.listening, true, 'still a meeting in progress, just quiet');
+
+    await runtime.setTranscriptionSource('demo');
+
+    assert.equal(ctx.state.listening, true, 'B3: switching source while paused must not end the meeting');
+    assert.equal(ctx.state.transcriptionSource, 'demo', 'the switch itself still has to take');
+    assert.equal(elements.stopListening.disabled, false, 'Stop must stay reachable -- the meeting never ended');
+    assert.equal(elements.startListening.disabled, true, 'Start must stay disabled -- pressing it would be a second start');
+    assert.equal(demoStarts.length, 0, 'must not start capturing right now -- the operator is still paused');
+
+    await runtime.togglePauseAi();
+    assert.equal(demoStarts.length, 1, 'the newly-selected driver is what actually starts on resume');
+  });
+});
+
+// Cato, PR #149 round 3: stopListening() never reset `paused`, so this exact sequence -- pause once,
+// then decide to stop rather than resume, then start a fresh meeting later -- left `paused` stuck
+// true across the Stop boundary. The next syncMeetingLock() (inside the second startListening())
+// read that stale value, computed meetingInProgress as false, and left every lockable control
+// unlocked with a live microphone actually running for the rest of the session.
+test('pausing, then stopping, then starting again locks the controls -- paused does not leak across Stop', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.stopListening();
+
+    assert.equal(ctx.state.paused, false, 'Stop always ends any pause too -- nothing can be paused when nothing is running');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false, 'the pause button must not still read paused after Stop');
+
+    await runtime.startListening();
+
+    assert.equal(summaryOpenAi.disabled, true, 'a fresh meeting is genuinely running -- must lock, not stay unlocked from the stale pause');
+  });
+});
+
+// Cato, PR #149 round 4: the round-3 fix only closed the Stop door. The Pause/Resume button has no
+// `disabled` state of its own and no `listening` guard (togglePauseAi checks only `ctx.state.paused`),
+// so it is reachable on a cold load before Start has ever been pressed -- Start stays enabled through
+// that, since nothing ever disables it except a successful start. Pressing Pause then Start walks
+// straight through startListening() and hits the exact same stale-`paused` hole the round-3 fix
+// closed for the Stop path.
+test('pressing Pause on a cold load, then Start, still locks the controls', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    assert.equal(ctx.state.listening, false, 'cold load -- nothing has started yet');
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+
+    // A genuine operator Start press, not a resume -- resumeAi() has its own force:true path and
+    // already clears `paused` itself; this is testing the OTHER caller.
+    await runtime.startListening();
+
+    assert.equal(ctx.state.paused, false, 'a genuine Start press always means paused state does not carry over');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
+    assert.equal(summaryOpenAi.disabled, true, 'a live meeting is genuinely running -- must lock');
+  });
+});
+
+// Warrick, PR #149 round 4: pre-existing on main, not caused by #62, caught in passing because it's
+// the same line the round-3/4 fixes above move. summarizeCurrentText's own first line is
+// `if (ctx.state.paused) return Promise.resolve();`, so Stop's INV-11 forced final drain was a
+// silent no-op whenever the operator had paused before pressing Stop -- the exact case the comment
+// right above the call describes ("Stop is the one moment we know for certain the speaker is not
+// mid-sentence") never actually ran.
+test('stopping after a pause still forces the final drain -- INV-11 is not defeated by a prior pause', async () => {
+  let sentText = null;
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'and that concludes the closing announcements', at: now }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.stopListening();
+
+    assert.equal(sentText, 'and that concludes the closing announcements', 'the flush must not have been skipped by a stale paused flag');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the stranded chunk must be consumed, not left behind');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {

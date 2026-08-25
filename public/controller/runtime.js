@@ -54,6 +54,7 @@ import {
   updateSourceButtons,
   updateStatus,
   syncSettingsPanel,
+  applyMeetingInProgressLock,
   syncViewerControls,
   setDisplayMarginGuidesVisible,
   updateSummaryIntervalControl,
@@ -2242,6 +2243,23 @@ export function createRuntime(ctx, deps = {}) {
     applyLastReadingPaceProfile();
   }
 
+  // #62, Steve 2026-08-08 on the issue thread (not the 2026-08-25 comment, which only settled which
+  // control "the recording toggle" meant): "in progress" is the microphone being LIVE, not
+  // `listening` alone -- "AI paused with the mic stopped is a safe moment to change a provider."
+  // activeTranscriptionStatusLevel()'s 'listening' is a STATIC per-driver-type flag (isLive: true
+  // for browser/openai, false for demo/replay, set once at driver creation and never flipped by
+  // stop()), so it alone cannot detect a pause -- pauseActiveTranscription() calls driver.stop()
+  // without discarding the driver reference, so the type flag would still read 'listening' after a
+  // pause. `paused` is the actual stop signal here; the type flag only rules out demo/replay, which
+  // are never "live" regardless of pause state, so rehearsing never locks anything.
+  function syncMeetingLock() {
+    ctx.state.meetingInProgress = Boolean(
+      ctx.state.listening && !ctx.state.paused && activeTranscriptionStatusLevel() === 'listening'
+    );
+    syncSettingsPanel(ctx);
+    applyMeetingInProgressLock(ctx);
+  }
+
   async function startListening({ force = false } = {}) {
     if (ctx.state.listening && !force) return;
     if (ctx.state.transcriptionSource === 'openai' && !ctx.state.openAiReady) {
@@ -2265,6 +2283,19 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
+      // Cato, PR #149 round 4: stopListening() clearing `paused` closes the Stop door, but Pause ->
+      // Start (no Stop in between) walks through THIS door instead and hits the exact same stale-
+      // lock hole. Same `!force` gate as setSpeakerName above and for the same reason: a genuine
+      // operator Start press means paused state does not apply any more, but the one force:true
+      // caller (resumeAi) has already cleared `paused` itself before calling here, so this would be
+      // a no-op on that path regardless -- the guard just keeps that provably complete rather than
+      // relying on the resume path never changing.
+      if (!force) {
+        ctx.state.paused = false;
+        updatePauseButton(ctx);
+      }
+      // #62: freeze controls that change what the pipeline does, not just how the result looks.
+      syncMeetingLock();
       // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
       // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
       if (!force) ctx.state.awaitingNewSpeakerArrival = true;
@@ -2294,6 +2325,17 @@ export function createRuntime(ctx, deps = {}) {
 
   async function stopListening() {
     ctx.state.listening = false;
+    // Cato, PR #149 rounds 3-4: Stop is unambiguously "the meeting is over", so any lingering pause
+    // state gets cleared here, as early as possible, rather than left for the next pause/resume
+    // cycle to correct by accident. Two independent reasons this has to run BEFORE the flush below,
+    // not just before syncMeetingLock() (round 3's placement): (1) summarizeCurrentText's own first
+    // line is `if (ctx.state.paused) return Promise.resolve();`, so leaving `paused` true through
+    // the flush call silently no-ops INV-11's forced final drain whenever the operator had paused
+    // before pressing Stop (Warrick, pre-existing on main, unrelated to #62, caught here because
+    // this is the same line); (2) the next startListening()'s syncMeetingLock() would otherwise read
+    // a stale `paused` and leave every lockable control unlocked with a live microphone running.
+    ctx.state.paused = false;
+    updatePauseButton(ctx);
     stopSilenceWatchdog();
     stopAudioLevelTest();
     // Clears the loop's interval synchronously (see pauseActiveTranscription), so no further
@@ -2320,9 +2362,11 @@ export function createRuntime(ctx, deps = {}) {
     setSpeakerName('');
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
-    if (!ctx.state.paused) {
-      updateStatus(ctx, 'Manual mode.', { level: 'manual' });
-    }
+    // #62: releases the freeze applied in startListening.
+    syncMeetingLock();
+    // The `!ctx.state.paused` guard this used to carry is gone now that paused is reset at the top
+    // of this function -- Stop always means the rail says "Manual mode.", not just an unpaused Stop.
+    updateStatus(ctx, 'Manual mode.', { level: 'manual' });
   }
 
   async function pauseAi() {
@@ -2340,6 +2384,8 @@ export function createRuntime(ctx, deps = {}) {
     if (wasListening) {
       await pauseActiveTranscription();
     }
+    // #62: releases the freeze the moment the mic genuinely stops, per `paused` above.
+    syncMeetingLock();
     return wasLiveCapture;
   }
 
@@ -2385,8 +2431,20 @@ export function createRuntime(ctx, deps = {}) {
   async function setTranscriptionSource(source) {
     if (!source || ctx.state.transcriptionSource === source) return;
 
-    const shouldResume = ctx.state.listening && !ctx.state.paused;
-    if (ctx.state.listening) {
+    // Cato, PR #149 B3: the old guard stopped whenever `listening` was true but only restarted
+    // when also `!paused`, so switching source while paused ran the FULL stopListening() teardown
+    // (final flush, summaryHistory cleared, speaker name cleared, Stop disabled/Start enabled,
+    // rail to "Manual mode.") and then never restarted -- silently ending the meeting while the
+    // rail still read "Paused" and Resume did nothing. Reachable because #62 only locks these
+    // buttons while genuinely, unpaused, live -- pausing releases them.
+    //
+    // While paused there is nothing live to stop: pauseActiveTranscription() already called
+    // driver.stop() when the operator paused. So this only needs the same teardown+restart dance
+    // when genuinely listening and not paused; while paused (or not listening at all), swapping
+    // the source is enough -- ensureTranscriptionDriver() already rebuilds lazily from the wrong-id
+    // check the next time startListening() runs, which is exactly what resumeAi() calls.
+    const wasGenuinelyListening = ctx.state.listening && !ctx.state.paused;
+    if (wasGenuinelyListening) {
       await stopListening();
     }
 
@@ -2395,7 +2453,7 @@ export function createRuntime(ctx, deps = {}) {
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);
 
-    if (shouldResume) {
+    if (wasGenuinelyListening) {
       await startListening();
     }
   }

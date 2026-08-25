@@ -112,6 +112,15 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* #62: select/input never had a disabled treatment before -- nothing used it. The meeting-in-progress
+   control lock (view.js, applyMeetingInProgressLock/updateSourceButtons/syncServiceRegistration) is
+   the first thing that disables a select or input rather than just a button. */
+select:disabled,
+input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 button.active,
 button.primary,
 button.source.active {

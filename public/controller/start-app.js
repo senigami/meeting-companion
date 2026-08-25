@@ -294,6 +294,7 @@ export function startApp() {
       stopListening: $('stopListening'),
       fullscreen: $('fullscreen'),
       audioDeviceSelect: $('audioDeviceSelect'),
+      recordingEnabledInput: $('recordingEnabledInput'),
       audioLevelTestButton: $('audioLevelTestButton'),
       audioLevelBar: $('audioLevelBar'),
       audioLevelPeak: $('audioLevelPeak'),
@@ -573,10 +574,9 @@ function bindControlButtons(ctx, runtime) {
   globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', () => {
     setQuickPanelOpen(ctx, ctx.state.quickPanelOpen, { focusReturn: false });
   });
-  const recordingEnabledInput = $('recordingEnabledInput');
-  if (recordingEnabledInput) {
-    recordingEnabledInput.checked = ctx.state.recordingEnabled;
-    recordingEnabledInput.addEventListener('change', (event) => {
+  if (ctx.dom.recordingEnabledInput) {
+    ctx.dom.recordingEnabledInput.checked = ctx.state.recordingEnabled;
+    ctx.dom.recordingEnabledInput.addEventListener('change', (event) => {
       runtime.setRecordingEnabled(event.target.checked);
     });
   }
