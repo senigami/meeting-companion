@@ -1,16 +1,17 @@
 # Meeting Companion Display Wiki
 
-This folder is a lightweight wiki starter for operational notes.
+Operational notes for running the app on a real Sunday, separate from the technical specs and
+decision log in the main repo.
 
 ## Pages
 
 - [Quick Start](Quick-Start.md)
-- [Accessibility Notes](Accessibility.md)
 - [Sunday Runbook](Sunday-Runbook.md)
 - [Pre-Live Checklist](Pre-Live-Checklist.md)
-- [Public wiki page](../public/wiki/index.html)
+- [Accessibility Notes](Accessibility.md)
 
 ## Related
 
-- [Root README](../README.md)
-- [Specs index](../docs/00-index.md)
+- [Root README](https://github.com/senigami/meeting-companion#readme)
+- [Architecture decisions](https://github.com/senigami/meeting-companion/tree/main/docs/decisions)
+- [Specs index](https://github.com/senigami/meeting-companion/blob/main/docs/00-index.md)
