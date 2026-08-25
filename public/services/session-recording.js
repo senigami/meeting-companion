@@ -268,3 +268,58 @@ export function buildCardRestoreRecord({ at = Date.now(), cardIds = [] }) {
     cardIds: (Array.isArray(cardIds) ? cardIds : []).map(String)
   };
 }
+
+// The replay itself, as code rather than as the prose above it.
+//
+// This lived in the test file for three review rounds and was wrong in three different ways, each
+// time while the suite stayed green: the spec was a comment, the implementation was a test helper,
+// and nothing tied them together, so a wrong comment cost nothing until someone built against it.
+// Cato's call, and the right one -- a spec that can be wrong without failing is not a spec. It sits
+// here beside the builders it consumes so the two move together.
+//
+// Pure and dependency-free like everything else in this file. `displayCap` comes from the recording's
+// own header, never from a constant in the reader: the cap has already changed once, and a reader
+// hardcoding today's value silently misreplays every file written under a different one.
+export function replayCardWall(records = [], displayCap = null) {
+  const order = [];
+  const text = new Map();
+  // Never deleted from, unlike `text`. A card-restore carries ids and no text, so the only way to
+  // recover what a restored card SAID is the card and card-edit records already seen. Delete from
+  // this on removal and a clear-then-undo returns every card blank, hand-corrected ones included.
+  const lastKnown = new Map();
+  // A null cap means the recording predates the field. Replay the history unclipped rather than
+  // guessing a number: an unclipped wall is visibly too long, while a guessed cap is quietly wrong.
+  const cap = typeof displayCap === 'number' && displayCap > 0 ? displayCap : Infinity;
+
+  // Inline, at each append, never as an end-slice over the survivors. A card trimmed off the top is
+  // gone for good; slicing at the end lets a later deletion backfill from cards nobody was looking at.
+  const trim = () => { while (order.length > cap) text.delete(order.shift()); };
+  const drop = (id) => {
+    const i = order.indexOf(id);
+    if (i >= 0) { order.splice(i, 1); text.delete(id); }
+  };
+
+  for (const record of Array.isArray(records) ? records : []) {
+    if (!record) continue;
+    if (record.t === 'card') {
+      order.push(record.cardId);
+      text.set(record.cardId, record.text);
+      lastKnown.set(record.cardId, record.text);
+      trim();
+    } else if (record.t === 'card-edit') {
+      lastKnown.set(record.cardId, record.after);
+      if (text.has(record.cardId)) text.set(record.cardId, record.after);
+    } else if (record.t === 'card-remove') {
+      drop(record.cardId);
+    } else if (record.t === 'card-restore') {
+      for (const id of (Array.isArray(record.cardIds) ? record.cardIds : [])) {
+        if (order.includes(id)) continue;
+        order.push(id);
+        text.set(id, lastKnown.get(id));
+      }
+      trim();
+    }
+  }
+
+  return order.map((id) => ({ cardId: id, text: text.get(id) }));
+}

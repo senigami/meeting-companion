@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
+import { replayCardWall } from '../../../public/services/session-recording.js';
 
 // ADR-0004 / backlog items 2-3: the debugging/tuning recorder. These tests cover the client-side
 // half owned by Janus -- queuing chunk/summary records, batching them into one flush, and the
@@ -611,39 +612,14 @@ test('the header carries the display cap, so a replay reads the rule instead of 
 });
 
 
-// Two rounds of review landed on this one function, and both found the same class of mistake in it,
-// so the algorithm lives here rather than in prose alone.
+// The replay algorithm is PRODUCT CODE now, imported from session-recording.js rather than written
+// out here. Three review rounds found three defects in it while it lived in this file, every one of
+// them green the whole time, because the spec was a comment and the implementation was a test helper
+// and nothing connected them. Cato's call: a spec that can be wrong without failing is not a spec.
 //
-// Cato withheld sign-off because the record format claimed a replay reconstructs the final wall,
-// which is false once the wall has overflowed. My fix was "keep the last displayCap survivors", and
-// Warrick then broke THAT by running it: a trimmed card is gone forever, but an end-slice lets a
-// later deletion pull one back off the scrapheap. The trim has to be simulated inline, at each
-// append, in file order.
-function replayWall(records, displayCap) {
-  const order = [];
-  const text = new Map();
-  // Never deleted from, and that is the point of it being separate. A card-restore carries ids and
-  // no text, so the only way to recover what a restored card SAID is the card/card-edit records
-  // already seen. Delete from this on removal and a clear-then-undo returns every card blank.
-  const lastKnown = new Map();
-  const trim = () => { while (order.length > displayCap) text.delete(order.shift()); };
-  const drop = (id) => { const i = order.indexOf(id); if (i >= 0) { order.splice(i, 1); text.delete(id); } };
-
-  for (const r of records) {
-    if (r.t === 'card') { order.push(r.cardId); text.set(r.cardId, r.text); lastKnown.set(r.cardId, r.text); trim(); }
-    else if (r.t === 'card-edit') { lastKnown.set(r.cardId, r.after); if (text.has(r.cardId)) text.set(r.cardId, r.after); }
-    else if (r.t === 'card-remove') drop(r.cardId);
-    else if (r.t === 'card-restore') {
-      for (const id of r.cardIds) if (!order.includes(id)) { order.push(id); text.set(id, lastKnown.get(id)); }
-      trim();
-    }
-  }
-  return order.map((id) => ({ id, text: text.get(id) }));
-}
-
-// The shortcut that reads as obviously equivalent and is not. Kept as a test subject rather than
-// deleted, because the whole point is that it LOOKS right: it passed the first version of this test,
-// which never interleaved a deletion with an overflow, which is why the bug survived a review.
+// What stays here is the WRONG algorithm, kept deliberately as a test subject. It reads as obviously
+// equivalent, it passed the first version of this test, and pinning it as different is the only thing
+// stopping it quietly becoming the rule again.
 function replayWallByEndSlice(records, displayCap) {
   const survivors = [];
   for (const r of records) {
@@ -662,9 +638,9 @@ test('the end-slice replay resurrects a trimmed card once a deletion follows an 
     runtime.removeItem(ctx.state.transcriptItems[ctx.state.transcriptItems.length - 2].id);
 
     const wrong = replayWallByEndSlice(ctx.state.recordingQueue, cap);
-    const right = replayWall(ctx.state.recordingQueue, cap);
+    const right = replayCardWall(ctx.state.recordingQueue, cap);
 
-    assert.notDeepEqual(wrong, right.map((c) => c.id), 'the shortcut and the real rule must genuinely disagree here');
+    assert.notDeepEqual(wrong, right.map((c) => c.cardId), 'the shortcut and the real rule must genuinely disagree here');
     assert.equal(wrong.length, cap, 'the shortcut backfills to a full wall');
     assert.equal(right.length, cap - 1, 'the real wall is one card shorter: a trimmed card cannot come back');
   });
@@ -675,7 +651,7 @@ test('replaying reproduces the wall exactly across overflow interleaved with eve
     const cap = () => ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
     const check = (label) => {
       const wall = ctx.state.transcriptItems.slice(-cap()).map((i) => i.id);
-      assert.deepEqual(replayWall(ctx.state.recordingQueue, cap()).map((c) => c.id), wall, label);
+      assert.deepEqual(replayCardWall(ctx.state.recordingQueue, cap()).map((c) => c.cardId), wall, label);
     };
 
     for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card ${i}.`);
@@ -718,7 +694,7 @@ test('a hand-corrected card survives a clear and an undo with its correction int
     runtime.undoLine();
 
     const cap = ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
-    const wall = replayWall(ctx.state.recordingQueue, cap);
+    const wall = replayCardWall(ctx.state.recordingQueue, cap);
 
     assert.equal(wall.length, 2, 'both cards are back on the wall');
     assert.equal(
@@ -734,5 +710,32 @@ test('a hand-corrected card survives a clear and an undo with its correction int
       wall.map((c) => c.text),
       ctx.state.transcriptItems.slice(-cap).map((i) => i.text)
     );
+  });
+});
+
+// Cato found this one by mutation after signing off on everything else, and it is the fourth
+// instance of the same blindness in this feature: every assertion above compares the replay against
+// ctx.state.transcriptItems, which is the VISIBLE WALL. The wall excludes trimmed cards by
+// definition, so nothing anywhere asserted that a trimmed card is recorded at all. Making
+// commitItems record only the survivors -- destroying the history this feature is named after --
+// left the whole suite green.
+test('a card that scrolls off the wall is still in the recording: the history is not the wall', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    const cap = 24;
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card number ${i}.`);
+
+    const cardRecords = ctx.state.recordingQueue.filter((r) => r.t === 'card');
+    assert.equal(cardRecords.length, 30, 'every card that reached the reader is recorded, not just the ones still showing');
+
+    // The point stated as the inequality it actually is.
+    const wall = replayCardWall(ctx.state.recordingQueue, cap);
+    assert.equal(wall.length, cap, 'the replayed WALL is capped');
+    assert.ok(cardRecords.length > wall.length, 'and the HISTORY is strictly bigger than the wall');
+
+    // The six that scrolled away are named, so this cannot pass by counting alone.
+    const recordedTexts = cardRecords.map((r) => r.text);
+    for (const gone of ['Card number 1.', 'Card number 2.', 'Card number 6.']) {
+      assert.ok(recordedTexts.includes(gone), `${gone} scrolled off the wall but must survive in the recording`);
+    }
   });
 });
