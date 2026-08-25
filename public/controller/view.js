@@ -39,6 +39,15 @@ const TRANSCRIPT_SCROLL_DURATION_MS = 1000;
 const SETTINGS_SECTIONS = ['alerts', 'timing', 'transcription', 'summaries', 'services', 'program', 'tools'];
 const DEFAULT_SETTINGS_SECTION = 'timing';
 
+// #62, Steve on #47: "anything that should not be changed while transcription in progress should be
+// disabled." Scoped to controls that change what the pipeline DOES -- source, provider keys, the mic
+// device, whether this session gets recorded for tuning -- never to anything that only changes how
+// the result LOOKS (text size, margins, words per card), which stays live because adjusting for the
+// room is the whole point. Gated on ctx.state.listening alone, not paused: pausing still leaves the
+// meeting in progress, and a provider switch landing mid-pause would still silently apply on resume.
+// Start/stop itself is deliberately never in this set -- the operator must always be able to stop.
+const MEETING_IN_PROGRESS_LOCK_REASON = 'Stop the meeting to change this.';
+
 const RAIL_STATUS_WORDS = {
   listening: 'Listening',
   paused: 'Paused',
@@ -687,13 +696,18 @@ export function updateModeButtons(ctx) {
 }
 
 export function updateSourceButtons(ctx) {
+  const locked = Boolean(ctx.state.listening);
+
   ctx.dom.transcriptionButtons.forEach((btn) => {
     const active = btn.dataset.source === ctx.state.transcriptionSource;
     const unavailable = isSourceUnavailable(ctx, btn.dataset.kind, btn.dataset.source);
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.hidden = unavailable && btn.dataset.source !== ctx.state.transcriptionSource;
-    btn.disabled = unavailable && btn.dataset.source === 'browser';
+    // OR'd with the unrelated "browser speech unsupported" reason below -- the meeting-in-progress
+    // lock must never UN-disable a control that already has its own reason to stay off.
+    btn.disabled = (unavailable && btn.dataset.source === 'browser') || locked;
+    btn.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
     updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source, { unavailable });
   });
 
@@ -703,11 +717,26 @@ export function updateSourceButtons(ctx) {
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', String(active));
     btn.hidden = unavailable && btn.dataset.source !== ctx.state.summarizationSource;
-    btn.disabled = false;
+    btn.disabled = locked;
+    btn.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
     updateProviderOptionLabel(btn, ctx, btn.dataset.kind, btn.dataset.source, { unavailable });
   });
 
   syncReplayControls(ctx);
+}
+
+// #62. audioDeviceSelect and the debug-recording checkbox have no other function recomputing their
+// `disabled` state (unlike the source buttons above and the registration controls in
+// syncServiceRegistration), so this is the sole owner of both -- nothing else will fight it for the
+// property.
+export function applyMeetingInProgressLock(ctx) {
+  const locked = Boolean(ctx.state.listening);
+
+  for (const el of [ctx.dom.audioDeviceSelect, ctx.dom.recordingEnabledInput]) {
+    if (!el) continue;
+    el.disabled = locked;
+    el.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
+  }
 }
 
 // The recording picker and speed selector are only meaningful once replay is actually selected --
@@ -732,9 +761,12 @@ export function syncServiceRegistration(ctx) {
     : state.origin === 'local'
       ? 'Configured locally'
       : 'Needs key';
+  // #62: provider keys change what the pipeline does, so registering or replacing one is locked
+  // for the same reason as the source buttons above.
+  const locked = Boolean(ctx.state.listening);
 
-  updateRegistrationButton(ctx.dom.serviceRegistrationOpenAi, ctx, 'openai', provider);
-  updateRegistrationButton(ctx.dom.serviceRegistrationClaude, ctx, 'claude', provider);
+  updateRegistrationButton(ctx.dom.serviceRegistrationOpenAi, ctx, 'openai', provider, locked);
+  updateRegistrationButton(ctx.dom.serviceRegistrationClaude, ctx, 'claude', provider, locked);
 
   if (ctx.dom.serviceRegistrationTitle) {
     ctx.dom.serviceRegistrationTitle.textContent = `${label} API key`;
@@ -764,18 +796,26 @@ export function syncServiceRegistration(ctx) {
       : state.origin === 'server'
         ? `Paste a local ${label} override if you want one in this browser`
         : `Paste ${label} API key or local override`;
+    ctx.dom.serviceRegistrationKeyInput.disabled = locked;
+    ctx.dom.serviceRegistrationKeyInput.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
   }
 
   if (ctx.dom.serviceRegistrationSave) {
     ctx.dom.serviceRegistrationSave.textContent = state.configured ? 'Replace key' : 'Add and validate';
+    ctx.dom.serviceRegistrationSave.disabled = locked;
+    ctx.dom.serviceRegistrationSave.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
   }
 
   if (ctx.dom.serviceRegistrationTest) {
     ctx.dom.serviceRegistrationTest.textContent = 'Test key';
+    ctx.dom.serviceRegistrationTest.disabled = locked;
+    ctx.dom.serviceRegistrationTest.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
   }
 
   if (ctx.dom.serviceRegistrationDelete) {
-    ctx.dom.serviceRegistrationDelete.disabled = state.origin !== 'local';
+    // OR'd with the unrelated "nothing local to delete" reason -- same rule as the source buttons.
+    ctx.dom.serviceRegistrationDelete.disabled = state.origin !== 'local' || locked;
+    ctx.dom.serviceRegistrationDelete.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
   }
 
   if (ctx.dom.serviceRegistrationHint) {
@@ -1330,7 +1370,7 @@ function updateProviderOptionLabel(button, ctx, kind, source, options = {}) {
   }
 }
 
-function updateRegistrationButton(button, ctx, provider, activeProvider) {
+function updateRegistrationButton(button, ctx, provider, activeProvider, locked = false) {
   if (!button) return;
   const state = getProviderState(ctx, 'summarization', provider);
   const statusNode = typeof button.querySelector === 'function'
@@ -1343,6 +1383,8 @@ function updateRegistrationButton(button, ctx, provider, activeProvider) {
   button.setAttribute('aria-pressed', String(provider === activeProvider));
   button.dataset.configured = String(state.configured);
   button.dataset.origin = state.origin;
+  button.disabled = locked;
+  button.title = locked ? MEETING_IN_PROGRESS_LOCK_REASON : '';
 }
 
 function getRegistrationProvider(ctx) {

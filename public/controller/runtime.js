@@ -54,6 +54,7 @@ import {
   updateSourceButtons,
   updateStatus,
   syncSettingsPanel,
+  applyMeetingInProgressLock,
   syncViewerControls,
   setDisplayMarginGuidesVisible,
   updateSummaryIntervalControl,
@@ -2265,6 +2266,11 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
+      // #62: freeze controls that change what the pipeline does, not just how the result looks.
+      // Gated on ctx.state.listening alone, deliberately including a pause -- see the comment on
+      // MEETING_IN_PROGRESS_LOCK_REASON in view.js.
+      syncSettingsPanel(ctx);
+      applyMeetingInProgressLock(ctx);
       // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
       // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
       if (!force) ctx.state.awaitingNewSpeakerArrival = true;
@@ -2320,6 +2326,9 @@ export function createRuntime(ctx, deps = {}) {
     setSpeakerName('');
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
+    // #62: releases the freeze applied in startListening.
+    syncSettingsPanel(ctx);
+    applyMeetingInProgressLock(ctx);
     if (!ctx.state.paused) {
       updateStatus(ctx, 'Manual mode.', { level: 'manual' });
     }

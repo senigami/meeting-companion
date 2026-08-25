@@ -860,6 +860,83 @@ test('stopping active transcription returns the rail indicator to manual', async
   });
 });
 
+// #62: "anything that should not be changed while transcription in progress should be disabled."
+test('starting to listen freezes the controls that change what the pipeline does, and stopping releases them', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, transcriptionButtons, summarizationButtons }) => {
+    const [, transcriptionOpenAi] = transcriptionButtons;
+    const [summaryOpenAi, summaryClaude] = summarizationButtons;
+    const lockable = [
+      transcriptionOpenAi,
+      summaryOpenAi,
+      summaryClaude,
+      elements.serviceRegistrationOpenAi,
+      elements.serviceRegistrationClaude,
+      elements.serviceRegistrationKeyInput,
+      elements.serviceRegistrationSave,
+      elements.serviceRegistrationTest,
+      elements.audioDeviceSelect,
+      elements.recordingEnabledInput
+    ];
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, false, 'unlocked before the meeting starts');
+    }
+
+    await runtime.startListening();
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, true, 'frozen while listening');
+      assert.equal(el.title, 'Stop the meeting to change this.');
+    }
+    // Start/stop is explicitly exempt -- Steve on #62: "we still need to be able to stop."
+    assert.equal(elements.stopListening.disabled, false);
+
+    await runtime.stopListening();
+
+    for (const el of lockable) {
+      assert.equal(el.disabled, false, 'released once the meeting stops');
+      assert.equal(el.title, '');
+    }
+  });
+});
+
+test('the freeze never un-disables a control that has its own, unrelated reason to be disabled', async () => {
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime, transcriptionButtons }) => {
+    // No globalThis.window in this harness, so browserSpeechAvailable() is false and the browser
+    // transcription button has its own, unrelated reason to be disabled once anything syncs it.
+    // Proving the OR rather than a stale pre-state: it must still read disabled once the meeting-in-
+    // progress lock releases -- unlocking must not be read as "clear every disabled flag this
+    // control has ever had."
+    const [transcriptionBrowser] = transcriptionButtons;
+
+    await runtime.startListening();
+    assert.equal(transcriptionBrowser.disabled, true, 'disabled while listening (locked, and also its own reason)');
+
+    await runtime.stopListening();
+    assert.equal(transcriptionBrowser.disabled, true, 'still disabled after Stop -- its own reason never went away');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {

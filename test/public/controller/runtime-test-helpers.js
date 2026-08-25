@@ -110,6 +110,7 @@ function createDefaultElements() {
     transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
     transcriptStack: createElement(),
     audioDeviceSelect: createFakeSelect(),
+    recordingEnabledInput: createElement(),
     audioLevelTestButton: createElement({ textContent: 'Test' }),
     audioLevelBar: createElement(),
     audioLevelPeak: createElement(),
