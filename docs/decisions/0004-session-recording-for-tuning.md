@@ -6,6 +6,8 @@
 
 Accepted. Supersedes [ADR-0003](0003-no-audio-storage-by-default.md) on transcript text only; ADR-0003 continues to govern audio, which is still never persisted.
 
+**Extended 2026-08-25** by the addendum below, which brings the display side into scope: what actually reached the reader, and what the operator edited or took down. Same constraints, none relaxed. Read the addendum before answering any question about what this app is authorized to write to disk, because the decision below no longer lists every record type on its own.
+
 ## Date
 
 2026-07-29
@@ -75,6 +77,58 @@ still a person's call.
 Disk is not a consideration either way. A meeting is a few hundred KB, dominated by the summary records rather than the transcript chunks, since each summary record stores the text it sent and a retried call stores it again.
 
 One thing is consciously deferred rather than solved: a replay transcription source that reads a session file back at its original timing ([issue #3](https://github.com/senigami/meeting-companion/issues/3)).
+
+## Addendum, 2026-08-25: the display side, and what the operator takes down
+
+Steve, live, asking for it: keep a record of the actual output too, so a manual entry, an edit or a
+deletion can be compared against what the AI produced.
+
+The decision above records what the pipeline was TOLD and what a provider SAID. It records nothing
+about what ended up in front of the reader after the operator corrected it, and correcting it is
+most of why a person sits at the machine. Two of the three ways a card changes left no trace at all:
+an in-place edit ([#125](https://github.com/senigami/meeting-companion/issues/125)) wrote straight to
+state, and a live delete removed it silently. So a recording could say what the AI produced and could
+not say what was actually read, which makes the tuning question above answerable only for the half of
+the meeting nobody had to fix.
+
+Four record types are added ([#142](https://github.com/senigami/meeting-companion/issues/142)): the
+card that landed, an edit carrying both the original and the corrected text, a removal carrying the
+text and which route it came off by, and a restore for undoing a clear.
+
+### The scope question, raised rather than assumed
+
+Warrick flagged this while reviewing, and it is the reason this addendum exists rather than the change
+simply riding on the authorization above. A removal record is a durable log of **what a human judged
+unfit to leave on a screen**, which is not the same thing as a log of what a model produced. The
+original grant was given for measuring the summarizer, with Steve shown that specific content.
+
+Steve was shown this specific content too, and authorized it on 2026-08-25, choosing to keep the
+verbatim text rather than record removals as bare ids. The reasoning: a removal with no text says a
+card came off and nothing about what was wrong with it, which defeats the comparison the feature
+exists for.
+
+The judgment, stated so it can be disagreed with later: this is the **same category** of content as
+the decision above already authorizes (text from a meeting that is public and already streamed),
+captured at a different moment in its life. It is not a new category, and it does not reach any new
+surface. Every constraint above applies unchanged and none is relaxed:
+
+- **Text only**, audio still never written. ADR-0003 stands.
+- **Local only**, same gitignored directory, same append-only file, no egress.
+- **Discarded once used**, same manual deletion, same reasoning.
+- **Never damages a meeting.** All four record types go through the same `queueRecord` that swallows
+  its own faults; the one line of new recorder code that sat outside that guard was moved inside it
+  during review.
+
+### What is genuinely new, and worth watching
+
+An edit record is the first place this file stores **a human's correction of the app**, side by side
+with what the app got wrong. That is the most useful thing in the recording and also the most pointed:
+it is a record of the operator's judgment, not only the model's output. It stays local, it stays
+disposable, and it is covered by the same retention rule, which is deletion once the question it
+answers has been answered.
+
+`header.displayCap` is also added, so a replay can reconstruct the wall from the file rather than
+hardcoding a display constant that has already changed once.
 
 ## Spec docs affected
 
