@@ -5,7 +5,12 @@ const DEFAULT_MAX_CHARS = 120;
 // ignored its own limit -- not the ordinary long-but-complete sentence that the 120-char default
 // was splitting into two cards ("...clear the gutters" / "before winter.").
 const AI_LINE_SAFETY_MAX_CHARS = 240;
-const MAX_DISPLAY_ITEMS = 24;
+// Exported since #81: the trim is no longer applied here, at append time. It happens in view.js
+// AFTER the arrival scroll has finished, because taking a card off the top mid-scroll shrinks the
+// viewport's own scrollHeight and the browser clamps scrollTop by the same amount, yanking the
+// content the reader is following. Steve, watching a real meeting: "once there's a certain number
+// of cards it's removing the old cards, and when the old card gets removed it jumps the scroll."
+export const MAX_DISPLAY_ITEMS = 24;
 let nextTranscriptItemId = 0;
 
 function splitByThought(text) {
@@ -154,7 +159,22 @@ export function appendTranscriptItems(items, nextItems) {
   }
 
   nextTranscriptItemId += additions.length;
-  return existing.slice(-MAX_DISPLAY_ITEMS);
+  // Deliberately NOT trimmed to MAX_DISPLAY_ITEMS here any more (#81). Trimming at append time was
+  // the whole jump: the list is trimmed before anything renders, so the top card is already gone by
+  // the time the new one starts sliding in. Worse, dropping the first item means the previously
+  // rendered ids stop being a PREFIX of the new ones, which permanently knocks renderDisplay off its
+  // append-only fast path onto the full-rebuild path -- so from card 25 onward every arrival tore
+  // down and recreated all 24 cards and replayed all 24 entrance animations at once. That is exactly
+  // the fault #13 was filed for, silently reintroduced the moment the wall fills up.
+  return existing;
+}
+
+// The overflow, oldest first: what view.js removes once the arrival scroll has settled. Returns an
+// empty array when the wall is not full, so the caller never needs its own length check.
+export function transcriptOverflow(items, max = MAX_DISPLAY_ITEMS) {
+  const list = Array.isArray(items) ? items : [];
+  if (list.length <= max) return [];
+  return list.slice(0, list.length - max);
 }
 
 export function isTranscriptNearBottom(viewport, threshold = 96) {

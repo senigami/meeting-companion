@@ -3,6 +3,7 @@ import {
   sliderPositionFromFontSize,
   FONT_FAMILY_CSS_VALUES
 } from '../services/view-settings.js';
+import { transcriptOverflow } from '../services/transcript-display.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
 import { usableIntervalFloor } from '../services/reading-pace.js';
 import { autoExpandRailForCondition, resetRailAutoExpand } from './rail-collapse.js';
@@ -356,14 +357,28 @@ export function renderDisplay(ctx) {
   }
 
   ctx.dom.transcriptViewport.scrollTop = previousScrollTop;
+  // The reader has scrolled up, so no arrival scroll is going to run and nothing would ever drain
+  // the overflow. Trimmed here instead, with the removed height compensated inside the trim so their
+  // place is held.
+  trimTranscriptOverflow(ctx);
 }
 
+// Every exit from this function trims, including the two that do no animation at all. Trimming only
+// on the animated path would let the overflow grow without bound under reduced motion, which is the
+// setting a reader most likely to be hurt by a long card list is using.
 function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
   const viewport = ctx.dom.transcriptViewport;
   const targetTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
 
-  if (reducedMotion) {
+  // A hidden document does not run requestAnimationFrame at all, so the animation below would never
+  // start and the trim that hangs off its completion would never run either -- cards would pile up
+  // for as long as the tab sat in the background. Found while trying to verify this in a browser
+  // pane that turned out to be hidden. Snapping is also simply correct here: there is no motion to
+  // protect when nobody can see it.
+  const documentHidden = typeof document !== 'undefined' && document.hidden === true;
+  if (reducedMotion || documentHidden) {
     viewport.scrollTop = targetTop;
+    trimTranscriptOverflow(ctx);
     return;
   }
 
@@ -371,6 +386,7 @@ function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
   const distance = targetTop - startTop;
   if (Math.abs(distance) < 1) {
     viewport.scrollTop = targetTop;
+    trimTranscriptOverflow(ctx);
     return;
   }
 
@@ -399,9 +415,61 @@ function scrollTranscriptToBottom(ctx, { reducedMotion = false } = {}) {
 
     viewport.scrollTop = targetTop;
     ctx.state.transcriptScrollFrame = null;
+    trimTranscriptOverflow(ctx);
   };
 
   ctx.state.transcriptScrollFrame = requestFrame(animate);
+}
+
+// #81. Removes the cards past MAX_DISPLAY_ITEMS, and it must only ever run at a moment when doing so
+// cannot move what the reader is looking at. There are exactly two such moments, and they need
+// opposite handling:
+//
+//   Parked at the bottom (the normal case): removing nodes ABOVE the viewport shrinks scrollHeight,
+//   and the browser clamps scrollTop down by the same amount, so the visible content does not move
+//   at all. Nothing to compensate -- that is the whole reason the trim waits for the scroll to
+//   finish instead of happening at append time.
+//
+//   Scrolled up (the reader is re-reading): the same clamp is what MOVES their text, so the removed
+//   height has to be subtracted from scrollTop by hand to hold their place. The old eager trim never
+//   did this, so a reader scrolled up during a busy stretch was quietly pushed along.
+//
+// The DOM nodes are removed directly rather than by re-rendering, because a re-render of a
+// non-prefix list is precisely the full rebuild this issue exists to avoid.
+function trimTranscriptOverflow(ctx) {
+  const stack = ctx.dom.transcriptStack;
+  const viewport = ctx.dom.transcriptViewport;
+  if (!stack || !viewport) return;
+
+  const overflow = transcriptOverflow(ctx.state.transcriptItems);
+  if (!overflow.length) return;
+
+  const doomedIds = new Set(overflow.map((item) => item.id));
+  const children = Array.from(stack.children || []);
+  // A mode divider carries no id of its own and belongs to the card BELOW it, so a divider only goes
+  // when it is stranded above the first surviving card -- otherwise trimming would silently delete
+  // the separator the reader uses to see a mode changed.
+  const doomedNodes = [];
+  for (const node of children) {
+    const id = node?.dataset?.itemId;
+    if (id && doomedIds.has(id)) { doomedNodes.push(node); continue; }
+    if (id) break;
+    doomedNodes.push(node);
+  }
+  const removedHeight = doomedNodes.reduce((total, node) => total + (Number(node.offsetHeight) || 0), 0);
+  for (const node of doomedNodes) {
+    if (typeof node.remove === 'function') node.remove();
+    else if (Array.isArray(stack.children)) stack.children.splice(stack.children.indexOf(node), 1);
+  }
+
+  ctx.state.transcriptItems = ctx.state.transcriptItems.slice(overflow.length);
+  ctx.state.transcriptRenderedIds = Array.isArray(ctx.state.transcriptRenderedIds)
+    ? ctx.state.transcriptRenderedIds.filter((id) => !doomedIds.has(id))
+    : ctx.state.transcriptRenderedIds;
+
+  if (ctx.state.stickToBottom === false && removedHeight > 0) {
+    viewport.scrollTop = Math.max(0, (Number(viewport.scrollTop) || 0) - removedHeight);
+  }
 }
 
 export function getDefaultSettingsSection(ctx) {
