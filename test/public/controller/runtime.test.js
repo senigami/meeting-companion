@@ -1066,6 +1066,80 @@ test('pausing, then stopping, then starting again locks the controls -- paused d
   });
 });
 
+// Cato, PR #149 round 4: the round-3 fix only closed the Stop door. The Pause/Resume button has no
+// `disabled` state of its own and no `listening` guard (togglePauseAi checks only `ctx.state.paused`),
+// so it is reachable on a cold load before Start has ever been pressed -- Start stays enabled through
+// that, since nothing ever disables it except a successful start. Pressing Pause then Start walks
+// straight through startListening() and hits the exact same stale-`paused` hole the round-3 fix
+// closed for the Stop path.
+test('pressing Pause on a cold load, then Start, still locks the controls', async () => {
+  const driver = {
+    id: 'browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime, summarizationButtons }) => {
+    const [summaryOpenAi] = summarizationButtons;
+
+    assert.equal(ctx.state.listening, false, 'cold load -- nothing has started yet');
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+
+    // A genuine operator Start press, not a resume -- resumeAi() has its own force:true path and
+    // already clears `paused` itself; this is testing the OTHER caller.
+    await runtime.startListening();
+
+    assert.equal(ctx.state.paused, false, 'a genuine Start press always means paused state does not carry over');
+    assert.equal(elements.pauseAi.classList.contains('is-paused'), false);
+    assert.equal(summaryOpenAi.disabled, true, 'a live meeting is genuinely running -- must lock');
+  });
+});
+
+// Warrick, PR #149 round 4: pre-existing on main, not caused by #62, caught in passing because it's
+// the same line the round-3/4 fixes above move. summarizeCurrentText's own first line is
+// `if (ctx.state.paused) return Promise.resolve();`, so Stop's INV-11 forced final drain was a
+// silent no-op whenever the operator had paused before pressing Stop -- the exact case the comment
+// right above the call describes ("Stop is the one moment we know for certain the speaker is not
+// mid-sentence") never actually ran.
+test('stopping after a pause still forces the final drain -- INV-11 is not defeated by a prior pause', async () => {
+  let sentText = null;
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'and that concludes the closing announcements', at: now }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.stopListening();
+
+    assert.equal(sentText, 'and that concludes the closing announcements', 'the flush must not have been skipped by a stale paused flag');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the stranded chunk must be consumed, not left behind');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {

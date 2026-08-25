@@ -2283,6 +2283,17 @@ export function createRuntime(ctx, deps = {}) {
       ctx.state.listening = true;
       ctx.dom.startListening.disabled = true;
       ctx.dom.stopListening.disabled = false;
+      // Cato, PR #149 round 4: stopListening() clearing `paused` closes the Stop door, but Pause ->
+      // Start (no Stop in between) walks through THIS door instead and hits the exact same stale-
+      // lock hole. Same `!force` gate as setSpeakerName above and for the same reason: a genuine
+      // operator Start press means paused state does not apply any more, but the one force:true
+      // caller (resumeAi) has already cleared `paused` itself before calling here, so this would be
+      // a no-op on that path regardless -- the guard just keeps that provably complete rather than
+      // relying on the resume path never changing.
+      if (!force) {
+        ctx.state.paused = false;
+        updatePauseButton(ctx);
+      }
       // #62: freeze controls that change what the pipeline does, not just how the result looks.
       syncMeetingLock();
       // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
@@ -2314,6 +2325,17 @@ export function createRuntime(ctx, deps = {}) {
 
   async function stopListening() {
     ctx.state.listening = false;
+    // Cato, PR #149 rounds 3-4: Stop is unambiguously "the meeting is over", so any lingering pause
+    // state gets cleared here, as early as possible, rather than left for the next pause/resume
+    // cycle to correct by accident. Two independent reasons this has to run BEFORE the flush below,
+    // not just before syncMeetingLock() (round 3's placement): (1) summarizeCurrentText's own first
+    // line is `if (ctx.state.paused) return Promise.resolve();`, so leaving `paused` true through
+    // the flush call silently no-ops INV-11's forced final drain whenever the operator had paused
+    // before pressing Stop (Warrick, pre-existing on main, unrelated to #62, caught here because
+    // this is the same line); (2) the next startListening()'s syncMeetingLock() would otherwise read
+    // a stale `paused` and leave every lockable control unlocked with a live microphone running.
+    ctx.state.paused = false;
+    updatePauseButton(ctx);
     stopSilenceWatchdog();
     stopAudioLevelTest();
     // Clears the loop's interval synchronously (see pauseActiveTranscription), so no further
@@ -2340,20 +2362,10 @@ export function createRuntime(ctx, deps = {}) {
     setSpeakerName('');
     ctx.dom.startListening.disabled = false;
     ctx.dom.stopListening.disabled = true;
-    // Cato, PR #149 round 3: stopListening() never reset `paused`, so Start -> Pause -> Stop ->
-    // Start left it stuck true across the boundary. Before #62 that was a narrower cosmetic gap
-    // (the Pause button kept reading "Resume", and the "Manual mode." status below never fired).
-    // Since #62 it is a real hole: syncMeetingLock()'s `!ctx.state.paused` term reads the stale
-    // value at the SECOND Start, computes meetingInProgress as false, and every lockable control
-    // stays unlocked with a live microphone actually running. Stop is unambiguously "the meeting
-    // is over" -- nothing can be paused when nothing is running, so this resets it here rather
-    // than leaving it for the next pause/resume cycle to correct by accident.
-    ctx.state.paused = false;
-    updatePauseButton(ctx);
     // #62: releases the freeze applied in startListening.
     syncMeetingLock();
-    // The `!ctx.state.paused` guard this used to carry is gone now that paused is always false by
-    // this point -- Stop always means the rail says "Manual mode.", not just an unpaused Stop.
+    // The `!ctx.state.paused` guard this used to carry is gone now that paused is reset at the top
+    // of this function -- Stop always means the rail says "Manual mode.", not just an unpaused Stop.
     updateStatus(ctx, 'Manual mode.', { level: 'manual' });
   }
 
