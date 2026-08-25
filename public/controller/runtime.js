@@ -2409,8 +2409,20 @@ export function createRuntime(ctx, deps = {}) {
   async function setTranscriptionSource(source) {
     if (!source || ctx.state.transcriptionSource === source) return;
 
-    const shouldResume = ctx.state.listening && !ctx.state.paused;
-    if (ctx.state.listening) {
+    // Cato, PR #149 B3: the old guard stopped whenever `listening` was true but only restarted
+    // when also `!paused`, so switching source while paused ran the FULL stopListening() teardown
+    // (final flush, summaryHistory cleared, speaker name cleared, Stop disabled/Start enabled,
+    // rail to "Manual mode.") and then never restarted -- silently ending the meeting while the
+    // rail still read "Paused" and Resume did nothing. Reachable because #62 only locks these
+    // buttons while genuinely, unpaused, live -- pausing releases them.
+    //
+    // While paused there is nothing live to stop: pauseActiveTranscription() already called
+    // driver.stop() when the operator paused. So this only needs the same teardown+restart dance
+    // when genuinely listening and not paused; while paused (or not listening at all), swapping
+    // the source is enough -- ensureTranscriptionDriver() already rebuilds lazily from the wrong-id
+    // check the next time startListening() runs, which is exactly what resumeAi() calls.
+    const wasGenuinelyListening = ctx.state.listening && !ctx.state.paused;
+    if (wasGenuinelyListening) {
       await stopListening();
     }
 
@@ -2419,7 +2431,7 @@ export function createRuntime(ctx, deps = {}) {
     updateSourceButtons(ctx);
     syncSettingsPanel(ctx);
 
-    if (shouldResume) {
+    if (wasGenuinelyListening) {
       await startListening();
     }
   }

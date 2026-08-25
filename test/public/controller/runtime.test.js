@@ -998,6 +998,41 @@ test('a rehearsal source (demo, not live) never locks anything, even while "list
   });
 });
 
+// Cato, PR #149 B3: pausing releases the transcription-source lock (correctly, per the test above),
+// but setTranscriptionSource's old guard stopped whenever `listening` was true and only restarted
+// when also `!paused` -- so a switch made while paused ran stopListening()'s full teardown and never
+// restarted, silently ending the meeting while the rail still read "Paused" and Resume did nothing.
+// Pre-existing in setTranscriptionSource itself, not something #62 introduced -- #62 only made it
+// reachable through the UI while paused, since these buttons were never locked at all before today.
+test('switching transcription source while paused swaps the source without ending the meeting', async () => {
+  const demoStarts = [];
+  const drivers = {
+    browser: { id: 'browser', isLive: true, async start() {}, async stop() {}, setMode() {} },
+    demo: { id: 'demo', isLive: false, async start() { demoStarts.push(true); }, async stop() {}, setMode() {} }
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source) => drivers[source],
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+    assert.equal(ctx.state.listening, true, 'still a meeting in progress, just quiet');
+
+    await runtime.setTranscriptionSource('demo');
+
+    assert.equal(ctx.state.listening, true, 'B3: switching source while paused must not end the meeting');
+    assert.equal(ctx.state.transcriptionSource, 'demo', 'the switch itself still has to take');
+    assert.equal(elements.stopListening.disabled, false, 'Stop must stay reachable -- the meeting never ended');
+    assert.equal(elements.startListening.disabled, true, 'Start must stay disabled -- pressing it would be a second start');
+    assert.equal(demoStarts.length, 0, 'must not start capturing right now -- the operator is still paused');
+
+    await runtime.togglePauseAi();
+    assert.equal(demoStarts.length, 1, 'the newly-selected driver is what actually starts on resume');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {
