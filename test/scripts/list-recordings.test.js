@@ -43,8 +43,8 @@ test('counts chunks, calls, failures, shortenings and discarded lines from one r
   const out = run(dir);
 
   assert.match(out, /1 recording\(s\)/);
-  // Hand-counted from WELL_FORMED: 3 chunks, 2 calls, 1 failed, 1 short, 2 lost.
-  assert.match(out, /session-a\s+6m\s+3\s+2\s+1\s+1\s+2\b/);
+  // Hand-counted from WELL_FORMED: 3 chunks, 2 calls, 0 typed, 1 failed, 1 short, 2 lost.
+  assert.match(out, /session-a\s+6m\s+3\s+2\s+0\s+1\s+1\s+2\b/);
 });
 
 test('a recording predating the discard count reports n/r, which is not the same as zero', () => {
@@ -80,7 +80,7 @@ test('a partial last line does not stop the listing, and the counts say they are
   assert.match(out, /1 unreadable line\(s\)/);
   assert.match(out, /floor, not a total/);
   // The other file must still be listed with its real counts.
-  assert.match(out, /fine\s+6m\s+3\s+2\s+1\s+1\s+2\b/);
+  assert.match(out, /fine\s+6m\s+3\s+2\s+0\s+1\s+1\s+2\b/);
 });
 
 test('one unreadable file does not hide every other file, which is the point of a listing', () => {
@@ -89,7 +89,7 @@ test('one unreadable file does not hide every other file, which is the point of 
 
   const out = run(dir);
   assert.match(out, /locked\s+UNREADABLE/);
-  assert.match(out, /good\s+6m\s+3\s+2\s+1\s+1\s+2\b/);
+  assert.match(out, /good\s+6m\s+3\s+2\s+0\s+1\s+1\s+2\b/);
 });
 
 test('a recording made under a different commit is marked stale', () => {
@@ -142,4 +142,26 @@ test('list-recordings and replay-recording report the same counts for the same f
   assert.match(replayed, new RegExp(`${listed.failedCount} failed`));
   assert.match(replayed, new RegExp(`${listed.shortenedCount} shortened`));
   assert.match(replayed, new RegExp(`${listed.linesLost} line\\(s\\) DISCARDED`));
+});
+
+// #139: manual lines have been recorded since #135 but were counted nowhere, so a session's stats
+// described the AI's half of the meeting and quietly left out the operator's -- the half that is
+// guaranteed correct, and often typed precisely BECAUSE the AI got something wrong.
+test('lines the operator typed are counted, not left out of the session stats', () => {
+  const dir = writeDir({
+    'typed-session.ndjson': [
+      { t: 'header', at: '2026-08-01T10:00:00.000Z', appCommit: 'aaaaaaaabbbbbbbb', promptHash: 'feedface', provider: 'openai' },
+      { t: 'chunk', at: '2026-08-01T10:00:10.000Z', id: 'c1', text: 'one' },
+      { t: 'summary', at: '2026-08-01T10:00:40.000Z', consumedIds: ['c1'], ok: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 },
+      { t: 'manual', at: '2026-08-01T10:01:00.000Z', mode: 'information', text: 'Ward council at five.', speaker: null, isHeader: false },
+      { t: 'manual', at: '2026-08-01T10:02:00.000Z', mode: 'song', text: 'Music is playing.', speaker: null, isHeader: false },
+      { t: 'manual', at: '2026-08-01T10:06:00.000Z', mode: 'speaker', text: 'Closing remarks.', speaker: null, isHeader: false }
+    ]
+  });
+
+  const out = run(dir);
+
+  assert.match(out, /typed/, 'the listing must have a column for them at all');
+  // Hand-counted from the fixture above: 1 chunk, 1 call, 3 typed, 0 failed, 0 short, 0 lost.
+  assert.match(out, /typed-session\s+6m\s+1\s+1\s+3\s+0\s+0\s+0\b/);
 });

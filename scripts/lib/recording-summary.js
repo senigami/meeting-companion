@@ -33,6 +33,10 @@ export function summarizeRecording(records = [], { unparseable = 0 } = {}) {
   const header = records.find((record) => record.t === 'header') || null;
   const chunks = records.filter((record) => record.t === 'chunk');
   const summaries = records.filter((record) => record.t === 'summary');
+  // #139: manual lines were recorded from #135 onward but counted nowhere, so a session's stats
+  // described the AI's half of the meeting and silently omitted the operator's -- which is the half
+  // that is guaranteed correct, and often the half typed BECAUSE the AI got something wrong.
+  const manuals = records.filter((record) => record.t === 'manual');
 
   const linesLost = summaries.reduce((total, s) => total + (Number(s.discardedByCap) || 0), 0);
   const clientLost = summaries.reduce((total, s) => total + (Number(s.discardedByCapClient) || 0), 0);
@@ -49,6 +53,7 @@ export function summarizeRecording(records = [], { unparseable = 0 } = {}) {
     unparseable,
     chunkCount: chunks.length,
     summaryCount: summaries.length,
+    manualCount: manuals.length,
     failedCount: summaries.filter((s) => !s.ok).length,
     shortenedCount: summaries.filter((s) => s.wasShortened).length,
     linesLost,
