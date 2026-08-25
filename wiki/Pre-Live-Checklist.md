@@ -28,8 +28,8 @@ it:
 ## 3. Know the two things that already went wrong once
 
 - [ ] **Mic gain.** The mic test will flag "too hot" or "too noisy" but won't tell you the fix. This
-      already happened once (2026-08-14, an overdriven USB preamp) — the fix is turning the input
-      gain down on the interface itself, not in the app.
+      already happened once (2026-08-14, an overdriven USB preamp): turn the input gain down on the
+      interface itself, not in the app.
 - [ ] **Dense content under a tight word budget.** Summarization can drop real content (a name, the
       point of a story) when speech is dense relative to the words-per-card setting, confirmed twice
       on a real recording (#128). If tonight's content is unusually dense, widen the word budget or
@@ -37,11 +37,11 @@ it:
 
 ## 4. During the meeting
 
-- [ ] Don't change transcription source, provider, or mic device mid-meeting unless something is
-      actually broken. Nothing currently warns that a mid-meeting change silently altered behavior
-      (#62).
+- [ ] Transcription source, summarization source, provider keys, the mic device, and the debug-
+      recording checkbox all lock while the meeting is running (#62), so there's no need to worry
+      about bumping one by accident. Stop the meeting first if one genuinely needs to change.
 - [ ] If the browser window gets resized or the laptop gets undocked/redocked, and the display
-      suddenly looks frozen behind a dark overlay, press `Escape` (#84) — it isn't actually stuck.
+      suddenly looks frozen behind a dark overlay, press `Escape` (#84): it isn't actually stuck.
 - [ ] Manual line + `Show now` always works regardless of what else is happening. When in doubt, type
       it.
 
