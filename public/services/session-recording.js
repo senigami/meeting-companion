@@ -174,21 +174,42 @@ export function buildManualLineRecord({ at = Date.now(), mode, text, speaker = n
 // Keyed on the transcript item's own id rather than a row position, for the same reason
 // buildCorrectionRecord uses targetAt: a position shifts the moment anything above it changes.
 //
-// WHAT A REPLAY GETS, stated precisely, because this is the spec a replay tool will be built from
-// and an approximate version of it produces a wall the reader never saw. Applying card /
-// card-edit / card-remove / card-restore in FILE order yields the READING HISTORY: every card ever
-// shown, minus the ones a human took down. It is not the final wall on its own. Cards scrolling off
-// past the display cap are deliberately unrecorded -- the reader saw them, and they left by
-// scrolling rather than by anyone judging them wrong -- so after a long meeting the history holds
-// far more cards than the screen ever did.
+// HOW TO REPLAY THIS STREAM, stated as an algorithm rather than a description, because this is the
+// spec a replay tool gets built from and every approximate version of it reconstructs a wall the
+// reader never saw. Cards scrolling off past the display cap are deliberately unrecorded -- the
+// reader saw them, and they left by scrolling rather than by anyone judging them wrong -- so the
+// replay has to simulate that trim rather than read it.
 //
-//   THE RULE: the wall at any point is the LAST `header.displayCap` survivors of the history, never
-//   all of them. Skip it and a clear-after-trim replays as phantom cards: 30 land, the view silently
-//   trims 6, the operator clears, and 24 removals applied to a 30-card model leave 6 cards standing
-//   that were not on the screen.
+//   Walk the records in FILE order, holding an ordered list plus a lastKnown text map:
+//     card          -> append; set lastKnown; drop from the FRONT while the list exceeds displayCap
+//     card-edit     -> set lastKnown to `after`, and update the card in place if it is still held
+//     card-remove   -> drop that id from the list, but NOT from lastKnown
+//     card-restore  -> re-append the ids not already held, taking their text from lastKnown, re-trim
+//   The list is the wall at every point along the way.
 //
-// The cap is written into the header record rather than left as folklore, so a replay reads it from
-// the file instead of hardcoding a number that has already moved once.
+// FILE order, never sorted by `at`. Timestamps in this file are not monotonic: the
+// sentence-end-on-silence follow-up chunk deliberately reuses its ORIGINAL capture time, so a card
+// typed after it can carry an earlier `at` than a chunk written later. Sorting by `at` reorders an
+// operator's card ahead of the speech it followed. Wade constructed that interleaving.
+//
+// lastKnown has to survive removal, and that is the whole reason it exists as a second map: a
+// card-restore carries ids and no text, so a clear-then-undo can only recover what each card said by
+// looking back at the card and card-edit records already seen. Delete from lastKnown on removal and
+// every restored card comes back blank -- including a hand-corrected one, which is the single most
+// valuable thing in the file. Wade found that by replaying a real clear-and-undo and reading the
+// TEXT; the first two versions of this algorithm compared ids to ids and never looked.
+//
+// The trim MUST run inline, at each append. The obvious shortcut -- collect every survivor, then
+// keep the last displayCap of them at the end -- is wrong, and wrong in the direction that matters:
+// a card trimmed off the top is gone forever, but an end-slice lets a later deletion pull one back.
+// Cap 3, cards c1..c5 land (c1 and c2 trim away), operator deletes the visible c4. The wall is
+// [c3,c5]. The end-slice says [c2,c3,c5] and resurrects a card nobody was looking at. Warrick found
+// this by running it, against the first version of this very comment, which claimed the end-slice
+// was the rule. Seven interleavings of overflow with delete, undo, clear and restore are pinned in
+// runtime-recording.test.js.
+//
+// The cap lives in the header record rather than in a tool, so a replay reads it from the file it
+// is replaying instead of hardcoding a number that has already moved once.
 //
 // Diffing the card records against the summaries they came from is the correction trail, and that
 // part IS exact regardless of trimming: an edit records both what the AI said and what a human

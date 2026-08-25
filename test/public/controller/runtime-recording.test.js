@@ -610,37 +610,129 @@ test('the header carries the display cap, so a replay reads the rule instead of 
   });
 });
 
-// Cato withheld sign-off on the first cut of #142 for exactly this, and was right: the record
-// format's own comment claimed a replay reconstructs the final wall, and it does not once the wall
-// has ever exceeded the cap. Trimmed cards are deliberately unrecorded, so a clear after a trim
-// leaves a naive replay holding phantom cards the reader never saw. The rule that makes it exact is
-// "keep the last displayCap survivors", and this pins BOTH halves: the naive replay really does go
-// wrong, and the documented rule really does fix it.
-test('replaying the reading history reconstructs the real wall only when the display cap is applied', async () => {
-  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: false }) }, async ({ ctx, runtime }) => {
+
+// Two rounds of review landed on this one function, and both found the same class of mistake in it,
+// so the algorithm lives here rather than in prose alone.
+//
+// Cato withheld sign-off because the record format claimed a replay reconstructs the final wall,
+// which is false once the wall has overflowed. My fix was "keep the last displayCap survivors", and
+// Warrick then broke THAT by running it: a trimmed card is gone forever, but an end-slice lets a
+// later deletion pull one back off the scrapheap. The trim has to be simulated inline, at each
+// append, in file order.
+function replayWall(records, displayCap) {
+  const order = [];
+  const text = new Map();
+  // Never deleted from, and that is the point of it being separate. A card-restore carries ids and
+  // no text, so the only way to recover what a restored card SAID is the card/card-edit records
+  // already seen. Delete from this on removal and a clear-then-undo returns every card blank.
+  const lastKnown = new Map();
+  const trim = () => { while (order.length > displayCap) text.delete(order.shift()); };
+  const drop = (id) => { const i = order.indexOf(id); if (i >= 0) { order.splice(i, 1); text.delete(id); } };
+
+  for (const r of records) {
+    if (r.t === 'card') { order.push(r.cardId); text.set(r.cardId, r.text); lastKnown.set(r.cardId, r.text); trim(); }
+    else if (r.t === 'card-edit') { lastKnown.set(r.cardId, r.after); if (text.has(r.cardId)) text.set(r.cardId, r.after); }
+    else if (r.t === 'card-remove') drop(r.cardId);
+    else if (r.t === 'card-restore') {
+      for (const id of r.cardIds) if (!order.includes(id)) { order.push(id); text.set(id, lastKnown.get(id)); }
+      trim();
+    }
+  }
+  return order.map((id) => ({ id, text: text.get(id) }));
+}
+
+// The shortcut that reads as obviously equivalent and is not. Kept as a test subject rather than
+// deleted, because the whole point is that it LOOKS right: it passed the first version of this test,
+// which never interleaved a deletion with an overflow, which is why the bug survived a review.
+function replayWallByEndSlice(records, displayCap) {
+  const survivors = [];
+  for (const r of records) {
+    if (r.t === 'card') survivors.push(r.cardId);
+    else if (r.t === 'card-remove') { const i = survivors.indexOf(r.cardId); if (i >= 0) survivors.splice(i, 1); }
+    else if (r.t === 'card-restore') for (const id of r.cardIds) if (!survivors.includes(id)) survivors.push(id);
+  }
+  return survivors.slice(-displayCap);
+}
+
+test('the end-slice replay resurrects a trimmed card once a deletion follows an overflow', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
     for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card number ${i}.`);
+    const cap = ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    // Delete a card that is genuinely on the wall, which is the ordinary operator action that breaks it.
+    runtime.removeItem(ctx.state.transcriptItems[ctx.state.transcriptItems.length - 2].id);
 
-    // The view trims on screen; ctx.state holds the full history until it does. Take the wall as the
-    // last displayCap items, which is exactly what trimTranscriptOverflow leaves behind.
-    const header = ctx.state.recordingQueue.find((r) => r.t === 'header');
-    const wallIds = ctx.state.transcriptItems.slice(-header.displayCap).map((item) => item.id);
+    const wrong = replayWallByEndSlice(ctx.state.recordingQueue, cap);
+    const right = replayWall(ctx.state.recordingQueue, cap);
 
-    const replay = (records, { applyCap }) => {
-      const survivors = new Map();
-      for (const r of records) {
-        if (r.t === 'card') survivors.set(r.cardId, r.text);
-        else if (r.t === 'card-edit' && survivors.has(r.cardId)) survivors.set(r.cardId, r.after);
-        else if (r.t === 'card-remove') survivors.delete(r.cardId);
-      }
-      const ids = [...survivors.keys()];
-      return applyCap ? ids.slice(-header.displayCap) : ids;
+    assert.notDeepEqual(wrong, right.map((c) => c.id), 'the shortcut and the real rule must genuinely disagree here');
+    assert.equal(wrong.length, cap, 'the shortcut backfills to a full wall');
+    assert.equal(right.length, cap - 1, 'the real wall is one card shorter: a trimmed card cannot come back');
+  });
+});
+
+test('replaying reproduces the wall exactly across overflow interleaved with every way off it', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    const cap = () => ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    const check = (label) => {
+      const wall = ctx.state.transcriptItems.slice(-cap()).map((i) => i.id);
+      assert.deepEqual(replayWall(ctx.state.recordingQueue, cap()).map((c) => c.id), wall, label);
     };
 
-    const naive = replay(ctx.state.recordingQueue, { applyCap: false });
-    const byTheRule = replay(ctx.state.recordingQueue, { applyCap: true });
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card ${i}.`);
+    check('after an overflow');
 
-    assert.equal(naive.length, 30, 'the history holds every card ever shown, which is more than the wall');
-    assert.notDeepEqual(naive, wallIds, 'so a replay that skips the cap does NOT match the wall');
-    assert.deepEqual(byTheRule, wallIds, 'applying the cap reproduces the wall exactly');
+    runtime.removeItem(ctx.state.transcriptItems[2].id);
+    check('after deleting a visible card post-overflow');
+
+    runtime.updateItemText(ctx.state.transcriptItems[0].id, 'Corrected by hand.');
+    check('after an in-place edit post-overflow');
+
+    runtime.undoLine();
+    check('after undoing the last card');
+
+    runtime.addLine('A card that lands after all of that.');
+    check('after a fresh card lands on a trimmed, edited, pruned wall');
+
+    ctx.state.clearArmed = true;
+    runtime.clearLines();
+    check('after a clear');
+
+    runtime.undoLine();
+    check('after undoing the clear');
+  });
+});
+
+// The third bug found in this one algorithm, and the third one my own test missed for the same
+// reason: it compared ids to ids. Every card came back in the right ORDER and every one of them came
+// back blank, and an id-only assertion cannot see the difference. So this one asserts on TEXT, and
+// specifically on text that a human corrected, which is the whole reason the file exists.
+test('a hand-corrected card survives a clear and an undo with its correction intact', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Brother Ashcroft spoke about the sower.');
+    runtime.addLine('The second card.');
+    const correctedId = ctx.state.transcriptItems[0].id;
+    runtime.updateItemText(correctedId, 'Brother Ashcraft spoke about the sower.');
+
+    ctx.state.clearArmed = true;
+    runtime.clearLines();
+    runtime.undoLine();
+
+    const cap = ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    const wall = replayWall(ctx.state.recordingQueue, cap);
+
+    assert.equal(wall.length, 2, 'both cards are back on the wall');
+    assert.equal(
+      wall[0].text,
+      'Brother Ashcraft spoke about the sower.',
+      'the correction must survive: coming back as the ORIGINAL would be worse than coming back blank'
+    );
+    assert.equal(wall[1].text, 'The second card.');
+    assert.ok(wall.every((c) => typeof c.text === 'string'), 'no restored card may come back with no text at all');
+
+    // And the replayed wall matches what is genuinely on screen, text and all.
+    assert.deepEqual(
+      wall.map((c) => c.text),
+      ctx.state.transcriptItems.slice(-cap).map((i) => i.text)
+    );
   });
 });
