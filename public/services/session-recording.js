@@ -155,3 +155,70 @@ export function buildManualLineRecord({ at = Date.now(), mode, text, speaker = n
     isHeader: Boolean(isHeader)
   };
 }
+
+// --- What the reader actually read (#142) -------------------------------------------------------
+//
+// Everything above records what the app was TOLD and what a provider SAID. None of it records what
+// ended up in front of the reader after the operator corrected it, and correcting it is the whole
+// reason a human sits at the machine. Two of the three ways a card changes left no trace at all: an
+// in-place edit (#125) wrote straight to state, and a live delete removed it silently. So a
+// recording could say what the AI produced and could not say what was actually read.
+//
+// Keyed on the transcript item's own id rather than a row position, for the same reason
+// buildCorrectionRecord uses targetAt: a position shifts the moment anything above it changes.
+// Replaying card / card-edit / card-remove / card-restore in order reconstructs the final wall;
+// diffing the card records against the summaries they came from is the correction record.
+
+// One card that actually landed. Written per CARD, where a manual record is written per SEND -- one
+// multi-line paste is one manual record and several cards, so the two are not redundant.
+export function buildCardRecord({ at = Date.now(), cardId, mode, text, speaker = null, source = '', isHeader = false }) {
+  return {
+    t: 'card',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    mode: mode || null,
+    speaker: speaker || null,
+    source: source || '',
+    text: text || '',
+    isHeader: Boolean(isHeader)
+  };
+}
+
+// `before` is kept, not just `after`. The point of this record is the comparison: what the AI said
+// against what a human had to change it to. Storing only the corrected text throws away the half
+// that says the summarizer got something wrong.
+export function buildCardEditRecord({ at = Date.now(), cardId, before = '', after = '' }) {
+  return {
+    t: 'card-edit',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    before,
+    after
+  };
+}
+
+// `via` distinguishes the three routes off the wall, because they mean different things: 'delete' is
+// the operator judging one specific card wrong, 'undo' is taking back the most recent thing, 'clear'
+// is resetting the wall between segments. A card scrolling off past the display cap is NOT any of
+// these and is never recorded -- the reader saw it, and it left by scrolling rather than by anyone
+// deciding it should not have been there.
+export function buildCardRemoveRecord({ at = Date.now(), cardId, text = '', via = '' }) {
+  return {
+    t: 'card-remove',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    text,
+    via: via || ''
+  };
+}
+
+// Undo after a Clear puts everything back. Without this a replay shows cards gone that are on the
+// screen in front of the reader, which is the one thing this whole group of records exists to
+// prevent.
+export function buildCardRestoreRecord({ at = Date.now(), cardIds = [] }) {
+  return {
+    t: 'card-restore',
+    at: new Date(at).toISOString(),
+    cardIds: (Array.isArray(cardIds) ? cardIds : []).map(String)
+  };
+}

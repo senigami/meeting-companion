@@ -499,3 +499,103 @@ test('nothing extra is scheduled while the summarize loop is running and already
     assert.ok(ctx.state.recordingQueue.length > 0, 'but the record is still queued for that loop');
   });
 });
+
+// --- #142: recording what the reader actually read ---------------------------------------------
+//
+// Steve's ask: keep a record of the real output, not only what was sent and what came back, so a
+// hand correction can be compared against what the AI produced. Two of the three ways a card changes
+// left no trace at all before this.
+
+test('a card that lands on the wall is recorded, with the id an edit can later point at', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    ctx.state.mode = 'information';
+    runtime.addLine('Ward council at five.');
+
+    const card = ctx.state.recordingQueue.find((r) => r.t === 'card');
+    assert.ok(card, 'a card reaching the wall must be recorded');
+    assert.equal(card.text, 'Ward council at five.');
+    assert.equal(card.mode, 'information');
+    assert.equal(card.source, 'manual');
+    assert.ok(card.cardId, 'the card must carry the id an edit or a removal points at');
+  });
+});
+
+// The bug this guards is subtle and would produce a file that lies in the most damaging direction:
+// appendTranscriptItems drops an item repeating the card above it, so recording the INPUT rather
+// than the result would claim the reader saw something never put in front of them.
+test('a duplicate card the wall itself rejects is not recorded as having been read', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('The same sentence twice.');
+    runtime.addLine('The same sentence twice.');
+
+    assert.equal(
+      ctx.state.recordingQueue.filter((r) => r.t === 'card').length,
+      1,
+      'the rejected duplicate never reached the reader, so it must not be recorded'
+    );
+  });
+});
+
+// #125 shipped edit-in-place, and it wrote straight to state with no record at all -- so the single
+// most informative event in the file (a human deciding the AI was wrong) was the one thing missing.
+test('editing a card in place records both what it said and what it was corrected to', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Brother Ashcroft spoke about the sower.');
+    const cardId = ctx.state.transcriptItems[0].id;
+
+    runtime.updateItemText(cardId, 'Brother Ashcraft spoke about the sower.');
+
+    const edit = ctx.state.recordingQueue.find((r) => r.t === 'card-edit');
+    assert.ok(edit, 'an in-place edit must be recorded');
+    assert.equal(edit.cardId, cardId);
+    assert.equal(edit.before, 'Brother Ashcroft spoke about the sower.', 'the ORIGINAL is the half that says the AI got it wrong');
+    assert.equal(edit.after, 'Brother Ashcraft spoke about the sower.');
+  });
+});
+
+test('committing an edit that changed nothing records nothing', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Unchanged text.');
+    const cardId = ctx.state.transcriptItems[0].id;
+
+    runtime.updateItemText(cardId, 'Unchanged text.');
+
+    assert.equal(ctx.state.recordingQueue.filter((r) => r.t === 'card-edit').length, 0);
+  });
+});
+
+test('the three routes off the wall are recorded, and say which route it was', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: true }) }, async ({ ctx, runtime }) => {
+    runtime.addLine('First card.');
+    runtime.addLine('Second card.');
+    runtime.addLine('Third card.');
+    const secondId = ctx.state.transcriptItems[1].id;
+
+    runtime.removeItem(secondId);
+    runtime.undoLine();
+    runtime.clearLines();
+
+    const removals = ctx.state.recordingQueue.filter((r) => r.t === 'card-remove');
+    assert.deepEqual(removals.map((r) => r.via), ['delete', 'undo', 'clear']);
+    assert.equal(removals[0].cardId, secondId);
+    assert.equal(removals[0].text, 'Second card.', 'the removed text is kept: what was taken down is the point');
+  });
+});
+
+// Without this a replay shows cards gone that are on the screen in front of the reader, which is the
+// exact failure this whole group of records exists to prevent.
+test('undoing a clear records the restore, so a replay does not show cards that are back as gone', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: true }) }, async ({ ctx, runtime }) => {
+    runtime.addLine('A card that gets cleared.');
+    const cardId = ctx.state.transcriptItems[0].id;
+    runtime.clearLines();
+    assert.equal(ctx.state.transcriptItems.length, 0);
+
+    runtime.undoLine();
+
+    const restore = ctx.state.recordingQueue.find((r) => r.t === 'card-restore');
+    assert.ok(restore, 'the restore must be recorded');
+    assert.deepEqual(restore.cardIds, [cardId]);
+    assert.equal(ctx.state.transcriptItems.length, 1, 'and the card really is back on the wall');
+  });
+});

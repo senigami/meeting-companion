@@ -76,7 +76,16 @@ import {
   isProviderConfigured,
   isSourceConfigured
 } from './provider-availability.js';
-import { buildChunkRecord, buildSummaryRecord, buildHeaderRecord, buildManualLineRecord } from '../services/session-recording.js';
+import {
+  buildChunkRecord,
+  buildSummaryRecord,
+  buildHeaderRecord,
+  buildManualLineRecord,
+  buildCardRecord,
+  buildCardEditRecord,
+  buildCardRemoveRecord,
+  buildCardRestoreRecord
+} from '../services/session-recording.js';
 import { computeSummaryPromptHash } from '../services/summary-prompt-minimal.js';
 import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
@@ -297,7 +306,25 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function commitItems(items) {
-    setTranscriptItems(appendTranscriptItems(ctx.state.transcriptItems, items));
+    // Recorded from the RESULT of the append, never from `items` (#142): appendTranscriptItems drops
+    // an item whose text repeats the card above it, so recording the input would claim the reader saw
+    // a card that was never put in front of them -- a lie in the one file that exists to say what
+    // they saw.
+    const landedBefore = new Set(ctx.state.transcriptItems.map((item) => item.id));
+    const next = appendTranscriptItems(ctx.state.transcriptItems, items);
+    setTranscriptItems(next);
+    for (const item of next) {
+      if (landedBefore.has(item.id)) continue;
+      queueRecord(() => buildCardRecord({
+        at: nowFn(),
+        cardId: item.id,
+        mode: item.mode,
+        speaker: item.speaker,
+        source: item.source,
+        text: item.text,
+        isHeader: item.isHeader
+      }));
+    }
     renderDisplay(ctx);
     showRecentTranscript();
   }
@@ -408,6 +435,7 @@ export function createRuntime(ctx, deps = {}) {
       const restored = ctx.state.lastClearedItems;
       setTranscriptItems(restored);
       ctx.state.lastClearedItems = null;
+      queueRecord(() => buildCardRestoreRecord({ at: nowFn(), cardIds: restored.map((item) => item.id) }));
       renderDisplay(ctx);
       const lineWord = restored.length === 1 ? 'line' : 'lines';
       flashRailNote(ctx, `Restored ${restored.length} ${lineWord}.`, { setTimeoutFn, clearTimeoutFn });
@@ -415,6 +443,9 @@ export function createRuntime(ctx, deps = {}) {
     }
     const removed = ctx.state.transcriptItems[ctx.state.transcriptItems.length - 1];
     setTranscriptItems(ctx.state.transcriptItems.slice(0, -1));
+    if (removed) {
+      queueRecord(() => buildCardRemoveRecord({ at: nowFn(), cardId: removed.id, text: removed.text, via: 'undo' }));
+    }
     renderDisplay(ctx);
     if (removed) {
       const text = `Removed: "${truncateForStatus(removed.text)}"`;
@@ -430,6 +461,7 @@ export function createRuntime(ctx, deps = {}) {
     const index = ctx.state.transcriptItems.findIndex((item) => item.id === id);
     if (index === -1) return;
     const [removed] = ctx.state.transcriptItems.splice(index, 1);
+    queueRecord(() => buildCardRemoveRecord({ at: nowFn(), cardId: removed.id, text: removed.text, via: 'delete' }));
     renderDisplay(ctx);
     const text = `Removed: "${truncateForStatus(removed.text)}"`;
     updateStatus(ctx, text);
@@ -449,7 +481,12 @@ export function createRuntime(ctx, deps = {}) {
   function updateItemText(id, text) {
     const item = ctx.state.transcriptItems.find((entry) => entry.id === id);
     if (!item) return;
+    const before = item.text;
     item.text = text;
+    // A focusout fires whether or not anything was typed, so an unchanged commit is the common case,
+    // not the edge one. Recording it would fill the file with edits that changed nothing.
+    if (before === text) return;
+    queueRecord(() => buildCardEditRecord({ at: nowFn(), cardId: id, before, after: text }));
   }
 
   function armClear() {
@@ -487,6 +524,12 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
     ctx.state.lastClearedItems = outgoing;
+    // One record per card rather than one listing them all, so a replay applies removals the same
+    // way whatever route they came off the wall by. Clear is rare enough that the extra lines cost
+    // nothing, and a uniform stream is what keeps the replay honest.
+    for (const item of outgoing) {
+      queueRecord(() => buildCardRemoveRecord({ at: nowFn(), cardId: item.id, text: item.text, via: 'clear' }));
+    }
     setTranscriptItems([]);
     // Anything still queued belongs to what was just cleared. Without this it would arrive a few
     // seconds later on a screen the operator deliberately emptied.
