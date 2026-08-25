@@ -318,3 +318,57 @@ test('setRecordingEnabled(false) clears the queue and updates the indicator to "
     assert.match(elements.recordingIndicator.textContent, /not recording/i);
   });
 });
+
+// #135: every card the operator typed by hand was missing from the recording entirely -- not logged
+// badly, never logged. These four pin the whole contract: manual lines land, AI lines don't land
+// twice, the disabled switch still wins, and the recorded text is what the reader actually saw.
+test('a manually typed line reaches the recording, which it never did before #135', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState()
+  }, async ({ ctx, runtime }) => {
+    ctx.state.mode = 'information';
+    runtime.addLine('Choir practice is after the block.', { speaker: '' });
+
+    const record = ctx.state.recordingQueue.find((r) => r.t === 'manual');
+    assert.ok(record, 'a manual line must produce a manual record');
+    assert.equal(record.text, 'Choir practice is after the block.');
+    assert.equal(record.mode, 'information');
+    assert.equal(record.speaker, null);
+    assert.equal(record.isHeader, false);
+  });
+});
+
+// The double-write this guards against is not hypothetical: addLine is the shared path for BOTH
+// manual and AI cards, so recording unconditionally would write every AI line twice -- once as its
+// own summary record and once here -- under two different shapes, which is worse than the gap.
+test('an AI line routed through the same addLine path is not recorded a second time', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState()
+  }, async ({ ctx, runtime }) => {
+    // Asserted, not assumed: if the AI line failed to land a card at all, "no manual record" would
+    // pass for the wrong reason and this test would be checking nothing.
+    assert.equal(runtime.addLine('He spoke about the parable of the sower.', { source: 'ai' }), true);
+
+    assert.equal(ctx.state.recordingQueue.filter((r) => r.t === 'manual').length, 0);
+  });
+});
+
+test('recording disabled means a manual line queues nothing either', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState({ recordingEnabled: false })
+  }, async ({ ctx, runtime }) => {
+    runtime.addLine('Choir practice is after the block.');
+    assert.equal(ctx.state.recordingQueue.length, 0);
+  });
+});
+
+// A line that never became a card must never become a record: the record's whole claim is "this was
+// on the wall", and addLine rejects empty/whitespace-only text before any card is created.
+test('a manual line that lands no card leaves no record behind', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState()
+  }, async ({ ctx, runtime }) => {
+    assert.equal(runtime.addLine('   '), false);
+    assert.equal(ctx.state.recordingQueue.length, 0);
+  });
+});

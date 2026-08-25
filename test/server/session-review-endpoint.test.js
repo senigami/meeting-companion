@@ -266,3 +266,92 @@ test('a speaker-break record forces a divider inside one long same-mode block, w
   const row2 = rows.find((r) => r.includes('Second speaker line'));
   assert.match(row2, /class="mode-change"/);
 });
+
+// #135: a manual line used to be invisible here, so a report of a real meeting silently omitted
+// every card the operator typed -- including the ones typed precisely because the AI got it wrong.
+test('a manually typed line appears in the review table, in time order among the summaries', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'header', at: '2026-08-23T16:00:00.000Z', appCommit: 'abc', promptHash: 'ph', maxWords: 10, provider: 'openai', intervalSeconds: 20 }),
+    JSON.stringify({ t: 'summary', at: '2026-08-23T16:03:00.000Z', mode: 'speaker', consumedIds: [], sent: 'later raw', returned: 'The later summary.', ok: true }),
+    JSON.stringify({ t: 'manual', at: '2026-08-23T16:01:00.000Z', mode: 'information', text: 'Ward council moved to 5pm.', speaker: null, isHeader: false })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /Ward council moved to 5pm\./);
+  // Ordered by the record's own `at`, not by file order: the manual record sits AFTER the summary
+  // in the file (a summary is written when the provider answers, a manual line the instant it
+  // lands), but the reader saw it two minutes earlier.
+  assert.ok(
+    response.body.indexOf('Ward council moved to 5pm.') < response.body.indexOf('The later summary.'),
+    'the earlier manual line must render above the later summary'
+  );
+});
+
+test('a manual row says nothing was sent, rather than leaving the raw-text cell ambiguously blank', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'manual', at: '2026-08-23T16:01:00.000Z', mode: 'song', text: 'Music is playing.', speaker: null, isHeader: false })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  const row = response.body.split('<tr').find((r) => r.includes('Music is playing.'));
+  assert.match(row, /typed by the operator, never sent to a provider/);
+  assert.match(row, /typed<\/span>/);
+});
+
+// A manual record has no `ok` field at all, because no provider call stands behind it. Reading a
+// missing `ok` as falsy would paint the one kind of card that cannot fail in the failure colour.
+test('a manual row is never marked failed, even though it carries no ok field', async () => {
+  const ndjson = [
+    JSON.stringify({ t: 'manual', at: '2026-08-23T16:01:00.000Z', mode: 'song', text: 'Music is playing.', speaker: null, isHeader: false })
+  ].join('\n') + '\n';
+
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording(id) { return id === 'session-a' ? ndjson : null; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  const row = response.body.split('<tr').find((r) => r.includes('Music is playing.'));
+  assert.doesNotMatch(row, /failed/);
+});
+
+// Found live while verifying #135: every colour on this page is picked for a light ground, but the
+// body never declared one, so a dark-themed browser painted near-black behind #1a1a1a text and the
+// table was unreadable. Pinned because it is a one-line regression to reintroduce and nothing about
+// the page LOOKS wrong to anyone whose browser happens to be in light mode.
+test('the review page states its own background, so a dark-themed browser cannot black out the text', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording() { return '\n'; }
+    }
+  });
+
+  const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
+
+  assert.match(response.body, /body \{[^}]*background:\s*#fff/);
+});

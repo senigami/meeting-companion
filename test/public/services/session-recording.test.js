@@ -7,7 +7,8 @@ import {
   buildSummaryRecord,
   buildHeaderRecord,
   buildCorrectionRecord,
-  buildSpeakerBreakRecord
+  buildSpeakerBreakRecord,
+  buildManualLineRecord
 } from '../../../public/services/session-recording.js';
 
 test('session id is derived from a timestamp and contains only filesystem/URL-safe characters', () => {
@@ -163,4 +164,31 @@ test('buildSpeakerBreakRecord points at the summary starting the new speaker, sa
 test('buildSpeakerBreakRecord defaults targetAt to null, never undefined', () => {
   const record = buildSpeakerBreakRecord({});
   assert.equal(record.targetAt, null);
+});
+
+// #135
+test('buildManualLineRecord carries the mode, speaker and text of the card the operator typed', () => {
+  const record = buildManualLineRecord({
+    at: Date.parse('2026-08-24T16:20:00.000Z'),
+    mode: 'song',
+    text: 'Music is playing.',
+    speaker: 'Sis. Whitmer'
+  });
+
+  assert.equal(record.t, 'manual');
+  assert.equal(record.at, '2026-08-24T16:20:00.000Z');
+  assert.equal(record.mode, 'song');
+  assert.equal(record.speaker, 'Sis. Whitmer');
+  assert.equal(record.text, 'Music is playing.');
+  assert.equal(record.isHeader, false);
+});
+
+test('a manual record with no speaker stores null, never an empty string or a placeholder', () => {
+  const record = buildManualLineRecord({ at: 0, mode: 'information', text: 'Ward council at 5.', speaker: '' });
+  assert.equal(record.speaker, null);
+});
+
+test('a header send is marked as one, so a replay can tell a program header from a typed line', () => {
+  const record = buildManualLineRecord({ at: 0, mode: 'speaker', text: 'Opening Hymn', isHeader: true });
+  assert.equal(record.isHeader, true);
 });

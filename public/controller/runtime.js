@@ -76,7 +76,7 @@ import {
   isProviderConfigured,
   isSourceConfigured
 } from './provider-availability.js';
-import { buildChunkRecord, buildSummaryRecord, buildHeaderRecord } from '../services/session-recording.js';
+import { buildChunkRecord, buildSummaryRecord, buildHeaderRecord, buildManualLineRecord } from '../services/session-recording.js';
 import { computeSummaryPromptHash } from '../services/summary-prompt-minimal.js';
 import { normalizeReplaySpeed } from '../services/transcription/replay.js';
 
@@ -369,6 +369,16 @@ export function createRuntime(ctx, deps = {}) {
       isHeader
     });
     if (!nextItems.length) return false;
+    // #135: everything the operator types by hand ("Show now", a program header send, the fixed
+    // "Music is playing." line) funnels through here and left NO trace in the recording -- the two
+    // chunk call sites are both fed by transcription-driver events and the summary ones by the
+    // provider, so the one class of card guaranteed to be correct was the one class never written
+    // down. Recorded after the early returns, so a record means a card actually landed, and only
+    // for source === 'manual': an AI line already has its own summary record and would otherwise be
+    // written twice under two different shapes.
+    if (source === 'manual') {
+      queueRecord(() => buildManualLineRecord({ at: nowFn(), mode, text: clean, speaker, isHeader }));
+    }
     // Queued even for a single card when cards are already waiting, or a later result would
     // overtake an earlier one and the testimony would come out of order.
     if (paced && (nextItems.length > 1 || cardReleaseQueue.pendingCount() > 0)) {
