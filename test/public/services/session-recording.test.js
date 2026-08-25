@@ -129,10 +129,22 @@ test('buildHeaderRecord never carries transcript text or any key material -- met
     promptHash: 'deadbeef',
     maxWords: 15,
     provider: 'openai',
-    intervalSeconds: 5
+    intervalSeconds: 5,
+    displayCap: 24
   });
   const keys = Object.keys(record).sort();
-  assert.deepEqual(keys, ['appCommit', 'at', 'intervalSeconds', 'maxWords', 'promptHash', 'provider', 't']);
+  // displayCap added with the card records (#142): a number, metadata about the DISPLAY rather than
+  // about anything anyone said, so it does not widen what this record can leak. Growing this list is
+  // supposed to hurt -- an exact key set is the only thing standing between "add one useful field"
+  // and transcript text arriving in a header nobody re-reads. Anything added here needs the same
+  // question answered out loud: could this field ever hold a word somebody spoke?
+  assert.deepEqual(keys, ['appCommit', 'at', 'displayCap', 'intervalSeconds', 'maxWords', 'promptHash', 'provider', 't']);
+  assert.equal(typeof record.displayCap, 'number', 'and it stays a number, never free text');
+});
+
+test('an older recording with no display cap reports null, which a replay must not read as "no cap"', () => {
+  const record = buildHeaderRecord({});
+  assert.equal(record.displayCap, null);
 });
 
 test('buildCorrectionRecord points at the corrected summary by its own timestamp, and carries the reason', () => {

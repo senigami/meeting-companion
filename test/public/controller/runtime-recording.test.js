@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
+import { replayCardWall } from '../../../public/services/session-recording.js';
 
 // ADR-0004 / backlog items 2-3: the debugging/tuning recorder. These tests cover the client-side
 // half owned by Janus -- queuing chunk/summary records, batching them into one flush, and the
@@ -497,5 +498,244 @@ test('nothing extra is scheduled while the summarize loop is running and already
 
     assert.equal(clock.pendingCount(), before, 'the loop owns the drain; no second timer');
     assert.ok(ctx.state.recordingQueue.length > 0, 'but the record is still queued for that loop');
+  });
+});
+
+// --- #142: recording what the reader actually read ---------------------------------------------
+//
+// Steve's ask: keep a record of the real output, not only what was sent and what came back, so a
+// hand correction can be compared against what the AI produced. Two of the three ways a card changes
+// left no trace at all before this.
+
+test('a card that lands on the wall is recorded, with the id an edit can later point at', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    ctx.state.mode = 'information';
+    runtime.addLine('Ward council at five.');
+
+    const card = ctx.state.recordingQueue.find((r) => r.t === 'card');
+    assert.ok(card, 'a card reaching the wall must be recorded');
+    assert.equal(card.text, 'Ward council at five.');
+    assert.equal(card.mode, 'information');
+    assert.equal(card.source, 'manual');
+    assert.ok(card.cardId, 'the card must carry the id an edit or a removal points at');
+  });
+});
+
+// The bug this guards is subtle and would produce a file that lies in the most damaging direction:
+// appendTranscriptItems drops an item repeating the card above it, so recording the INPUT rather
+// than the result would claim the reader saw something never put in front of them.
+test('a duplicate card the wall itself rejects is not recorded as having been read', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('The same sentence twice.');
+    runtime.addLine('The same sentence twice.');
+
+    assert.equal(
+      ctx.state.recordingQueue.filter((r) => r.t === 'card').length,
+      1,
+      'the rejected duplicate never reached the reader, so it must not be recorded'
+    );
+  });
+});
+
+// #125 shipped edit-in-place, and it wrote straight to state with no record at all -- so the single
+// most informative event in the file (a human deciding the AI was wrong) was the one thing missing.
+test('editing a card in place records both what it said and what it was corrected to', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Brother Ashcroft spoke about the sower.');
+    const cardId = ctx.state.transcriptItems[0].id;
+
+    runtime.updateItemText(cardId, 'Brother Ashcraft spoke about the sower.');
+
+    const edit = ctx.state.recordingQueue.find((r) => r.t === 'card-edit');
+    assert.ok(edit, 'an in-place edit must be recorded');
+    assert.equal(edit.cardId, cardId);
+    assert.equal(edit.before, 'Brother Ashcroft spoke about the sower.', 'the ORIGINAL is the half that says the AI got it wrong');
+    assert.equal(edit.after, 'Brother Ashcraft spoke about the sower.');
+  });
+});
+
+test('committing an edit that changed nothing records nothing', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Unchanged text.');
+    const cardId = ctx.state.transcriptItems[0].id;
+
+    runtime.updateItemText(cardId, 'Unchanged text.');
+
+    assert.equal(ctx.state.recordingQueue.filter((r) => r.t === 'card-edit').length, 0);
+  });
+});
+
+test('the three routes off the wall are recorded, and say which route it was', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: true }) }, async ({ ctx, runtime }) => {
+    runtime.addLine('First card.');
+    runtime.addLine('Second card.');
+    runtime.addLine('Third card.');
+    const secondId = ctx.state.transcriptItems[1].id;
+
+    runtime.removeItem(secondId);
+    runtime.undoLine();
+    runtime.clearLines();
+
+    const removals = ctx.state.recordingQueue.filter((r) => r.t === 'card-remove');
+    assert.deepEqual(removals.map((r) => r.via), ['delete', 'undo', 'clear']);
+    assert.equal(removals[0].cardId, secondId);
+    assert.equal(removals[0].text, 'Second card.', 'the removed text is kept: what was taken down is the point');
+  });
+});
+
+// Without this a replay shows cards gone that are on the screen in front of the reader, which is the
+// exact failure this whole group of records exists to prevent.
+test('undoing a clear records the restore, so a replay does not show cards that are back as gone', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: true }) }, async ({ ctx, runtime }) => {
+    runtime.addLine('A card that gets cleared.');
+    const cardId = ctx.state.transcriptItems[0].id;
+    runtime.clearLines();
+    assert.equal(ctx.state.transcriptItems.length, 0);
+
+    runtime.undoLine();
+
+    const restore = ctx.state.recordingQueue.find((r) => r.t === 'card-restore');
+    assert.ok(restore, 'the restore must be recorded');
+    assert.deepEqual(restore.cardIds, [cardId]);
+    assert.equal(ctx.state.transcriptItems.length, 1, 'and the card really is back on the wall');
+  });
+});
+
+test('the header carries the display cap, so a replay reads the rule instead of hardcoding it', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Anything, to force the header.');
+
+    const header = ctx.state.recordingQueue.find((r) => r.t === 'header');
+    assert.ok(header, 'the header is written first, on the very first queued record');
+    assert.equal(header.displayCap, 24, 'a replay must not have to guess or hardcode the cap');
+  });
+});
+
+
+// The replay algorithm is PRODUCT CODE now, imported from session-recording.js rather than written
+// out here. Three review rounds found three defects in it while it lived in this file, every one of
+// them green the whole time, because the spec was a comment and the implementation was a test helper
+// and nothing connected them. Cato's call: a spec that can be wrong without failing is not a spec.
+//
+// What stays here is the WRONG algorithm, kept deliberately as a test subject. It reads as obviously
+// equivalent, it passed the first version of this test, and pinning it as different is the only thing
+// stopping it quietly becoming the rule again.
+function replayWallByEndSlice(records, displayCap) {
+  const survivors = [];
+  for (const r of records) {
+    if (r.t === 'card') survivors.push(r.cardId);
+    else if (r.t === 'card-remove') { const i = survivors.indexOf(r.cardId); if (i >= 0) survivors.splice(i, 1); }
+    else if (r.t === 'card-restore') for (const id of r.cardIds) if (!survivors.includes(id)) survivors.push(id);
+  }
+  return survivors.slice(-displayCap);
+}
+
+test('the end-slice replay resurrects a trimmed card once a deletion follows an overflow', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card number ${i}.`);
+    const cap = ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    // Delete a card that is genuinely on the wall, which is the ordinary operator action that breaks it.
+    runtime.removeItem(ctx.state.transcriptItems[ctx.state.transcriptItems.length - 2].id);
+
+    const wrong = replayWallByEndSlice(ctx.state.recordingQueue, cap);
+    const right = replayCardWall(ctx.state.recordingQueue, cap);
+
+    assert.notDeepEqual(wrong, right.map((c) => c.cardId), 'the shortcut and the real rule must genuinely disagree here');
+    assert.equal(wrong.length, cap, 'the shortcut backfills to a full wall');
+    assert.equal(right.length, cap - 1, 'the real wall is one card shorter: a trimmed card cannot come back');
+  });
+});
+
+test('replaying reproduces the wall exactly across overflow interleaved with every way off it', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    const cap = () => ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    const check = (label) => {
+      const wall = ctx.state.transcriptItems.slice(-cap()).map((i) => i.id);
+      assert.deepEqual(replayCardWall(ctx.state.recordingQueue, cap()).map((c) => c.cardId), wall, label);
+    };
+
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card ${i}.`);
+    check('after an overflow');
+
+    runtime.removeItem(ctx.state.transcriptItems[2].id);
+    check('after deleting a visible card post-overflow');
+
+    runtime.updateItemText(ctx.state.transcriptItems[0].id, 'Corrected by hand.');
+    check('after an in-place edit post-overflow');
+
+    runtime.undoLine();
+    check('after undoing the last card');
+
+    runtime.addLine('A card that lands after all of that.');
+    check('after a fresh card lands on a trimmed, edited, pruned wall');
+
+    ctx.state.clearArmed = true;
+    runtime.clearLines();
+    check('after a clear');
+
+    runtime.undoLine();
+    check('after undoing the clear');
+  });
+});
+
+// The third bug found in this one algorithm, and the third one my own test missed for the same
+// reason: it compared ids to ids. Every card came back in the right ORDER and every one of them came
+// back blank, and an id-only assertion cannot see the difference. So this one asserts on TEXT, and
+// specifically on text that a human corrected, which is the whole reason the file exists.
+test('a hand-corrected card survives a clear and an undo with its correction intact', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Brother Ashcroft spoke about the sower.');
+    runtime.addLine('The second card.');
+    const correctedId = ctx.state.transcriptItems[0].id;
+    runtime.updateItemText(correctedId, 'Brother Ashcraft spoke about the sower.');
+
+    ctx.state.clearArmed = true;
+    runtime.clearLines();
+    runtime.undoLine();
+
+    const cap = ctx.state.recordingQueue.find((r) => r.t === 'header').displayCap;
+    const wall = replayCardWall(ctx.state.recordingQueue, cap);
+
+    assert.equal(wall.length, 2, 'both cards are back on the wall');
+    assert.equal(
+      wall[0].text,
+      'Brother Ashcraft spoke about the sower.',
+      'the correction must survive: coming back as the ORIGINAL would be worse than coming back blank'
+    );
+    assert.equal(wall[1].text, 'The second card.');
+    assert.ok(wall.every((c) => typeof c.text === 'string'), 'no restored card may come back with no text at all');
+
+    // And the replayed wall matches what is genuinely on screen, text and all.
+    assert.deepEqual(
+      wall.map((c) => c.text),
+      ctx.state.transcriptItems.slice(-cap).map((i) => i.text)
+    );
+  });
+});
+
+// Cato found this one by mutation after signing off on everything else, and it is the fourth
+// instance of the same blindness in this feature: every assertion above compares the replay against
+// ctx.state.transcriptItems, which is the VISIBLE WALL. The wall excludes trimmed cards by
+// definition, so nothing anywhere asserted that a trimmed card is recorded at all. Making
+// commitItems record only the survivors -- destroying the history this feature is named after --
+// left the whole suite green.
+test('a card that scrolls off the wall is still in the recording: the history is not the wall', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    const cap = 24;
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card number ${i}.`);
+
+    const cardRecords = ctx.state.recordingQueue.filter((r) => r.t === 'card');
+    assert.equal(cardRecords.length, 30, 'every card that reached the reader is recorded, not just the ones still showing');
+
+    // The point stated as the inequality it actually is.
+    const wall = replayCardWall(ctx.state.recordingQueue, cap);
+    assert.equal(wall.length, cap, 'the replayed WALL is capped');
+    assert.ok(cardRecords.length > wall.length, 'and the HISTORY is strictly bigger than the wall');
+
+    // The six that scrolled away are named, so this cannot pass by counting alone.
+    const recordedTexts = cardRecords.map((r) => r.text);
+    for (const gone of ['Card number 1.', 'Card number 2.', 'Card number 6.']) {
+      assert.ok(recordedTexts.includes(gone), `${gone} scrolled off the wall but must survive in the recording`);
+    }
   });
 });

@@ -38,7 +38,8 @@ export function buildHeaderRecord({
   promptHash = 'unknown',
   maxWords = null,
   provider = '',
-  intervalSeconds = null
+  intervalSeconds = null,
+  displayCap = null
 } = {}) {
   return {
     t: 'header',
@@ -47,7 +48,13 @@ export function buildHeaderRecord({
     promptHash: promptHash || 'unknown',
     maxWords: typeof maxWords === 'number' ? maxWords : null,
     provider: provider || '',
-    intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : null
+    intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : null,
+    // Eighth key, added with the card records (#142). It is here rather than in a replay tool
+    // because it is a property OF THIS RECORDING: the cap has already changed once, and a tool
+    // hardcoding today's number would silently misreplay every file written under a different one.
+    // Null on a recording made before this field existed, which a replay must read as "unknown",
+    // never as "no cap".
+    displayCap: typeof displayCap === 'number' ? displayCap : null
   };
 }
 
@@ -154,4 +161,165 @@ export function buildManualLineRecord({ at = Date.now(), mode, text, speaker = n
     text: text || '',
     isHeader: Boolean(isHeader)
   };
+}
+
+// --- What the reader actually read (#142) -------------------------------------------------------
+//
+// Everything above records what the app was TOLD and what a provider SAID. None of it records what
+// ended up in front of the reader after the operator corrected it, and correcting it is the whole
+// reason a human sits at the machine. Two of the three ways a card changes left no trace at all: an
+// in-place edit (#125) wrote straight to state, and a live delete removed it silently. So a
+// recording could say what the AI produced and could not say what was actually read.
+//
+// Keyed on the transcript item's own id rather than a row position, for the same reason
+// buildCorrectionRecord uses targetAt: a position shifts the moment anything above it changes.
+//
+// HOW TO REPLAY THIS STREAM, stated as an algorithm rather than a description, because this is the
+// spec a replay tool gets built from and every approximate version of it reconstructs a wall the
+// reader never saw. Cards scrolling off past the display cap are deliberately unrecorded -- the
+// reader saw them, and they left by scrolling rather than by anyone judging them wrong -- so the
+// replay has to simulate that trim rather than read it.
+//
+//   Walk the records in FILE order, holding an ordered list plus a lastKnown text map:
+//     card          -> append; set lastKnown; drop from the FRONT while the list exceeds displayCap
+//     card-edit     -> set lastKnown to `after`, and update the card in place if it is still held
+//     card-remove   -> drop that id from the list, but NOT from lastKnown
+//     card-restore  -> re-append the ids not already held, taking their text from lastKnown, re-trim
+//   The list is the wall at every point along the way.
+//
+// FILE order, never sorted by `at`. Timestamps in this file are not monotonic: the
+// sentence-end-on-silence follow-up chunk deliberately reuses its ORIGINAL capture time, so a card
+// typed after it can carry an earlier `at` than a chunk written later. Sorting by `at` reorders an
+// operator's card ahead of the speech it followed. Wade constructed that interleaving.
+//
+// lastKnown has to survive removal, and that is the whole reason it exists as a second map: a
+// card-restore carries ids and no text, so a clear-then-undo can only recover what each card said by
+// looking back at the card and card-edit records already seen. Delete from lastKnown on removal and
+// every restored card comes back blank -- including a hand-corrected one, which is the single most
+// valuable thing in the file. Wade found that by replaying a real clear-and-undo and reading the
+// TEXT; the first two versions of this algorithm compared ids to ids and never looked.
+//
+// The trim MUST run inline, at each append. The obvious shortcut -- collect every survivor, then
+// keep the last displayCap of them at the end -- is wrong, and wrong in the direction that matters:
+// a card trimmed off the top is gone forever, but an end-slice lets a later deletion pull one back.
+// Cap 3, cards c1..c5 land (c1 and c2 trim away), operator deletes the visible c4. The wall is
+// [c3,c5]. The end-slice says [c2,c3,c5] and resurrects a card nobody was looking at. Warrick found
+// this by running it, against the first version of this very comment, which claimed the end-slice
+// was the rule. Seven interleavings of overflow with delete, undo, clear and restore are pinned in
+// runtime-recording.test.js.
+//
+// The cap lives in the header record rather than in a tool, so a replay reads it from the file it
+// is replaying instead of hardcoding a number that has already moved once.
+//
+// Diffing the card records against the summaries they came from is the correction trail, and that
+// part IS exact regardless of trimming: an edit records both what the AI said and what a human
+// changed it to.
+
+// One card that actually landed. Written per CARD, where a manual record is written per SEND -- one
+// multi-line paste is one manual record and several cards, so the two are not redundant.
+export function buildCardRecord({ at = Date.now(), cardId, mode, text, speaker = null, source = '', isHeader = false }) {
+  return {
+    t: 'card',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    mode: mode || null,
+    speaker: speaker || null,
+    source: source || '',
+    text: text || '',
+    isHeader: Boolean(isHeader)
+  };
+}
+
+// `before` is kept, not just `after`. The point of this record is the comparison: what the AI said
+// against what a human had to change it to. Storing only the corrected text throws away the half
+// that says the summarizer got something wrong.
+export function buildCardEditRecord({ at = Date.now(), cardId, before = '', after = '' }) {
+  return {
+    t: 'card-edit',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    before,
+    after
+  };
+}
+
+// `via` distinguishes the three routes off the wall, because they mean different things: 'delete' is
+// the operator judging one specific card wrong, 'undo' is taking back the most recent thing, 'clear'
+// is resetting the wall between segments. A card scrolling off past the display cap is NOT any of
+// these and is never recorded -- the reader saw it, and it left by scrolling rather than by anyone
+// deciding it should not have been there.
+export function buildCardRemoveRecord({ at = Date.now(), cardId, text = '', via = '' }) {
+  return {
+    t: 'card-remove',
+    at: new Date(at).toISOString(),
+    cardId: cardId || null,
+    text,
+    via: via || ''
+  };
+}
+
+// Undo after a Clear puts everything back. Without this a replay shows cards gone that are on the
+// screen in front of the reader, which is the one thing this whole group of records exists to
+// prevent.
+export function buildCardRestoreRecord({ at = Date.now(), cardIds = [] }) {
+  return {
+    t: 'card-restore',
+    at: new Date(at).toISOString(),
+    cardIds: (Array.isArray(cardIds) ? cardIds : []).map(String)
+  };
+}
+
+// The replay itself, as code rather than as the prose above it.
+//
+// This lived in the test file for three review rounds and was wrong in three different ways, each
+// time while the suite stayed green: the spec was a comment, the implementation was a test helper,
+// and nothing tied them together, so a wrong comment cost nothing until someone built against it.
+// Cato's call, and the right one -- a spec that can be wrong without failing is not a spec. It sits
+// here beside the builders it consumes so the two move together.
+//
+// Pure and dependency-free like everything else in this file. `displayCap` comes from the recording's
+// own header, never from a constant in the reader: the cap has already changed once, and a reader
+// hardcoding today's value silently misreplays every file written under a different one.
+export function replayCardWall(records = [], displayCap = null) {
+  const order = [];
+  const text = new Map();
+  // Never deleted from, unlike `text`. A card-restore carries ids and no text, so the only way to
+  // recover what a restored card SAID is the card and card-edit records already seen. Delete from
+  // this on removal and a clear-then-undo returns every card blank, hand-corrected ones included.
+  const lastKnown = new Map();
+  // A null cap means the recording predates the field. Replay the history unclipped rather than
+  // guessing a number: an unclipped wall is visibly too long, while a guessed cap is quietly wrong.
+  const cap = typeof displayCap === 'number' && displayCap > 0 ? displayCap : Infinity;
+
+  // Inline, at each append, never as an end-slice over the survivors. A card trimmed off the top is
+  // gone for good; slicing at the end lets a later deletion backfill from cards nobody was looking at.
+  const trim = () => { while (order.length > cap) text.delete(order.shift()); };
+  const drop = (id) => {
+    const i = order.indexOf(id);
+    if (i >= 0) { order.splice(i, 1); text.delete(id); }
+  };
+
+  for (const record of Array.isArray(records) ? records : []) {
+    if (!record) continue;
+    if (record.t === 'card') {
+      order.push(record.cardId);
+      text.set(record.cardId, record.text);
+      lastKnown.set(record.cardId, record.text);
+      trim();
+    } else if (record.t === 'card-edit') {
+      lastKnown.set(record.cardId, record.after);
+      if (text.has(record.cardId)) text.set(record.cardId, record.after);
+    } else if (record.t === 'card-remove') {
+      drop(record.cardId);
+    } else if (record.t === 'card-restore') {
+      for (const id of (Array.isArray(record.cardIds) ? record.cardIds : [])) {
+        if (order.includes(id)) continue;
+        order.push(id);
+        text.set(id, lastKnown.get(id));
+      }
+      trim();
+    }
+  }
+
+  return order.map((id) => ({ cardId: id, text: text.get(id) }));
 }
