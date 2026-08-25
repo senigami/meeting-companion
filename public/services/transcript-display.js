@@ -11,6 +11,16 @@ const AI_LINE_SAFETY_MAX_CHARS = 240;
 // content the reader is following. Steve, watching a real meeting: "once there's a certain number
 // of cards it's removing the old cards, and when the old card gets removed it jumps the scroll."
 export const MAX_DISPLAY_ITEMS = 24;
+// Minted at creation, never reused, and never reset -- not when the wall trims a card off the top,
+// not when the operator clears the lines. Since #142 this is the join key a card-edit or card-remove
+// record resolves against, so a reused id does not merely confuse the display: an edit aimed at the
+// second card silently rewrites the first, and commitItems skips the second as already-landed, so a
+// card the reader genuinely saw is never recorded. It used to advance in appendTranscriptItems, which
+// left the counter parked for any batch created but not yet appended (the paced release queue is the
+// one such caller) and handed the same ids to the next creation inside the same millisecond.
+// Uniqueness rests on this counter alone now; createdAt stays in the string only so a recording reads
+// by eye. Scope is the page session, which is also the scope of one recording file -- a reload mints
+// a fresh recordingSessionId in start-app.js, so a counter restarting at 0 cannot collide inside one.
 let nextTranscriptItemId = 0;
 
 function splitByThought(text) {
@@ -135,8 +145,12 @@ export function createTranscriptItems({
 
   const cleanSpeaker = normalizeText(speaker);
 
+  // Advanced here, before the map, so nothing inside it can hand back ids the counter never claimed.
+  const firstId = nextTranscriptItemId;
+  nextTranscriptItemId += segments.length;
+
   return segments.map((segment, index) => ({
-    id: `transcript-${createdAt}-${nextTranscriptItemId + index}`,
+    id: `transcript-${createdAt}-${firstId + index}`,
     mode,
     text: segment,
     createdAt,
@@ -158,7 +172,6 @@ export function appendTranscriptItems(items, nextItems) {
     existing.push(item);
   }
 
-  nextTranscriptItemId += additions.length;
   // Deliberately NOT trimmed to MAX_DISPLAY_ITEMS here any more (#81). Trimming at append time was
   // the whole jump: the list is trimmed before anything renders, so the top card is already gone by
   // the time the new one starts sliding in. Worse, dropping the first item means the previously
