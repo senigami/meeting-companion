@@ -12,6 +12,7 @@ import {
   getDefaultSettingsSection,
   updateStatus
 } from '../../../public/controller/view.js';
+import { appendTranscriptItems } from '../../../public/services/transcript-display.js';
 
 function createNode(tagName = 'div') {
   return {
@@ -1402,5 +1403,204 @@ test('renderReadyCheck marks the microphone row green for the OpenAI transcripti
     assert.equal(ctx.dom.readyCheckMicDot.classList.contains('is-ready'), true);
   } finally {
     global.window = originalWindow;
+  }
+});
+
+// --- #81: the wall filling up must not jump the reader ----------------------------------------
+//
+// Steve, watching a real meeting: the scroll is smooth and easy to follow until a certain number of
+// cards is reached, then it starts jumping -- because that is the point old cards begin being
+// removed. Two distinct faults sat under that, and these pin both.
+
+function createScrollHarness({ itemCount, stickToBottom = true, cardHeight = 0 }) {
+  const transcriptViewport = createNode('div');
+  const transcriptStack = createNode('div');
+  transcriptViewport.scrollTop = 0;
+  transcriptViewport.clientHeight = 600;
+  transcriptViewport.scrollHeight = 1600;
+
+  const frames = [];
+  const originals = {
+    document: global.document,
+    raf: global.requestAnimationFrame,
+    caf: global.cancelAnimationFrame
+  };
+  global.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+  global.cancelAnimationFrame = () => {};
+  global.document = {
+    createElement(tagName) {
+      const node = createNode(tagName);
+      if (tagName === 'article') node.querySelector = () => null;
+      // Set at creation, not after the fact: the trim reads a node's height at the moment it removes
+      // it, so a height assigned later is a height the code under test never saw.
+      node.offsetHeight = cardHeight;
+      return node;
+    }
+  };
+
+  const items = Array.from({ length: itemCount }, (_, i) => ({
+    id: `item-${i}`, mode: 'speaker', text: `Thought number ${i}.`, createdAt: i, source: 'ai'
+  }));
+
+  const ctx = {
+    state: { transcriptItems: items, stickToBottom, prefersReducedMotion: false },
+    dom: { transcriptViewport, transcriptStack }
+  };
+
+  return {
+    ctx,
+    frames,
+    transcriptStack,
+    transcriptViewport,
+    // Timestamps must ADVANCE. Feeding the same one every frame leaves elapsed at 0 forever and the
+    // animation requests another frame each time, which is an infinite loop rather than a failure.
+    runScrollToCompletion() {
+      let now = 0;
+      let guard = 0;
+      while (frames.length) {
+        if (++guard > 500) throw new Error('scroll animation did not settle');
+        now += 200;
+        frames.shift()(now);
+      }
+    },
+    restore() {
+      global.document = originals.document;
+      global.requestAnimationFrame = originals.raf;
+      global.cancelAnimationFrame = originals.caf;
+    }
+  };
+}
+
+// Fault one, and the reason it is timing and not just bookkeeping: taking the card off the top
+// mid-scroll shrinks scrollHeight, the browser clamps scrollTop by the same amount, and the content
+// the reader is following lurches. So the overflow must still be on screen while the scroll runs.
+test('a card past the cap is still on the wall during the arrival scroll, and gone once it finishes', () => {
+  const h = createScrollHarness({ itemCount: 26 });
+  try {
+    renderDisplay(h.ctx);
+
+    assert.equal(h.transcriptStack.children.length, 26, 'nothing may be trimmed before the scroll runs');
+
+    h.runScrollToCompletion();
+
+    assert.equal(h.transcriptStack.children.length, 24, 'the overflow is dropped once the scroll has settled');
+    assert.equal(h.ctx.state.transcriptItems.length, 24);
+    assert.equal(h.ctx.state.transcriptItems[0].id, 'item-2', 'the OLDEST cards go, not the newest');
+    assert.equal(h.ctx.state.transcriptItems[23].id, 'item-25');
+  } finally {
+    h.restore();
+  }
+});
+
+// Fault two, which is the bigger one and is invisible from the couch: trimming at append time meant
+// the previously rendered ids were no longer a PREFIX of the new ones, so renderDisplay fell off its
+// append-only fast path onto the full-rebuild path -- permanently, from card 25 onward. Every
+// arrival then destroyed and recreated all 24 cards, replaying all 24 entrance animations at once.
+// That is the exact fault #13 was filed for. Asserting on node IDENTITY is the point: a rebuilt card
+// looks identical and is a different object, which is what makes this regression silent.
+test('a card that survives the trim is the same DOM node, never torn down and rebuilt', () => {
+  const h = createScrollHarness({ itemCount: 25 });
+  try {
+    renderDisplay(h.ctx);
+    h.runScrollToCompletion();
+
+    const survivor = h.transcriptStack.children[h.transcriptStack.children.length - 1];
+    assert.equal(survivor.dataset.itemId, 'item-24');
+
+    h.ctx.state.transcriptItems = [
+      ...h.ctx.state.transcriptItems,
+      { id: 'item-25', mode: 'speaker', text: 'A new arrival.', createdAt: 25, source: 'ai' }
+    ];
+    renderDisplay(h.ctx);
+    h.runScrollToCompletion();
+
+    const stillThere = h.transcriptStack.children.find((node) => node.dataset.itemId === 'item-24');
+    assert.equal(stillThere, survivor, 'the surviving card must be the SAME node object, not a rebuilt copy');
+  } finally {
+    h.restore();
+  }
+});
+
+// The reader who has scrolled up gets no arrival scroll at all, so the overflow has to be drained
+// somewhere or it grows without bound -- and draining it above them moves their text unless the
+// removed height is subtracted from scrollTop by hand. The old eager trim never did this, so a
+// reader re-reading during a busy stretch was quietly pushed along.
+test('trimming above a reader who has scrolled up holds their place instead of moving their text', () => {
+  const h = createScrollHarness({ itemCount: 26, stickToBottom: false, cardHeight: 40 });
+  try {
+    h.transcriptViewport.scrollTop = 900;
+
+    renderDisplay(h.ctx);
+
+    assert.equal(h.transcriptStack.children.length, 24);
+    assert.equal(h.transcriptViewport.scrollTop, 820, '900 minus the 80px of card that was removed above them');
+  } finally {
+    h.restore();
+  }
+});
+
+test('under the cap nothing is trimmed and no scroll position is touched', () => {
+  const h = createScrollHarness({ itemCount: 5 });
+  try {
+    renderDisplay(h.ctx);
+    h.runScrollToCompletion();
+    assert.equal(h.transcriptStack.children.length, 5);
+    assert.equal(h.ctx.state.transcriptItems.length, 5);
+  } finally {
+    h.restore();
+  }
+});
+
+// The one above asserts node identity but builds ctx.state.transcriptItems by hand, so it never
+// touches appendTranscriptItems -- and the bug lives in the INTERACTION between the two: the append
+// trims, which makes the previous ids stop being a prefix, which makes renderDisplay rebuild. This
+// test drives the real append path, and it is the one that actually fails against the old code.
+test('growing the wall past the cap through the real append path keeps cards alive across renders', () => {
+  const h = createScrollHarness({ itemCount: 0 });
+  try {
+    const makeItem = (i) => ({ id: `real-${i}`, mode: 'speaker', text: `Thought ${i}.`, createdAt: i, source: 'ai' });
+
+    for (let i = 0; i < 25; i += 1) {
+      h.ctx.state.transcriptItems = appendTranscriptItems(h.ctx.state.transcriptItems, [makeItem(i)]);
+      renderDisplay(h.ctx);
+      h.runScrollToCompletion();
+    }
+
+    const survivor = h.transcriptStack.children.find((node) => node.dataset.itemId === 'real-24');
+    assert.ok(survivor, 'the newest card should be on the wall');
+
+    h.ctx.state.transcriptItems = appendTranscriptItems(h.ctx.state.transcriptItems, [makeItem(25)]);
+    renderDisplay(h.ctx);
+    h.runScrollToCompletion();
+
+    assert.equal(
+      h.transcriptStack.children.find((node) => node.dataset.itemId === 'real-24'),
+      survivor,
+      'card 25 arriving must not tear down and rebuild the card that was already on the wall'
+    );
+    assert.equal(h.transcriptStack.children.length, 24);
+  } finally {
+    h.restore();
+  }
+});
+
+// A hidden document never runs requestAnimationFrame, so the arrival animation never starts and the
+// trim hanging off its completion never runs -- cards pile up for as long as the tab is backgrounded.
+// Found the honest way: trying to watch this fix in a browser pane that turned out to be hidden, and
+// getting 28 cards on a wall capped at 24.
+test('a hidden document snaps and trims instead of waiting for an animation that will never run', () => {
+  const h = createScrollHarness({ itemCount: 26 });
+  const originalHidden = Object.getOwnPropertyDescriptor(global.document, 'hidden');
+  try {
+    global.document.hidden = true;
+
+    renderDisplay(h.ctx);
+
+    assert.equal(h.frames.length, 0, 'no animation frame may be requested in a hidden document');
+    assert.equal(h.transcriptStack.children.length, 24, 'the trim must still happen');
+    assert.equal(h.ctx.state.transcriptItems.length, 24);
+  } finally {
+    if (originalHidden) Object.defineProperty(global.document, 'hidden', originalHidden);
+    h.restore();
   }
 });
