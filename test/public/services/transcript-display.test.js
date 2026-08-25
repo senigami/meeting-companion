@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   createTranscriptItems,
-  segmentTranscriptText
+  appendTranscriptItems,
+  transcriptOverflow,
+  segmentTranscriptText,
+  MAX_DISPLAY_ITEMS
 } from '../../../public/services/transcript-display.js';
 
 test('segments transcript text into digestible cards', () => {
@@ -191,4 +194,58 @@ test('an over-length AI response still gets width-wrapped by the runaway-length 
 
   assert.ok(items.length > 1, 'a runaway AI line must still be width-wrapped');
   assert.ok(items.every((item) => item.text.length <= 240));
+});
+
+// #144. The id is the join key a card-edit or card-remove record resolves against (#142), so two
+// cards sharing one is not a display glitch: the edit rewrites the wrong card, and commitItems skips
+// the second as already-landed, so a card the reader genuinely saw is never recorded at all.
+test('a batch created but never appended still consumes its ids, so a later creation cannot reuse them', () => {
+  // Both creations inside one millisecond, which is the only thing the old id had to lean on: the
+  // counter advanced on append, so a batch held in the paced release queue left it parked.
+  const sameMillisecond = 1750000000000;
+  const held = createTranscriptItems({
+    text: 'First idea. Second idea. Third idea.',
+    mode: 'information',
+    source: 'manual',
+    createdAt: sameMillisecond
+  });
+  const created = createTranscriptItems({
+    text: 'Fourth idea.',
+    mode: 'information',
+    source: 'manual',
+    createdAt: sameMillisecond
+  });
+
+  assert.ok(held.length > 1, 'the held batch needs more than one card for an overlap to be possible');
+
+  const heldIds = new Set(held.map((item) => item.id));
+  for (const item of created) {
+    assert.ok(!heldIds.has(item.id), `${item.id} was already handed to a card still sitting in the queue`);
+  }
+});
+
+test('ids are never reused for cards that have already fallen off the wall', () => {
+  // Steve's requirement stated directly: the counter keeps climbing past the display cap, so an id
+  // is never handed out twice even once the card that first held it has been trimmed away.
+  const total = MAX_DISPLAY_ITEMS * 3;
+  const seen = new Set();
+  let wall = [];
+
+  for (let n = 0; n < total; n += 1) {
+    const created = createTranscriptItems({
+      text: `Line number ${n}.`,
+      mode: 'information',
+      source: 'manual',
+      createdAt: 1750000000000
+    });
+    assert.equal(created.length, 1);
+    assert.ok(!seen.has(created[0].id), `${created[0].id} came back after its card left the wall`);
+    seen.add(created[0].id);
+
+    wall = appendTranscriptItems(wall, created);
+    wall = wall.slice(transcriptOverflow(wall).length);
+  }
+
+  assert.equal(wall.length, MAX_DISPLAY_ITEMS, 'the wall itself still holds only the cap');
+  assert.equal(seen.size, total, 'but every card ever created got an id of its own');
 });
