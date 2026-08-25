@@ -4,7 +4,8 @@ import { chooseSummaryLevel } from '../services/summary-level.js';
 import { RUNAWAY_LINE_GUARD, cleanModelLine, hasSubstantiveContent, isFillerLine, shouldAcceptModelLine } from '../services/summary-prompt.js';
 import {
   appendTranscriptItems,
-  createTranscriptItems
+  createTranscriptItems,
+  MAX_DISPLAY_ITEMS
 } from '../services/transcript-display.js';
 import {
   createSummarizationDriver,
@@ -310,7 +311,14 @@ export function createRuntime(ctx, deps = {}) {
     // an item whose text repeats the card above it, so recording the input would claim the reader saw
     // a card that was never put in front of them -- a lie in the one file that exists to say what
     // they saw.
-    const landedBefore = new Set(ctx.state.transcriptItems.map((item) => item.id));
+    // Guarded the same way appendTranscriptItems guards its own input, and not because a non-array
+    // is expected here. This is recorder code, and ADR-0004's "never damages a meeting" covers the
+    // recorder's SHAPING, not only its network write: an unguarded .map here would throw out through
+    // commitItems into addLine, where the release queue's pump has already nulled its timer and only
+    // reschedules AFTER onRelease -- so one throw stops card release permanently and every pending
+    // card is lost. Every other line of recorder code sits inside queueRecord's try; this one cannot.
+    const previous = Array.isArray(ctx.state.transcriptItems) ? ctx.state.transcriptItems : [];
+    const landedBefore = new Set(previous.map((item) => item?.id));
     const next = appendTranscriptItems(ctx.state.transcriptItems, items);
     setTranscriptItems(next);
     for (const item of next) {
@@ -1436,7 +1444,8 @@ export function createRuntime(ctx, deps = {}) {
       promptHash: computeSummaryPromptHash(),
       maxWords: ctx.state.summaryMaxWords,
       provider: ctx.state.summarizationSource,
-      intervalSeconds: ctx.state.summaryIntervalSeconds
+      intervalSeconds: ctx.state.summaryIntervalSeconds,
+      displayCap: MAX_DISPLAY_ITEMS
     }));
     ctx.state.recordingHeaderQueued = true;
   }

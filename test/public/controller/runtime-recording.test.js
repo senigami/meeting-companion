@@ -599,3 +599,48 @@ test('undoing a clear records the restore, so a replay does not show cards that 
     assert.equal(ctx.state.transcriptItems.length, 1, 'and the card really is back on the wall');
   });
 });
+
+test('the header carries the display cap, so a replay reads the rule instead of hardcoding it', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState() }, async ({ ctx, runtime }) => {
+    runtime.addLine('Anything, to force the header.');
+
+    const header = ctx.state.recordingQueue.find((r) => r.t === 'header');
+    assert.ok(header, 'the header is written first, on the very first queued record');
+    assert.equal(header.displayCap, 24, 'a replay must not have to guess or hardcode the cap');
+  });
+});
+
+// Cato withheld sign-off on the first cut of #142 for exactly this, and was right: the record
+// format's own comment claimed a replay reconstructs the final wall, and it does not once the wall
+// has ever exceeded the cap. Trimmed cards are deliberately unrecorded, so a clear after a trim
+// leaves a naive replay holding phantom cards the reader never saw. The rule that makes it exact is
+// "keep the last displayCap survivors", and this pins BOTH halves: the naive replay really does go
+// wrong, and the documented rule really does fix it.
+test('replaying the reading history reconstructs the real wall only when the display cap is applied', async () => {
+  await withRuntimeHarness({ stateOverrides: baseState({ clearArmed: false }) }, async ({ ctx, runtime }) => {
+    for (let i = 1; i <= 30; i += 1) runtime.addLine(`Card number ${i}.`);
+
+    // The view trims on screen; ctx.state holds the full history until it does. Take the wall as the
+    // last displayCap items, which is exactly what trimTranscriptOverflow leaves behind.
+    const header = ctx.state.recordingQueue.find((r) => r.t === 'header');
+    const wallIds = ctx.state.transcriptItems.slice(-header.displayCap).map((item) => item.id);
+
+    const replay = (records, { applyCap }) => {
+      const survivors = new Map();
+      for (const r of records) {
+        if (r.t === 'card') survivors.set(r.cardId, r.text);
+        else if (r.t === 'card-edit' && survivors.has(r.cardId)) survivors.set(r.cardId, r.after);
+        else if (r.t === 'card-remove') survivors.delete(r.cardId);
+      }
+      const ids = [...survivors.keys()];
+      return applyCap ? ids.slice(-header.displayCap) : ids;
+    };
+
+    const naive = replay(ctx.state.recordingQueue, { applyCap: false });
+    const byTheRule = replay(ctx.state.recordingQueue, { applyCap: true });
+
+    assert.equal(naive.length, 30, 'the history holds every card ever shown, which is more than the wall');
+    assert.notDeepEqual(naive, wallIds, 'so a replay that skips the cap does NOT match the wall');
+    assert.deepEqual(byTheRule, wallIds, 'applying the cap reproduces the wall exactly');
+  });
+});

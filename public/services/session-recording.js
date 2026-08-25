@@ -38,7 +38,8 @@ export function buildHeaderRecord({
   promptHash = 'unknown',
   maxWords = null,
   provider = '',
-  intervalSeconds = null
+  intervalSeconds = null,
+  displayCap = null
 } = {}) {
   return {
     t: 'header',
@@ -47,7 +48,13 @@ export function buildHeaderRecord({
     promptHash: promptHash || 'unknown',
     maxWords: typeof maxWords === 'number' ? maxWords : null,
     provider: provider || '',
-    intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : null
+    intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : null,
+    // Eighth key, added with the card records (#142). It is here rather than in a replay tool
+    // because it is a property OF THIS RECORDING: the cap has already changed once, and a tool
+    // hardcoding today's number would silently misreplay every file written under a different one.
+    // Null on a recording made before this field existed, which a replay must read as "unknown",
+    // never as "no cap".
+    displayCap: typeof displayCap === 'number' ? displayCap : null
   };
 }
 
@@ -166,8 +173,26 @@ export function buildManualLineRecord({ at = Date.now(), mode, text, speaker = n
 //
 // Keyed on the transcript item's own id rather than a row position, for the same reason
 // buildCorrectionRecord uses targetAt: a position shifts the moment anything above it changes.
-// Replaying card / card-edit / card-remove / card-restore in order reconstructs the final wall;
-// diffing the card records against the summaries they came from is the correction record.
+//
+// WHAT A REPLAY GETS, stated precisely, because this is the spec a replay tool will be built from
+// and an approximate version of it produces a wall the reader never saw. Applying card /
+// card-edit / card-remove / card-restore in FILE order yields the READING HISTORY: every card ever
+// shown, minus the ones a human took down. It is not the final wall on its own. Cards scrolling off
+// past the display cap are deliberately unrecorded -- the reader saw them, and they left by
+// scrolling rather than by anyone judging them wrong -- so after a long meeting the history holds
+// far more cards than the screen ever did.
+//
+//   THE RULE: the wall at any point is the LAST `header.displayCap` survivors of the history, never
+//   all of them. Skip it and a clear-after-trim replays as phantom cards: 30 land, the view silently
+//   trims 6, the operator clears, and 24 removals applied to a 30-card model leave 6 cards standing
+//   that were not on the screen.
+//
+// The cap is written into the header record rather than left as folklore, so a replay reads it from
+// the file instead of hardcoding a number that has already moved once.
+//
+// Diffing the card records against the summaries they came from is the correction trail, and that
+// part IS exact regardless of trimming: an edit records both what the AI said and what a human
+// changed it to.
 
 // One card that actually landed. Written per CARD, where a manual record is written per SEND -- one
 // multi-line paste is one manual record and several cards, so the two are not redundant.
