@@ -80,7 +80,17 @@ async function invoke(app, requestOptions) {
   const { res, finished } = createResponse(app);
   res.req = req;
   app.handle(req, res);
-  return finished();
+  // Bounded, because the static-file test below would otherwise HANG rather than fail if the guard
+  // were removed: express.static would take over and try to stream a real file through a response
+  // fake that cannot receive one, and nothing would ever resolve. A hanging test in a suite is worse
+  // than a failing one -- it reads as an infrastructure problem instead of a regression.
+  return Promise.race([
+    finished(),
+    new Promise((_resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no response for ${requestOptions.method || 'GET'} ${requestOptions.url}`)), 2000);
+      timer.unref?.();
+    })
+  ]);
 }
 
 function keylessApp(overrides = {}) {
