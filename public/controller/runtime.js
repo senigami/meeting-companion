@@ -1706,9 +1706,15 @@ export function createRuntime(ctx, deps = {}) {
     //
     // So drop the run instead of leaving it. This is not an INV-11 violation: INV-11 protects text
     // the summarizer failed to process, and none of these three cases is a failure. There is no
-    // letter or digit to summarize, or the text is byte-identical to what was already summarized
-    // and shown, or there is no text at all. Nothing is lost that a reader could ever have seen,
-    // and the alternative is losing everything said afterwards.
+    // letter or digit to summarize, or the text is byte-identical to what was already SENT, or
+    // there is no text at all.
+    //
+    // Sent, not shown, and the distinction is worth stating because the looser wording overclaims.
+    // lastSentText is assigned below at the top of the success path, before `if (result.line)`, so
+    // a call that succeeded and produced no card still sets it -- meaning a byte-identical repeat
+    // is dropped here rather than retried. That is a real behaviour change and it is still the
+    // right one: on main that same run wedged the head of the bucket, so nothing behind it
+    // summarized either. Losing one repeat beats losing the rest of the meeting.
     if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) {
       if (consumedChunks?.length) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);

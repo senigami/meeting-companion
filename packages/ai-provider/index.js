@@ -26,7 +26,11 @@ const ACCEPTED_OPTIONS = Object.freeze(['provider', 'apiKey', 'messages', 'maxTo
 // behaviour and has to be written down to get.
 const DEFAULT_TIMEOUT_MS = 30000;
 
-function withTimeout(fetchImpl, timeoutMs) {
+// Exported for its own tests. Testing this through callProvider cannot reach the composition branch
+// below: the Claude adapter passes no signal, and the only caller that does is the OpenAI SDK, from
+// inside itself. A test that builds its own `init.signal` at the adapter layer is testing a layering
+// that does not exist, and passes with the composition deleted.
+export function withTimeout(fetchImpl, timeoutMs) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return fetchImpl;
   return async (url, init = {}) => {
     const controller = new AbortController();
@@ -37,11 +41,17 @@ function withTimeout(fetchImpl, timeoutMs) {
       else init.signal.addEventListener('abort', () => controller.abort(init.signal.reason), { once: true });
     }
     const timer = setTimeout(() => controller.abort(new Error(`Provider call exceeded ${timeoutMs}ms`)), timeoutMs);
-    try {
-      return await fetchImpl(url, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
+    // NOT cleared when fetchImpl resolves, and that is the whole point. `fetch` settles as soon as
+    // the response HEADERS arrive; both adapters then read the body (`response.json()`), which is
+    // its own unbounded wait. Clearing the timer here bounded time-to-headers only, so a provider
+    // that answered instantly and then stalled mid-body was exactly as unbounded as before --
+    // measured still hanging at 2s under a 300ms deadline. Leaving it armed lets the abort reach a
+    // stalled body read, which is the failure this exists to stop.
+    //
+    // unref'd instead, so a timer still armed on a call that already finished cannot hold the event
+    // loop open. Firing later on a settled controller is a no-op.
+    timer.unref?.();
+    return fetchImpl(url, { ...init, signal: controller.signal });
   };
 }
 

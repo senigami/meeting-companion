@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { callProvider, ProviderError, PROVIDER_ERROR_TYPES } from '../index.js';
+import { callProvider, withTimeout, ProviderError, PROVIDER_ERROR_TYPES } from '../index.js';
 
 const MESSAGES = [
   { role: 'system', content: 'You are terse.' },
@@ -466,49 +466,6 @@ test('a provider that never answers is abandoned at the deadline instead of hang
   assert.match(String(abortedWith?.message), /exceeded 25ms/, 'the abort must name the deadline that fired');
 });
 
-test('a call that answers within the deadline is untouched, and its timer does not keep the process alive', async () => {
-  const { text } = await callProvider({
-    provider: 'claude',
-    apiKey: 'sk-ant-test',
-    messages: MESSAGES,
-    maxTokens: 64,
-    model: 'claude-haiku-4-5-20251001',
-    fetchImpl: async () => new Response(
-      JSON.stringify({ content: [{ type: 'text', text: 'Answered in time.' }] }),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    ),
-    timeoutMs: 5000
-  });
-
-  assert.equal(text, 'Answered in time.');
-});
-
-test('the deadline composes with a caller-supplied signal rather than replacing it', async () => {
-  const caller = new AbortController();
-  let sawCallerAbort = false;
-  const watchesSignal = (url, init) => new Promise((_resolve, reject) => {
-    init.signal.addEventListener('abort', () => {
-      sawCallerAbort = true;
-      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-    }, { once: true });
-    // The OpenAI SDK supplies its own signal; overwriting init.signal would quietly disarm it.
-    setTimeout(() => caller.abort(new Error('caller changed their mind')), 5);
-  });
-
-  await assert.rejects(callProvider({
-    provider: 'claude',
-    apiKey: 'sk-ant-test',
-    messages: MESSAGES,
-    maxTokens: 64,
-    model: 'claude-haiku-4-5-20251001',
-    // Passed the way the OpenAI SDK passes its own, i.e. already on init.
-    fetchImpl: (url, init) => watchesSignal(url, { ...init, signal: caller.signal }),
-    timeoutMs: 60000
-  }));
-
-  assert.equal(sawCallerAbort, true, "the caller's abort must still reach the fetch");
-});
-
 test('timeoutMs 0 opts out of the deadline entirely, and is the only way back to the old behaviour', async () => {
   let sawSignal = 'unset';
   await callProvider({
@@ -528,4 +485,93 @@ test('timeoutMs 0 opts out of the deadline entirely, and is the only way back to
   });
 
   assert.equal(sawSignal, undefined, 'opting out must not attach a signal at all');
+});
+
+// Driven through withTimeout directly, not through callProvider. Neither adapter puts a signal on
+// `init` -- Claude passes none, and the only thing that does is the OpenAI SDK from inside itself,
+// calling the wrapped fetch we handed it. A test that builds its own `init.signal` at the adapter
+// layer is asserting against a layering that does not exist: it passes with the composition branch
+// deleted outright, because the signal it watches is the one it supplied.
+test('a signal already on init is composed with the deadline, not replaced by it', async () => {
+  const caller = new AbortController();
+  let sawAbortReason = null;
+
+  const bounded = withTimeout((url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      sawAbortReason = init.signal.reason;
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+  }), 60000);
+
+  // This is how the SDK calls it: the signal is on init BEFORE our wrapper sees it.
+  const inFlight = bounded('https://example.test', { signal: caller.signal });
+  caller.abort(new Error('caller changed their mind'));
+
+  await assert.rejects(inFlight);
+  assert.match(
+    String(sawAbortReason?.message),
+    /caller changed their mind/,
+    "the caller's own abort must reach the fetch, carrying its reason, despite a 60s deadline"
+  );
+});
+
+test('a signal already aborted before the call is honoured immediately rather than waited out', async () => {
+  const caller = AbortSignal.abort(new Error('too late, already gone'));
+  let signalAtCall = null;
+
+  const bounded = withTimeout(async (url, init) => {
+    signalAtCall = init.signal;
+    return new Response('{}', { status: 200 });
+  }, 60000);
+
+  await bounded('https://example.test', { signal: caller });
+
+  assert.equal(signalAtCall.aborted, true, 'an already-aborted caller signal must not be silently dropped');
+});
+
+test('the deadline still reaches a response whose HEADERS arrived but whose BODY never finishes', async () => {
+  // fetch settles on headers; both adapters then read the body. Clearing the timer once fetchImpl
+  // resolved bounded time-to-headers only, so a provider that answered instantly and then went
+  // quiet mid-body was exactly as unbounded as having no deadline at all.
+  let bodyAbortedAt = null;
+  const startedAt = Date.now();
+
+  const bounded = withTimeout(async (url, init) => ({
+    ok: true,
+    status: 200,
+    json: () => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        bodyAbortedAt = Date.now() - startedAt;
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      }, { once: true });
+    })
+  }), 120);
+
+  const response = await bounded('https://example.test', {});
+  await assert.rejects(response.json(), 'a body that never finishes must still be abandoned');
+  assert.ok(bodyAbortedAt !== null, 'the abort must reach the body read, not just the headers');
+  assert.ok(bodyAbortedAt < 2000, `the deadline must fire during the body read, fired at ${bodyAbortedAt}ms`);
+});
+
+test('a settled call leaves no timer holding the event loop open', async () => {
+  const before = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+
+  await callProvider({
+    provider: 'claude',
+    apiKey: 'sk-ant-test',
+    messages: MESSAGES,
+    maxTokens: 64,
+    model: 'claude-haiku-4-5-20251001',
+    fetchImpl: async () => new Response(
+      JSON.stringify({ content: [{ type: 'text', text: 'Answered in time.' }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    ),
+    timeoutMs: 30000
+  });
+
+  // The deadline timer is deliberately left armed so it can still abort a stalled body read, so
+  // what has to be true is that it is unref'd -- an armed 30s timer that KEEPS the loop alive would
+  // add half a minute to every process exit, and the suite would pass while doing it.
+  const held = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+  assert.ok(held <= before, `a finished call must not leave a ref'd timer behind (${before} -> ${held})`);
 });
