@@ -548,9 +548,21 @@ test('the deadline still reaches a response whose HEADERS arrived but whose BODY
   }), 120);
 
   const response = await bounded('https://example.test', {});
-  await assert.rejects(response.json(), 'a body that never finishes must still be abandoned');
+
+  // Raced, not awaited bare. If the deadline stops reaching the body (the exact regression this
+  // pins), `response.json()` never settles and a bare await would HANG the suite rather than fail
+  // it -- which reads as broken infrastructure instead of a caught defect.
+  const outcome = await Promise.race([
+    response.json().then(() => 'resolved', () => 'aborted'),
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve('still hanging'), 1500);
+      timer.unref?.();
+    })
+  ]);
+
+  assert.equal(outcome, 'aborted', 'a body that never finishes must still be abandoned at the deadline');
   assert.ok(bodyAbortedAt !== null, 'the abort must reach the body read, not just the headers');
-  assert.ok(bodyAbortedAt < 2000, `the deadline must fire during the body read, fired at ${bodyAbortedAt}ms`);
+  assert.ok(bodyAbortedAt < 1500, `the deadline must fire during the body read, fired at ${bodyAbortedAt}ms`);
 });
 
 test('a settled call leaves no timer holding the event loop open', async () => {
