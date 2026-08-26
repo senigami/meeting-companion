@@ -173,14 +173,38 @@ test('every response carries a CSP that would stop injected markup from loading 
   const app = keylessApp();
 
   const response = await invoke(app, { url: '/api/config' });
+  const csp = response.headers['content-security-policy'];
 
-  assert.match(response.headers['content-security-policy'], /default-src 'self'/);
-  assert.doesNotMatch(
-    response.headers['content-security-policy'],
-    /unsafe-inline|unsafe-eval/,
-    'both HTML files are free of inline script, so nothing legitimate needs these'
-  );
+  assert.match(csp, /default-src 'self'/);
+  // 'wasm-unsafe-eval' has to stay OUT of this exclusion, or this test blocks its own fix: the app
+  // genuinely needs it (see the next test), and a plain /unsafe-eval/ substring match would flag it
+  // as if it were bare 'unsafe-eval'. Matched as a token, not a substring, for exactly that reason.
+  const directives = csp.split(';').map((d) => d.trim());
+  const tokens = directives.flatMap((d) => d.split(/\s+/).slice(1));
+  assert.equal(tokens.includes("'unsafe-inline'"), false, 'nothing legitimate needs inline script or style');
+  assert.equal(tokens.includes("'unsafe-eval'"), false, 'bare eval/new Function must stay blocked');
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
+});
+
+test('the CSP permits WebAssembly, or live transcription silently breaks', async () => {
+  // Silero VAD (public/services/transcription/vad-loader.js) loads ONNX Runtime's WASM build and
+  // calls WebAssembly.instantiate. CSP gates that independently of 'self' -- fetching the .wasm
+  // file is covered by 'self', running it is not -- and there is no console hint that a CSP is the
+  // reason it failed. A CSP that closes the origin hole while quietly breaking the app's own core
+  // feature is a worse outcome than the hole.
+  const app = keylessApp();
+
+  const response = await invoke(app, { url: '/api/config' });
+  const csp = response.headers['content-security-policy'];
+  const scriptSrc = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src'));
+
+  assert.ok(scriptSrc, 'script-src must be stated explicitly, not left to default-src to decide');
+  const tokens = scriptSrc.split(/\s+/).slice(1);
+  assert.ok(tokens.includes("'wasm-unsafe-eval'"), 'WebAssembly.instantiate must be permitted');
+  // Exact token comparison, not a substring test: "'unsafe-eval'" is not a substring of
+  // "'wasm-unsafe-eval'" (the quote sits before "wasm", not before "unsafe"), but a careless
+  // /unsafe-eval/ regex would still flag the wasm token as if it reopened bare eval.
+  assert.equal(tokens.includes("'unsafe-eval'"), false, "wasm-unsafe-eval must not reopen bare eval/new Function");
 });
 
 test('the masked key tail goes to this machine and nowhere else, and the key itself goes nowhere at all', async () => {

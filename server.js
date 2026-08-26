@@ -83,7 +83,15 @@ export function createApp({
     // inline handlers, so nothing legitimate needs 'unsafe-inline'. It also independently neuters
     // an injected-markup path, which is why it rides along with the Host check rather than waiting
     // for its own change.
-    res.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    //
+    // script-src needs 'wasm-unsafe-eval' on top of 'self', or this breaks live transcription: the
+    // Silero VAD path (public/services/transcription/vad-loader.js) loads ONNX Runtime's WASM build
+    // (public/vendor/ort/*) and calls WebAssembly.instantiate, which CSP gates independently of
+    // 'self' -- fetching the .wasm file is covered by 'self', but running it is not, and a bare
+    // default-src 'self' blocks the instantiate call outright with no console hint it was the CSP.
+    // 'wasm-unsafe-eval' permits only WASM; it does not reopen 'unsafe-eval' for JS eval/new
+    // Function, which stay blocked.
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
 
