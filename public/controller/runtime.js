@@ -1752,9 +1752,20 @@ export function createRuntime(ctx, deps = {}) {
       // Hoisted above the passthrough/summarizer branch (#120) so both share the exact same
       // dedupe window: passthrough must not lose the duplicate-suppression the summarizer path
       // has always had just because it skips the network call that used to carry it.
-      const visibleLines = [...ctx.state.transcriptItems, ...cardReleaseQueue.pendingItems()]
-        .slice(-DEDUPE_WINDOW_LINES)
-        .map((item) => item.text);
+      // #86. Two lists, sliced separately, NOT one shared slice. A single `.slice(-12)` over the
+      // concatenation is spent by whatever is pending: a 12-card result leaves 11 queued, so the
+      // next window is 11 pending and exactly 1 committed, and every other card actually on the
+      // wall right now drops out of it -- including cards the old 10-line window did cover. Those
+      // are the ones a reader is looking at, so restating one is the most visible possible
+      // duplicate.
+      //
+      // Keep ALL pending (they are already decided and are going on screen, which is why #61 added
+      // them) plus the last DEDUPE_WINDOW_LINES committed. The window is bounded either way: one
+      // call returns at most RUNAWAY_LINE_GUARD cards, so pending tops out just under that.
+      const visibleLines = [
+        ...ctx.state.transcriptItems.slice(-DEDUPE_WINDOW_LINES),
+        ...cardReleaseQueue.pendingItems()
+      ].map((item) => item.text);
 
       // shouldAcceptModelLine is the same accept/reject gate the summarizer path has always run on
       // its own reply -- vague/refusal/non-answer pattern rejection plus dedupe against
