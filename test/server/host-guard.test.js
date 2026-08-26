@@ -130,6 +130,27 @@ test('every loopback name the operator can actually type still works, port and a
   }
 });
 
+test('a hostname that merely CONTAINS a loopback name is refused, since registering one is free', async () => {
+  const app = keylessApp();
+
+  // The whole attack is choosing the hostname, so a check that asks "does this look loopback-ish"
+  // hands it straight back. Every one of these is a name an attacker can actually register or
+  // resolve, and every one would pass a substring, prefix, or suffix comparison.
+  const lookalikes = [
+    '127.0.0.1.evil.com',
+    'localhost.evil.com',
+    'evil.com.localhost',
+    'notlocalhost',
+    'localhost-evil.com',
+    'a127.0.0.1'
+  ];
+
+  for (const host of lookalikes) {
+    const response = await invoke(app, { url: '/api/config', host });
+    assert.equal(response.statusCode, 403, `${host} is not localhost and must be refused`);
+  }
+});
+
 test('a request with no Host header at all is refused rather than waved through', async () => {
   const app = keylessApp();
 
