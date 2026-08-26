@@ -228,12 +228,18 @@ async function renderResults() {
     ...cards.map((card, cardIndex) => {
       const row = document.createElement('tr');
       const wpm = wpmValues[cardIndex];
-      row.innerHTML = `
-        <td>${cardIndex + 1}. ${card.text}</td>
-        <td>${card.words}</td>
-        <td>${(card.ms / 1000).toFixed(1)}</td>
-        <td>${formatWpm(wpm)}</td>
-      `;
+      // textContent, not innerHTML. This was the only real HTML sink left in the client, and
+      // `card.text` arrives from GET /api/reading-pace/<name>, whose stored payload nothing
+      // validates -- the route checks the profile NAME and takes the body as given. So anything able
+      // to POST to loopback could put markup here and have it run in this app's origin, which owns
+      // the provider key and every transcript. Fifteen lines below, the same function already builds
+      // its cells this way.
+      const cells = [`${cardIndex + 1}. ${card.text}`, card.words, (card.ms / 1000).toFixed(1), formatWpm(wpm)];
+      row.replaceChildren(...cells.map((value) => {
+        const cell = document.createElement('td');
+        cell.textContent = String(value);
+        return cell;
+      }));
       return row;
     })
   );

@@ -1,15 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Readable } from 'node:stream';
+import { Readable, Duplex } from 'node:stream';
 
 import { createApp } from '../../server.js';
 
-function createRequest({ method = 'GET', url = '/', body = '', headers = {} } = {}) {
+function createRequest({ method = 'GET', url = '/', body = '', headers = {}, remoteAddress = '127.0.0.1' } = {}) {
   const bodyString = String(body);
   const contentLength = Buffer.byteLength(bodyString);
   const req = new Readable({ read() {} });
   req.method = method;
   req.url = url;
+  // Real connections carry this, and /api/config now reads it to decide whether the masked key tail
+  // goes out. A request with no socket at all is treated as non-loopback, which is the right way for
+  // that check to fail but makes a socket-less stub silently test the wrong branch. Has to be an
+  // actual Duplex, not a plain object -- Node's IncomingMessage teardown calls stream internals on
+  // req.socket regardless of what the code under test touches (same note as recording-endpoint).
+  const socket = new Duplex({ read() {}, write(chunk, encoding, callback) { callback(); } });
+  socket.remoteAddress = remoteAddress;
+  req.socket = socket;
   req.headers = {
     host: '127.0.0.1',
     connection: 'close',
@@ -130,7 +138,10 @@ test('provider keys stay on the server and surface through config/status routes'
   const openaiConfig = JSON.parse((await invoke(app, { method: 'GET', url: '/api/config' })).body);
   assert.equal(openaiConfig.providerKeys.openai.configured, true);
   assert.equal(openaiConfig.providerKeys.openai.origin, 'local');
-  assert.match(openaiConfig.providerKeys.openai.masked, /^sk?|^loc/);
+  // This used to read /^sk?|^loc/, which alternates as (^sk?)|(^loc) and therefore matches the bare
+  // letter "s". It asserted nothing: maskProviderKey could have returned the raw key and stayed
+  // green. Assert the actual shape, and assert the consequence separately below.
+  assert.equal(openaiConfig.providerKeys.openai.masked, 'loc••••••••••••-key');
   assert.doesNotMatch(JSON.stringify(openaiConfig), /local-openai-key/);
 
   const openaiTest = JSON.parse((await invoke(app, {
