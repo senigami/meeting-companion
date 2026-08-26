@@ -23,7 +23,12 @@ const MAIN_FILE = fileURLToPath(import.meta.url);
 const APP_COMMIT = resolveAppCommit(dirname(MAIN_FILE));
 
 export function createApp({
-  createOpenAIClientFn = (apiKey) => new OpenAI({ apiKey }),
+  // maxRetries: 0 and an explicit timeout for the same reason packages/ai-provider pins them
+  // (adapters/openai.js): the SDK otherwise defaults to a 10 minute timeout and two retries, so one
+  // stalled transcription holds a server request for roughly half an hour while the operator's own
+  // 12s client timeout has long since given up and told them nothing. A flaky venue network is the
+  // expected case here, not the exotic one.
+  createOpenAIClientFn = (apiKey) => new OpenAI({ apiKey, timeout: 30000, maxRetries: 0 }),
   openaiModel = DEFAULT_OPENAI_MODEL,
   // ONE input for "does this server have an OpenAI key", for every question that asks it. Summarization
   // needs a key string (packages/ai-provider, issue #9); transcription and /api/provider/test need a
@@ -38,6 +43,8 @@ export function createApp({
   providerKeyStore = createProviderKeyStore(),
   sessionRecorder = createSessionRecorder(),
   readingPaceStore = createReadingPaceStore(),
+  // Overridable so a test can pin the Host check without reaching through the environment.
+  allowedHosts = defaultAllowedHosts(),
   openaiClient
 } = {}) {
   // Retired with the key consolidation above. Injecting a pre-built client is how the two sources of
@@ -55,6 +62,43 @@ export function createApp({
   // accumulator) only forces a split every 60s, so the limit has to cover that: 60s * 42,667 B/s ~=
   // 2.5mb, and 25mb leaves comfortable headroom (~10 minutes of speech) without inviting abuse.
   app.use(express.json({ limit: '25mb' }));
+
+  // A loopback SOCKET is not a loopback ORIGIN, and the difference is the whole of this middleware.
+  //
+  // In a DNS-rebinding attack the peer address really is 127.0.0.1, so loopbackOnly below passes by
+  // design and cannot help. The operator opens any page on this laptop -- an ad, a shortened link, a
+  // tab left over from before the meeting -- whose hostname re-resolves to 127.0.0.1 once its DNS
+  // TTL expires. That page is now same-origin with this app and can read every transcript, read the
+  // reader's personal measurement, and POST a replacement provider key. The routes it reaches are
+  // exactly the ones whose own comments say the data must never leave the machine.
+  //
+  // The Host header is the only thing left that says which NAME the browser thinks it is talking to,
+  // and a rebound page cannot forge it: the browser sends the attacker's hostname because that is
+  // genuinely what it navigated to. Rejecting an unrecognized one costs nothing legitimate.
+  //
+  // Mounted above express.static deliberately -- the HTML and JS are as worth protecting as the API,
+  // and serving them to a hostile origin is how the rest gets read.
+  app.use((req, res, next) => {
+    // A strict CSP is free here: both HTML files are verified to carry no inline script and no
+    // inline handlers, so nothing legitimate needs 'unsafe-inline'. It also independently neuters
+    // an injected-markup path, which is why it rides along with the Host check rather than waiting
+    // for its own change.
+    //
+    // script-src needs 'wasm-unsafe-eval' on top of 'self', or this breaks live transcription: the
+    // Silero VAD path (public/services/transcription/vad-loader.js) loads ONNX Runtime's WASM build
+    // (public/vendor/ort/*) and calls WebAssembly.instantiate, which CSP gates independently of
+    // 'self' -- fetching the .wasm file is covered by 'self', but running it is not, and a bare
+    // default-src 'self' blocks the instantiate call outright with no console hint it was the CSP.
+    // 'wasm-unsafe-eval' permits only WASM; it does not reopen 'unsafe-eval' for JS eval/new
+    // Function, which stay blocked.
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+
+    if (isAllowedHost(req.headers?.host, allowedHosts)) return next();
+    res.status(403).json({ error: 'Unrecognized Host header.' });
+  });
+
   app.use(express.static('public'));
 
   app.get('/api/config', (req, res) => {
@@ -63,7 +107,17 @@ export function createApp({
       hasAnthropicKey: Boolean(resolveAnthropicKey({ anthropicApiKey, providerKeyStore })),
       model: resolveOpenAIClient({ openaiApiKey, createOpenAIClientFn, providerKeyStore }) ? openaiModel : null,
       sources: listAvailableSourcesFn(),
-      providerKeys: describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore }),
+      // The masked tail is real key material -- four characters of it -- and this route is the one
+      // with no loopback gate, because ALLOW_REMOTE_HOST exists so a second screen on the venue's
+      // wifi can load the display. So the tail goes only to a caller on this machine. Everything a
+      // remote display actually needs (is a key configured, and where did it come from) still goes
+      // to everyone; only the entropy is held back.
+      providerKeys: describeProviderKeys({
+        openaiApiKey,
+        anthropicApiKey,
+        providerKeyStore,
+        includeMask: isLoopbackAddress(req.socket?.remoteAddress)
+      }),
       appCommit: APP_COMMIT
     });
   });
@@ -431,17 +485,40 @@ function createProviderKeyStore(initial = {}) {
   };
 }
 
-function describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore }) {
+function describeProviderKeys({ openaiApiKey, anthropicApiKey, providerKeyStore, includeMask = true }) {
+  const describe = (state) => (includeMask ? state : { ...state, masked: '' });
   return {
-    openai: getProviderKeyState({
+    openai: describe(getProviderKeyState({
       serverReady: Boolean(normalizeText(openaiApiKey) || normalizeText(providerKeyStore.get('openai'))),
       localKey: providerKeyStore.get('openai')
-    }),
-    claude: getProviderKeyState({
+    })),
+    claude: describe(getProviderKeyState({
       serverReady: Boolean(anthropicApiKey || normalizeText(providerKeyStore.get('claude'))),
       localKey: providerKeyStore.get('claude')
-    })
+    }))
   };
+}
+
+// Compared on the hostname alone: a browser sends the port it connected to, and the port is not the
+// thing being authenticated here. IPv6 literals arrive bracketed, so the brackets come off first.
+function isAllowedHost(header, allowed) {
+  const raw = String(header || '');
+  if (!raw) return false;
+  const host = (raw.startsWith('[') ? raw.slice(1, raw.indexOf(']')) : raw.split(':')[0]).toLowerCase();
+  return allowed.has(host);
+}
+
+// Loopback names always, plus whatever HOST was configured when (and only when) ALLOW_REMOTE_HOST is
+// on -- otherwise resolveHost has already refused to bind there and no legitimate request can carry
+// that name anyway. Read from the environment at call time rather than module load so a test can set
+// it, matching how resolveHost already reads it.
+function defaultAllowedHosts() {
+  const hosts = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+  if (['1', 'true', 'yes'].includes(String(process.env.ALLOW_REMOTE_HOST || '').toLowerCase())) {
+    const configured = String(process.env.HOST || '').trim().toLowerCase();
+    if (configured) hosts.add(configured);
+  }
+  return hosts;
 }
 
 // The SDK client and the key string are the same answer in two shapes, so they are built from one
