@@ -10,6 +10,7 @@ import {
   setSettingsOpen,
   setSettingsSection,
   getDefaultSettingsSection,
+  syncQuickPanelBreakpoint,
   updateStatus
 } from '../../../public/controller/view.js';
 import { appendTranscriptItems } from '../../../public/services/transcript-display.js';
@@ -167,6 +168,100 @@ test('the quick panel never goes inert above the 900px drawer breakpoint, even w
 
       startListening.focus();
       assert.equal(global.document.activeElement, startListening, '#startListening must stay focusable on desktop');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+// Issue #84. Open the drawer at mobile width, resize past 900px, and the full-viewport backdrop
+// stays up while #quickPanelToggle -- the only visible control that dismisses it -- is not rendered
+// at that width. The operator is left with a dimmed screen and nothing to click.
+test('crossing to desktop with the quick drawer open closes it, so the backdrop cannot trap the operator', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const quickPanelBackdrop = createNode('div');
+  quickPanelBackdrop.hidden = false;
+
+  global.document = { activeElement: null };
+
+  try {
+    withMatchMedia(false, () => {
+      const ctx = {
+        state: { quickPanelOpen: true },
+        dom: { quickPanel, quickPanelToggle, quickPanelBackdrop }
+      };
+
+      syncQuickPanelBreakpoint(ctx);
+
+      // The backdrop is the trap, so it is what gets asserted -- not merely the state flag that
+      // is supposed to drive it.
+      assert.equal(quickPanelBackdrop.hidden, true, 'the backdrop must be gone once there is no drawer');
+      assert.equal(ctx.state.quickPanelOpen, false, 'the drawer must not stay "open" at a width with no drawer');
+      assert.equal(quickPanel.inert, false, 'the desktop rail must never be inert');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('crossing the breakpoint with the quick drawer closed only resyncs inert -- it does not re-enter the open path', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const quickPanelHandle = createFocusableNode('button');
+  const quickPanelBackdrop = createNode('div');
+  quickPanelBackdrop.hidden = true;
+
+  global.document = { activeElement: null };
+
+  try {
+    withMatchMedia(true, () => {
+      const ctx = {
+        state: { quickPanelOpen: false },
+        dom: { quickPanel, quickPanelToggle, quickPanelHandle, quickPanelBackdrop }
+      };
+
+      syncQuickPanelBreakpoint(ctx);
+
+      assert.equal(quickPanel.inert, true, 'a still-closed mobile drawer must be inert');
+      // The old listener re-entered setQuickPanelOpen for this, which re-persisted the snap height
+      // and queued a focus() on the drag handle every time the breakpoint moved.
+      assert.equal(quickPanelHandle.focusCalls, 0, 'a breakpoint resync must not steal focus');
+      assert.equal(quickPanelBackdrop.hidden, true, 'a closed drawer keeps its backdrop hidden');
+    });
+  } finally {
+    global.document = originalDocument;
+  }
+});
+
+test('crossing to mobile with the quick drawer open leaves it open and not inert', () => {
+  const originalDocument = global.document;
+
+  const quickPanel = createContainerNode('div');
+  const quickPanelToggle = createFocusableNode('button');
+  const quickPanelBackdrop = createNode('div');
+  quickPanelBackdrop.hidden = false;
+
+  global.document = { activeElement: null };
+
+  try {
+    withMatchMedia(true, () => {
+      const ctx = {
+        state: { quickPanelOpen: true },
+        dom: { quickPanel, quickPanelToggle, quickPanelBackdrop }
+      };
+
+      syncQuickPanelBreakpoint(ctx);
+
+      // The close is specifically a desktop-crossing rule. Rotating a tablet back to portrait
+      // must not slam a drawer the operator is using.
+      assert.equal(ctx.state.quickPanelOpen, true, 'an open drawer stays open at a width that has one');
+      assert.equal(quickPanel.inert, false, 'an open drawer is never inert');
+      assert.equal(quickPanelBackdrop.hidden, false, 'an open drawer keeps its backdrop');
     });
   } finally {
     global.document = originalDocument;

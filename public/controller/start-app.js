@@ -28,6 +28,7 @@ import {
   setSettingsSection,
   setViewPanelOpen,
   setQuickPanelOpen,
+  syncQuickPanelBreakpoint,
   syncViewerControls,
   updateModeButtons,
   updatePauseButton,
@@ -569,10 +570,12 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.quickPanelToggle?.addEventListener('click', () => setQuickPanelOpen(ctx, !ctx.state.quickPanelOpen, { focusReturn: false }));
   ctx.dom.quickPanelBackdrop?.addEventListener('click', () => setQuickPanelOpen(ctx, false, { focusReturn: true }));
   // Crossing the 900px drawer breakpoint (e.g. rotating a tablet) changes whether #quickPanel
-  // is a real closed drawer or the `display: contents` desktop rail -- resync inert so it never
-  // gets stuck applied to the visible rail, or stuck absent on a still-closed mobile drawer.
+  // is a real closed drawer or the `display: contents` desktop rail. syncQuickPanelBreakpoint owns
+  // what that means -- resync inert, and close an open drawer on the way to desktop (#84) -- and it
+  // reads the breakpoint itself rather than trusting the event, so a synthetic event with no
+  // `matches` field cannot silently be read as "desktop".
   globalThis.matchMedia?.('(max-width: 900px)')?.addEventListener?.('change', () => {
-    setQuickPanelOpen(ctx, ctx.state.quickPanelOpen, { focusReturn: false });
+    syncQuickPanelBreakpoint(ctx);
   });
   if (ctx.dom.recordingEnabledInput) {
     ctx.dom.recordingEnabledInput.checked = ctx.state.recordingEnabled;
