@@ -1687,22 +1687,60 @@ export function createRuntime(ctx, deps = {}) {
     // Verbatim passthrough (#120) skips the network call entirely for a short, punctuated run, so
     // that incidental filter no longer applies to it -- passthrough-eligible filler can now reach
     // the display verbatim, so the passthrough branch below gates it with isFillerLine (Steve's
-    // call, 2026-08-16). Left in the bucket, not consumed, either way: the same treatment an empty
-    // chunk already gets.
-    if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) return false;
+    // call, 2026-08-16).
+    //
+    // #136, and this is the whole bug: these chunks used to be left in the bucket, on the stated
+    // grounds that it was "the same treatment an empty chunk already gets." It is not. An empty
+    // chunk never reaches here, because partitionBucket filters chunks whose normalized text is
+    // empty before takeOldestModeRun ever sees them. A chunk with text but no letter or digit --
+    // a stray "🎵" final from the recognizer -- does reach here, and takeOldestModeRun always
+    // starts at the OLDEST chunk and has no way to skip a run it cannot use. So the unusable chunk
+    // was reselected every tick, forever, and every real chunk behind it was unreachable.
+    //
+    // That is exactly what happened on 2026-08-23. recordings/2026-08-23T15-44-12-384Z.ndjson has
+    // a "🎵" chunk tagged `information` right after the last successful summary, then 70 further
+    // chunks (prayer, then speaker, then information) over ten minutes with not one summary record
+    // -- no error, no failure count, no rail alert, because this return happens before any of that
+    // machinery runs. The next real chunk was a different mode, so the run could never even grow
+    // past the emoji. It recovered only when the server was restarted.
+    //
+    // So drop the run instead of leaving it. This is not an INV-11 violation: INV-11 protects text
+    // the summarizer failed to process, and none of these three cases is a failure. There is no
+    // letter or digit to summarize, or the text is byte-identical to what was already SENT, or
+    // there is no text at all.
+    //
+    // Sent, not shown, and the distinction is worth stating because the looser wording overclaims.
+    // lastSentText is assigned below at the top of the success path, before `if (result.line)`, so
+    // a call that succeeded and produced no card still sets it -- meaning a byte-identical repeat
+    // is dropped here rather than retried. That is a real behaviour change and it is still the
+    // right one: on main that same run wedged the head of the bucket, so nothing behind it
+    // summarized either. Losing one repeat beats losing the rest of the meeting.
+    if (!recent || recent === ctx.state.lastSentText || !hasSubstantiveContent(recent)) {
+      if (consumedChunks?.length) {
+        ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
+        ctx.state.unusableChunksDropped = (ctx.state.unusableChunksDropped || 0) + 1;
+        showRecentTranscript();
+      }
+      return false;
+    }
 
-    ctx.state.summarizeInFlight = true;
-    updateStatus(ctx, 'Summarizing...');
     // Dim rather than remove: these chunks are still in the bucket (INV-11 only drains it on
     // success) and stay visible until this call resolves one way or the other. Set BEFORE the
     // await, so the dim shows the moment the call goes out, not once it comes back.
-    if (consumedChunks?.length) {
-      ctx.state.inFlightChunks = consumedChunks;
-      showRecentTranscript();
-    }
-
+    //
+    // #136 again, second wedge, same signature. All of this used to sit between
+    // `summarizeInFlight = true` and the try below, so a throw from updateStatus or
+    // showRecentTranscript would leave the latch stuck on with no finally to clear it -- and a
+    // stuck latch means summarizeCurrentText returns early on every subsequent tick, silently,
+    // for the rest of the session. Nothing sits outside the try now except the assignment itself.
     const summarizeStartedAt = nowFn();
+    ctx.state.summarizeInFlight = true;
     try {
+      updateStatus(ctx, 'Summarizing...');
+      if (consumedChunks?.length) {
+        ctx.state.inFlightChunks = consumedChunks;
+        showRecentTranscript();
+      }
       // #61. Two things the old `transcriptItems.slice(-10)` got wrong. The window was smaller
       // than one call's own output can be (RUNAWAY_LINE_GUARD is 12), so after a full round of
       // announcements the oldest card was already outside it and the model could restate it,
