@@ -11,7 +11,39 @@ export { ProviderError, PROVIDER_ERROR_TYPES } from './errors.js';
 // once, and each adapter does its own provider-specific reshaping (Claude splits the system
 // message out; OpenAI sends the array as-is). Do not build a Claude-shaped or OpenAI-shaped
 // messages array in the caller; that is exactly the duplication this seam exists to remove.
-const ACCEPTED_OPTIONS = Object.freeze(['provider', 'apiKey', 'messages', 'maxTokens', 'model', 'fetchImpl']);
+const ACCEPTED_OPTIONS = Object.freeze(['provider', 'apiKey', 'messages', 'maxTokens', 'model', 'fetchImpl', 'timeoutMs']);
+
+// Neither adapter had any deadline at all, so a provider that accepted the connection and then
+// never answered held the call open forever. A browser calling through a server does not save you
+// here: the browser's own timeout ends the browser's wait, and nothing propagates that back, so
+// the server keeps the socket and the upstream connection until the process dies. Over a long
+// meeting against a flaky provider those accumulate.
+//
+// A bound belongs in this seam rather than in either adapter, because "wait forever" is not a
+// choice any caller of this package would make on purpose, and this directory gets copied into
+// repos where nobody reads the adapters. Callers that want a different bound pass timeoutMs;
+// passing 0 or a non-finite value opts out entirely, which is the only way back to the old
+// behaviour and has to be written down to get.
+const DEFAULT_TIMEOUT_MS = 30000;
+
+function withTimeout(fetchImpl, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return fetchImpl;
+  return async (url, init = {}) => {
+    const controller = new AbortController();
+    // The OpenAI SDK supplies its own signal, so ours composes with the caller's rather than
+    // replacing it -- overwriting init.signal would quietly disarm the SDK's own cancellation.
+    if (init.signal) {
+      if (init.signal.aborted) controller.abort(init.signal.reason);
+      else init.signal.addEventListener('abort', () => controller.abort(init.signal.reason), { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(new Error(`Provider call exceeded ${timeoutMs}ms`)), timeoutMs);
+    try {
+      return await fetchImpl(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
 
 export async function callProvider(options = {}) {
   // An option this seam does not understand is REJECTED, never quietly dropped. Both adapters pin
@@ -24,12 +56,13 @@ export async function callProvider(options = {}) {
     throw new Error(`callProvider: unsupported option(s) ${unknown.join(', ')}. Accepted: ${ACCEPTED_OPTIONS.join(', ')}.`);
   }
 
-  const { provider, apiKey, messages, maxTokens, model, fetchImpl = fetch } = options;
+  const { provider, apiKey, messages, maxTokens, model, fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+  const boundedFetch = withTimeout(fetchImpl, timeoutMs);
   switch (provider) {
     case 'openai':
-      return callOpenAI({ apiKey, messages, maxTokens, model, fetchImpl });
+      return callOpenAI({ apiKey, messages, maxTokens, model, fetchImpl: boundedFetch });
     case 'claude':
-      return callClaude({ apiKey, messages, maxTokens, model, fetchImpl });
+      return callClaude({ apiKey, messages, maxTokens, model, fetchImpl: boundedFetch });
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }

@@ -429,3 +429,103 @@ test('the leak self-check reaches a key hidden in a nested cause, not just the n
     }
   );
 });
+
+// --- outbound deadline ------------------------------------------------------------------------
+//
+// #136. Neither adapter had any deadline, so a provider that accepted the connection and then went
+// quiet held the call open until the process died. The browser's own 12s timeout ends the
+// browser's wait and propagates nothing back, so the server kept the socket and the upstream
+// connection either way.
+
+test('a provider that never answers is abandoned at the deadline instead of hanging forever', async () => {
+  let abortedWith = null;
+  const neverAnswers = (url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      abortedWith = init.signal.reason;
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+  });
+
+  await assert.rejects(
+    callProvider({
+      provider: 'claude',
+      apiKey: 'sk-ant-test',
+      messages: MESSAGES,
+      maxTokens: 64,
+      model: 'claude-haiku-4-5-20251001',
+      fetchImpl: neverAnswers,
+      timeoutMs: 25
+    }),
+    (error) => {
+      assert.ok(error instanceof ProviderError, 'a deadline must surface as a normal provider failure');
+      assert.equal(error.type, PROVIDER_ERROR_TYPES.NETWORK);
+      return true;
+    }
+  );
+
+  assert.match(String(abortedWith?.message), /exceeded 25ms/, 'the abort must name the deadline that fired');
+});
+
+test('a call that answers within the deadline is untouched, and its timer does not keep the process alive', async () => {
+  const { text } = await callProvider({
+    provider: 'claude',
+    apiKey: 'sk-ant-test',
+    messages: MESSAGES,
+    maxTokens: 64,
+    model: 'claude-haiku-4-5-20251001',
+    fetchImpl: async () => new Response(
+      JSON.stringify({ content: [{ type: 'text', text: 'Answered in time.' }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    ),
+    timeoutMs: 5000
+  });
+
+  assert.equal(text, 'Answered in time.');
+});
+
+test('the deadline composes with a caller-supplied signal rather than replacing it', async () => {
+  const caller = new AbortController();
+  let sawCallerAbort = false;
+  const watchesSignal = (url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      sawCallerAbort = true;
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+    // The OpenAI SDK supplies its own signal; overwriting init.signal would quietly disarm it.
+    setTimeout(() => caller.abort(new Error('caller changed their mind')), 5);
+  });
+
+  await assert.rejects(callProvider({
+    provider: 'claude',
+    apiKey: 'sk-ant-test',
+    messages: MESSAGES,
+    maxTokens: 64,
+    model: 'claude-haiku-4-5-20251001',
+    // Passed the way the OpenAI SDK passes its own, i.e. already on init.
+    fetchImpl: (url, init) => watchesSignal(url, { ...init, signal: caller.signal }),
+    timeoutMs: 60000
+  }));
+
+  assert.equal(sawCallerAbort, true, "the caller's abort must still reach the fetch");
+});
+
+test('timeoutMs 0 opts out of the deadline entirely, and is the only way back to the old behaviour', async () => {
+  let sawSignal = 'unset';
+  await callProvider({
+    provider: 'claude',
+    apiKey: 'sk-ant-test',
+    messages: MESSAGES,
+    maxTokens: 64,
+    model: 'claude-haiku-4-5-20251001',
+    fetchImpl: async (url, init) => {
+      sawSignal = init.signal;
+      return new Response(
+        JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    },
+    timeoutMs: 0
+  });
+
+  assert.equal(sawSignal, undefined, 'opting out must not attach a signal at all');
+});

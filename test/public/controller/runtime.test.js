@@ -4919,3 +4919,144 @@ test('updateItemText on an unknown id is a no-op', async () => {
     assert.equal(ctx.state.transcriptItems[0].text, 'original text');
   });
 });
+
+// --- #136: an unusable chunk must not wedge the head of the bucket ------------------------------
+//
+// This is the bug behind the 2026-08-23 stall. takeOldestModeRun always starts at the OLDEST chunk
+// and cannot skip a run it can't use. drainOnce used to return early on an unusable run WITHOUT
+// removing it, so the same chunk was reselected every tick forever and everything behind it became
+// unreachable. Silently: the early return happens before summarizeInFlight, before updateStatus,
+// before the try that writes recording records and counts failures. No error, no rail alert, no
+// recovery short of a restart.
+//
+// recordings/2026-08-23T15-44-12-384Z.ndjson has the real thing: a "🎵" chunk tagged `information`
+// right after the last successful summary, then 70 chunks over ten minutes with zero summaries.
+
+test('an emoji-only chunk at the head of the bucket does not block the real speech behind it (#136)', async () => {
+  const summarized = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      summarized.push(recentTranscript);
+      return { line: 'Someone offered the opening prayer.' };
+    }
+  };
+
+  const now = Date.now();
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      openAiReady: true,
+      transcriptChunks: [
+        // Exactly what the recognizer emitted on 2026-08-23, including the period the
+        // sentence-end-silence watchdog appended to it.
+        { text: '🎵.', at: now - 60000, mode: 'information', speaker: '' },
+        // A different mode, so the run can never grow to include it -- the run is the emoji alone.
+        { text: 'Our dear Heavenly Father, we thank thee for this day.', at: now - 50000, mode: 'prayer', speaker: '' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    // Three ticks. Before the fix this could be three hundred and the answer would be the same.
+    await runtime.summarizeCurrentText();
+    await runtime.summarizeCurrentText();
+    await runtime.summarizeCurrentText();
+
+    assert.equal(summarized.length, 1, 'the real speech behind the unusable chunk must reach the summarizer');
+    assert.match(summarized[0], /Heavenly Father/, 'and it must be the real speech, not the emoji');
+    assert.equal(
+      ctx.state.transcriptChunks.some((chunk) => chunk.text.includes('🎵')),
+      false,
+      'the unusable chunk must be gone from the bucket, not merely stepped over'
+    );
+    assert.equal(ctx.state.unusableChunksDropped, 1, 'dropping it silently is fine; dropping it invisibly is not');
+  });
+});
+
+test('a run identical to the last text already summarized is dropped from the bucket, not left to wedge it (#136)', async () => {
+  const summarized = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      summarized.push(recentTranscript);
+      return { line: 'The bishop welcomed everyone.' };
+    }
+  };
+
+  const now = Date.now();
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      openAiReady: true,
+      // Same silent early return, same line, same consequence -- it just needs an exact repeat
+      // rather than a stray emoji to reach it.
+      lastSentText: 'Amen.',
+      transcriptChunks: [
+        { text: 'Amen.', at: now - 60000, mode: 'prayer', speaker: '' },
+        { text: 'The bishop welcomed everyone to sacrament meeting.', at: now - 50000, mode: 'speaker', speaker: '' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    await runtime.summarizeCurrentText();
+
+    assert.equal(summarized.length, 1, 'the speech behind the duplicate must reach the summarizer');
+    assert.match(summarized[0], /bishop welcomed/);
+    assert.equal(
+      ctx.state.transcriptChunks.some((chunk) => chunk.text === 'Amen.'),
+      false,
+      'the duplicate must leave the bucket'
+    );
+  });
+});
+
+test('a throw on the way into a summarize call does not wedge the in-flight latch for the rest of the session (#136)', async () => {
+  const summarized = [];
+  const driver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      summarized.push(recentTranscript);
+      return { line: 'A card that proves the session recovered.' };
+    }
+  };
+
+  // updateStatus writes textContent on #status, and it used to run between
+  // `summarizeInFlight = true` and the try/finally that clears it again. A throw there left the
+  // latch stuck on, and summarizeCurrentText's own early return then skipped every subsequent
+  // tick -- the same silent, permanent, restart-only stall signature as the bucket wedge above.
+  // Throws once, on the way in, then behaves. A permanently broken #status would also break the
+  // catch handler's own updateStatus and is a different (louder) problem; the wedge this test is
+  // about needs only one transient throw at the wrong moment.
+  let statusWrites = 0;
+  const status = createElement({ textContent: '' });
+  Object.defineProperty(status, 'textContent', {
+    get() { return ''; },
+    set() {
+      statusWrites += 1;
+      if (statusWrites === 1) throw new Error('the DOM went away mid-write');
+    }
+  });
+
+  const now = Date.now();
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    elementOverrides: { status },
+    stateOverrides: {
+      openAiReady: true,
+      transcriptChunks: [
+        { text: 'The first speaker began his talk about service.', at: now - 60000, mode: 'speaker', speaker: '' }
+      ]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.summarizeInFlight, false, 'the latch must never survive a throw on the way in');
+
+    ctx.state.transcriptChunks = [
+      { text: 'The second speaker read from the scriptures.', at: now - 40000, mode: 'speaker', speaker: '' }
+    ];
+    await runtime.summarizeCurrentText();
+
+    assert.equal(summarized.length, 1, 'a later tick must still be able to reach the summarizer');
+    assert.match(summarized[0], /second speaker/);
+  });
+});
