@@ -5060,3 +5060,89 @@ test('a throw on the way into a summarize call does not wedge the in-flight latc
     assert.match(summarized[0], /second speaker/);
   });
 });
+
+test('a full burst of cards does not crowd the ones actually on screen out of the dedupe window (#86)', async () => {
+  // #86. The window was ONE slice over committed-plus-pending, so a burst spent all of it: a
+  // 12-card result leaves 11 queued, and the next window was 11 pending and exactly 1 committed.
+  // Every other card on the wall fell out of it -- including cards the older, smaller window did
+  // cover -- so the model could restate something the reader is looking at right now.
+  const seen = [];
+  let call = 0;
+  const driver = {
+    id: 'openai',
+    summarize: async ({ visibleLines }) => {
+      seen.push(visibleLines);
+      call += 1;
+      // One call's maximum, which is what makes the queue deep enough to spend the whole window.
+      if (call === 1) return { line: Array.from({ length: 12 }, (_, i) => `Burst card ${i}.`).join('\n') };
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      mode: 'information',
+      transcriptItems: Array.from({ length: 12 }, (_, i) => ({ text: `On screen ${i}.`, mode: 'information', source: 'ai' })),
+      transcriptChunks: [{ text: 'An announcement about the picnic.', at: now - 30000, mode: 'information' }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    ctx.state.transcriptChunks.push({ text: 'A real second announcement.', at: now - 20000, mode: 'information' });
+    await runtime.summarizeCurrentText();
+
+    const windowAfterBurst = seen[1];
+
+    // The queued cards still have to be there -- that is #61 and this must not cost it.
+    assert.ok(
+      windowAfterBurst.includes('Burst card 11.'),
+      'cards still waiting in the release queue must stay in the window'
+    );
+
+    // And the cards the reader is looking at.
+    assert.ok(
+      windowAfterBurst.includes('On screen 11.'),
+      'a card on the wall must not be crowded out of the window by a burst'
+    );
+
+    // The one that actually pins the bug. Under the old single slice the committed half was
+    // whatever the pending half left over -- exactly 1 card after a full burst. The committed half
+    // now gets its own full budget regardless of how deep the queue is. Counted rather than
+    // name-checked, because "some committed card survived" was true of the broken shape too.
+    const committedInWindow = windowAfterBurst.filter((line) => line.startsWith('On screen '));
+    assert.equal(
+      committedInWindow.length,
+      11,
+      'the queue must not eat the committed half of the window'
+    );
+  });
+});
+
+test('the dedupe window stays bounded when the release queue is empty', async () => {
+  // Keeping all pending means the window is no longer a fixed length, so the committed half still
+  // has to be capped or a long meeting would send the model every card it ever produced.
+  let seenVisibleLines = null;
+  const driver = {
+    id: 'openai',
+    summarize: async ({ visibleLines }) => {
+      seenVisibleLines = visibleLines;
+      return { line: '' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptItems: Array.from({ length: 40 }, (_, i) => ({ text: `Line ${i}`, mode: 'speaker', source: 'ai' })),
+      transcriptChunks: [{ text: 'A new real block.', at: Date.now(), mode: 'speaker' }]
+    }
+  }, async ({ runtime }) => {
+    await runtime.summarizeCurrentText();
+
+    assert.equal(seenVisibleLines.length, 12, 'with nothing queued the window is still the runaway guard');
+    assert.deepEqual(seenVisibleLines, Array.from({ length: 12 }, (_, i) => `Line ${i + 28}`));
+  });
+});
