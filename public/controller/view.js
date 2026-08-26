@@ -680,6 +680,28 @@ export function setQuickPanelOpen(ctx, open, { focusReturn = false } = {}) {
   }
 }
 
+// #84. Crossing the 900px breakpoint changes whether #quickPanel is a real drawer or the
+// `display: contents` desktop rail, so `inert` has to be resynced either way.
+//
+// Crossing to DESKTOP with the drawer open also has to close it. The backdrop covers the whole
+// viewport, and #quickPanelToggle -- the only visible control that dismisses it -- is not rendered
+// at this width, so the operator is left looking at a dimmed screen with nothing to click. Escape
+// does recover it, but that is not a thing anyone discovers mid-meeting. "Open" has no meaning at
+// a width with no drawer, so close it rather than resync it open (#82's resync did the latter).
+export function syncQuickPanelBreakpoint(ctx) {
+  const drawerActive = isQuickPanelDrawerActive();
+  if (!drawerActive && ctx.state.quickPanelOpen) {
+    setQuickPanelOpen(ctx, false, { focusReturn: false });
+    return;
+  }
+  // Only the one attribute that actually depends on the breakpoint. Re-entering setQuickPanelOpen
+  // for this re-persisted the snap height and stole focus to the drag handle on every crossing --
+  // both self-correcting, both things the operator could still feel.
+  if (ctx.dom.quickPanel) {
+    ctx.dom.quickPanel.inert = !ctx.state.quickPanelOpen && drawerActive;
+  }
+}
+
 export function bindTranscriptViewport(ctx) {
   if (!ctx.dom.transcriptViewport) return;
   ctx.dom.transcriptViewport.addEventListener('scroll', () => {
