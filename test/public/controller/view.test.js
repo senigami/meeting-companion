@@ -207,10 +207,31 @@ test('crossing to desktop with the quick drawer open closes it, so the backdrop 
   }
 });
 
+// The DOM stubs above are deliberately thin, which means a test can "pass" because an incomplete
+// stub threw somewhere incidental rather than because an assertion held. These two resync tests
+// need the opposite: enough of a stub that the old re-entering behaviour runs to completion, so
+// what catches it is an assertion about what it did, not a TypeError on the way.
+function createSheetNode() {
+  const node = createContainerNode('div');
+  node.style = {};
+  node.offsetHeight = 0;
+  return node;
+}
+
+function withSyncRaf(fn) {
+  const original = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => { callback(); };
+  try {
+    return fn();
+  } finally {
+    globalThis.requestAnimationFrame = original;
+  }
+}
+
 test('crossing the breakpoint with the quick drawer closed only resyncs inert -- it does not re-enter the open path', () => {
   const originalDocument = global.document;
 
-  const quickPanel = createContainerNode('div');
+  const quickPanel = createSheetNode();
   const quickPanelToggle = createFocusableNode('button');
   const quickPanelHandle = createFocusableNode('button');
   const quickPanelBackdrop = createNode('div');
@@ -219,7 +240,7 @@ test('crossing the breakpoint with the quick drawer closed only resyncs inert --
   global.document = { activeElement: null };
 
   try {
-    withMatchMedia(true, () => {
+    withMatchMedia(true, () => withSyncRaf(() => {
       const ctx = {
         state: { quickPanelOpen: false },
         dom: { quickPanel, quickPanelToggle, quickPanelHandle, quickPanelBackdrop }
@@ -228,31 +249,37 @@ test('crossing the breakpoint with the quick drawer closed only resyncs inert --
       syncQuickPanelBreakpoint(ctx);
 
       assert.equal(quickPanel.inert, true, 'a still-closed mobile drawer must be inert');
-      // The old listener re-entered setQuickPanelOpen for this, which re-persisted the snap height
-      // and queued a focus() on the drag handle every time the breakpoint moved.
-      assert.equal(quickPanelHandle.focusCalls, 0, 'a breakpoint resync must not steal focus');
+      // setQuickPanelOpen unconditionally writes aria-expanded/aria-pressed/aria-label on the
+      // toggle. An untouched toggle is therefore proof the whole setter was never re-entered,
+      // which is the thing this test is named for -- the inert assertion above holds either way.
+      assert.equal(
+        quickPanelToggle.attributes['aria-expanded'],
+        undefined,
+        'a pure inert resync must not rewrite the toggle: that means the whole setter ran'
+      );
       assert.equal(quickPanelBackdrop.hidden, true, 'a closed drawer keeps its backdrop hidden');
-    });
+    }));
   } finally {
     global.document = originalDocument;
   }
 });
 
-test('crossing to mobile with the quick drawer open leaves it open and not inert', () => {
+test('crossing to mobile with the quick drawer open leaves it open, not inert, and does not steal focus', () => {
   const originalDocument = global.document;
 
-  const quickPanel = createContainerNode('div');
+  const quickPanel = createSheetNode();
   const quickPanelToggle = createFocusableNode('button');
+  const quickPanelHandle = createFocusableNode('button');
   const quickPanelBackdrop = createNode('div');
   quickPanelBackdrop.hidden = false;
 
   global.document = { activeElement: null };
 
   try {
-    withMatchMedia(true, () => {
+    withMatchMedia(true, () => withSyncRaf(() => {
       const ctx = {
         state: { quickPanelOpen: true },
-        dom: { quickPanel, quickPanelToggle, quickPanelBackdrop }
+        dom: { quickPanel, quickPanelToggle, quickPanelHandle, quickPanelBackdrop }
       };
 
       syncQuickPanelBreakpoint(ctx);
@@ -262,7 +289,10 @@ test('crossing to mobile with the quick drawer open leaves it open and not inert
       assert.equal(ctx.state.quickPanelOpen, true, 'an open drawer stays open at a width that has one');
       assert.equal(quickPanel.inert, false, 'an open drawer is never inert');
       assert.equal(quickPanelBackdrop.hidden, false, 'an open drawer keeps its backdrop');
-    });
+      // The old listener re-entered the setter, whose open branch focuses the drag handle on the
+      // next frame. Resizing a window must never move the operator's focus.
+      assert.equal(quickPanelHandle.focusCalls, 0, 'a breakpoint resync must not steal focus');
+    }));
   } finally {
     global.document = originalDocument;
   }
