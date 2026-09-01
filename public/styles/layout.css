@@ -510,7 +510,16 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
    all-caps makes it harder to read, not easier, so only the weight/tracking carry the "header" look,
    never the casing. Keep the case it was actually written in. */
 .transcript-meta-value {
-  font-size: max(1.35rem, calc(var(--font-size) * 0.4));
+  /* Issue #60: the flat 1.35rem (21.6px) floor inverted the 0.4 ratio at the low end of the
+     card-size slider (FONT_SIZE_MIN=24px .. FONT_SIZE_MAX=144px, view-settings.js) -- it read as
+     0.90 at the 24px minimum instead of the intended 0.4, ballooning the label past the card text
+     it labels. The floor itself now scales with the range instead of being a fixed rem value: it
+     runs from 16px (a legible absolute minimum -- the browser's own default body size) at the 24px
+     minimum, up to exactly 33.6px (= 84px * 0.4) at the 84px default -- the same value the 0.4 ratio
+     already produces there, so the default and the 144px maximum (both already correct per Ansel's
+     2026-08-04 #52 ruling) are unchanged. Below the default the ratio now tapers from 0.67 down to
+     0.4 as the card grows, instead of jumping straight to 0.90 at the bottom. */
+  font-size: max(calc(16px + (var(--font-size) - 24px) * 17.6 / 60), calc(var(--font-size) * 0.4));
   text-transform: none;
   /* Color overridden back to full contrast: unlike the label word itself, the value is actual
      content the reader needs to read, not decoration, so it must not wash out to --muted. */
