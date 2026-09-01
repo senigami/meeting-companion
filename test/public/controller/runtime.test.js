@@ -1178,6 +1178,82 @@ test('changing mode while paused still forces the final drain, and leaves the me
   });
 });
 
+// #151 (split off #62, Steve's proposed fix verbatim): a provider switch landing between a
+// summarize call going out and its result coming back must not attribute that result to the new
+// provider. Tags the in-flight call with the source it was issued under and discards a result
+// whose source no longer matches by the time it resolves -- same treatment as a pause-interrupted
+// call (not consumed, re-sent next tick), not a crash and not a silently mislabeled card.
+test('a provider switch mid-flight discards the stale result instead of attributing it to the new provider', async () => {
+  let ctxRef = null;
+  const driver = {
+    id: 'openai',
+    summarize: async () => {
+      // Simulate the switch landing WHILE this call is still out, before it resolves.
+      ctxRef.state.summarizationSource = 'claude';
+      return { line: 'a card from the old provider' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'the closing announcement before the switch', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    ctxRef = ctx;
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.length, 0, 'no card must land under the new provider for a call issued under the old one');
+    assert.equal(ctx.state.transcriptChunks.length, 1, 'the chunk must be re-sent next tick, not consumed, exactly like a pause-interrupted call');
+    assert.equal(ctx.state.summarizationSource, 'claude', 'the switch itself is real and must not be reverted by the discard');
+  });
+});
+
+// #151 follow-up (Cato's gate on #164, Steve's call): a boundary flush has no next tick to fall
+// back on, unlike an ordinary tick. Stopping mid-flight of a provider switch used to strand the
+// meeting's final chunk unconsumed forever (the interval that would have re-sent it is already
+// dead by the time stopListening calls this). Re-issuing once under the new provider fixes it.
+test('stopping during a mid-flight provider switch re-sends under the new provider instead of losing the final chunk', async () => {
+  const transcriptionDriver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  let ctxRef = null;
+  const drivers = {
+    openai: {
+      id: 'openai',
+      summarize: async () => {
+        ctxRef.state.summarizationSource = 'claude';
+        return { line: 'must not be displayed' };
+      }
+    },
+    claude: {
+      id: 'claude',
+      summarize: async () => ({ line: 'the real final line' })
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => transcriptionDriver,
+    createSummarizationDriverFn: (source) => drivers[source],
+    stateOverrides: {
+      transcriptChunks: [{ text: 'and that concludes the closing announcements', at: now }]
+    }
+  }, async ({ ctx, runtime }) => {
+    ctxRef = ctx;
+    await runtime.startListening();
+    await runtime.stopListening();
+
+    const texts = ctx.state.transcriptItems.map((item) => item.text);
+    assert.deepEqual(texts, ['the real final line'], 'the retried call under the new provider must land, the stale one must not');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the final chunk must be consumed, not stranded with no tick left to retry it');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {

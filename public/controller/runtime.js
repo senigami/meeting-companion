@@ -1595,8 +1595,16 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS, maxRuns = MAX_DRAIN_RUNS_PER_TICK, force = false } = {}) {
+    // #151 follow-up (Cato's gate on #164, Steve's call): a boundary flush (Stop, mode/speaker
+    // change) has no next tick to fall back on if a mid-flight provider switch gets its result
+    // discarded -- Stop would strand the meeting's last chunk unconsumed, and a speaker change
+    // would merge the outgoing speaker's tail into the next speaker's run. An ordinary tick can
+    // just let the interval re-send next time, same as today; only a flush needs the extra call.
+    // maxRuns > the ordinary per-tick cap is the same signal this function already uses a few
+    // lines below to distinguish a flush from a normal tick.
+    const isFlush = maxRuns > MAX_DRAIN_RUNS_PER_TICK;
     if (text) {
-      await drainOnce(text, settleMs, force);
+      await drainOnce(text, settleMs, force, isFlush);
       return;
     }
     let runs = 0;
@@ -1606,7 +1614,7 @@ export function createRuntime(ctx, deps = {}) {
     // check (below) each independently stop a forced flush from doing anything while paused.
     while (ok && (force || !ctx.state.paused) && runs < maxRuns && mustKeepDraining(settleMs)) {
       runs += 1;
-      ok = await drainOnce(undefined, settleMs, force);
+      ok = await drainOnce(undefined, settleMs, force, isFlush);
     }
     // The cap-hit check below is purely informational (whether a real backlog remains after the
     // cap), so a fault here is treated as "no cap message" rather than forced true -- the fault
@@ -1640,13 +1648,16 @@ export function createRuntime(ctx, deps = {}) {
   // the loop above to immediately ask for another run; everything else (paused, bucket fault,
   // provider failure, or a deduped no-op that never reached the network) returns `false` and ends
   // the tick's drain right there, exactly as a single un-looped call would have.
-  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS, force = false) {
+  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS, force = false, isFlush = false) {
     resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
     let sendMode = ctx.state.mode;
     let sendSpeaker = ctx.state.speakerName;
     let recent;
+    // #151: declared here, not inside the try block below, so the catch block can still read it --
+    // a failed call must attribute its record to the source it actually ran under too.
+    let issuedSource = null;
     if (text) {
       recent = normalizeText(text);
     } else {
@@ -1784,7 +1795,35 @@ export function createRuntime(ctx, deps = {}) {
       // has its own incidental filter (isNonAnswerLine on the model's reply) and this is not a
       // change to that path's behavior. Steve's call, 2026-08-16: a filler word must not occupy a
       // reading-load card slot verbatim just because it happens to be short and punctuated.
-      const result = isPassthroughEligible(recent, ctx.state.readingBudget?.words)
+      // #151: issuedSource (declared above, outside this try block) stays null for a passthrough
+      // result (no network call, no race window); callDriver sets it, before the await, to the
+      // source that call actually ran under.
+      // Extracted so a flush call (isFlush) can invoke it a second time if the provider switches
+      // mid-flight -- ensureSummarizationDriver() reads ctx.state.summarizationSource fresh on
+      // every call, so a second invocation after the switch genuinely runs under the new provider,
+      // not a stale reference to the old one.
+      async function callDriver() {
+        issuedSource = ctx.state.summarizationSource;
+        const driver = await ensureSummarizationDriver();
+        return driver.summarize({
+          mode: sendMode,
+          recentTranscript: recent,
+          visibleLines,
+          maxWords: ctx.state.summaryMaxWords,
+          // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
+          // words-per-card setting and the amount of compression can never disagree. Measured pace is
+          // about one word every two seconds, which puts the live path on brief.
+          // mode matters as much as the budget: information mode must never take brief, because brief
+          // keeps one line and a round of announcements then loses every fact after the first.
+          level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
+          // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
+          // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
+          // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
+          // the window is always relative to NOW rather than to whenever a card last landed.
+          history: ctx.state.summaryHistory.filter((turn) => nowFn() - turn.at < SUMMARY_HISTORY_WINDOW_MS)
+        });
+      }
+      let result = isPassthroughEligible(recent, ctx.state.readingBudget?.words)
         && shouldAcceptModelLine(recent, visibleLines)
         && !isFillerLine(recent)
         // cleanModelLine, not raw recent -- shouldAcceptModelLine already decided on the cleaned
@@ -1794,26 +1833,16 @@ export function createRuntime(ctx, deps = {}) {
         // silently: a pasted line ("- Sacrament meeting starts at nine.") is judged clean but shown
         // with its bullet marker still attached. Warrick, #120 review, 2026-08-16.
         ? { line: cleanModelLine(recent), verbatim: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 }
-        : await (async () => {
-            const driver = await ensureSummarizationDriver();
-            return driver.summarize({
-              mode: sendMode,
-              recentTranscript: recent,
-              visibleLines,
-              maxWords: ctx.state.summaryMaxWords,
-              // The level is DERIVED from the reading budget, never set by hand -- one quantity, so the
-              // words-per-card setting and the amount of compression can never disagree. Measured pace is
-              // about one word every two seconds, which puts the live path on brief.
-              // mode matters as much as the budget: information mode must never take brief, because brief
-              // keeps one line and a round of announcements then loses every fact after the first.
-              level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
-              // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
-              // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
-              // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
-              // the window is always relative to NOW rather than to whenever a card last landed.
-              history: ctx.state.summaryHistory.filter((turn) => nowFn() - turn.at < SUMMARY_HISTORY_WINDOW_MS)
-            });
-          })();
+        : await callDriver();
+      // #151 follow-up (Cato's gate on #164, Steve's call): a boundary flush has no next tick to
+      // fall back on, so re-issue once under the now-current provider instead of discarding --
+      // losing the meeting's final chunk, or merging a speaker change into one card, is worse than
+      // the extra round trip. An ordinary tick still just discards below and lets the interval
+      // resend next time; only one retry, so a provider that keeps flipping mid-flight still
+      // eventually gives up rather than looping.
+      if (isFlush && issuedSource !== null && issuedSource !== ctx.state.summarizationSource) {
+        result = await callDriver();
+      }
 
       // Debugging/tuning recorder (ADR-0004): records what was actually sent and what came back,
       // independent of the INV-11 consume/pause logic below -- a call that succeeded but landed
@@ -1829,7 +1858,9 @@ export function createRuntime(ctx, deps = {}) {
         hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: result.line || '',
-        provider: result.verbatim ? 'passthrough' : ctx.state.summarizationSource,
+        // #151: the source this call actually ran under, not whichever is active by the time it
+        // resolves -- a provider switch mid-flight must not misattribute the record either.
+        provider: result.verbatim ? 'passthrough' : issuedSource,
         ok: true,
         latencyMs: nowFn() - summarizeStartedAt,
         wasShortened: result.wasShortened,
@@ -1846,6 +1877,14 @@ export function createRuntime(ctx, deps = {}) {
       // known to be true, before this call was ever made, so there is no such race to protect
       // against, and bailing here would just make the caller's whole forced drain a no-op.
       if (ctx.state.paused && !force) return false;
+      // #151: the provider switched while this call was in flight -- discard it exactly like a
+      // pause-interrupted result (not consumed, re-sent under the new provider next tick), rather
+      // than displaying a result attributed to a source the operator has since moved away from.
+      // Only reachable when result is not verbatim (issuedSource is only ever set on that branch).
+      // A flush already retried once above (isFlush's own check); reaching here still mismatched
+      // means the provider switched AGAIN during that retry's own round trip -- rare enough to
+      // accept the discard rather than retry without bound.
+      if (issuedSource !== null && issuedSource !== ctx.state.summarizationSource) return false;
       // The bucket only drains on success while unpaused (or forced) -- a failed or
       // pause-interrupted request re-sends the same sentences next tick (INV-11).
       ctx.state.lastSentText = recent;
@@ -1885,7 +1924,10 @@ export function createRuntime(ctx, deps = {}) {
         hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: '',
-        provider: ctx.state.summarizationSource,
+        // #151: same reasoning as the success-path record above -- the source this call actually
+        // ran under, not whichever is current if a switch landed before the failure surfaced here.
+        // issuedSource is null for a passthrough result, which never reaches this catch block.
+        provider: issuedSource || ctx.state.summarizationSource,
         ok: false,
         error: String(error?.message || error).slice(0, 200),
         latencyMs: nowFn() - summarizeStartedAt
