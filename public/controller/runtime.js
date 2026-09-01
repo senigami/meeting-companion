@@ -168,7 +168,7 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // -- is long enough that it is no longer plausibly just a pause in speech, and short enough that a
 // genuinely unplugged mic or a silently-crashed speech engine is caught within under a minute
 // instead of running the rest of the service showing a calm, wrong "Listening."
-const SILENCE_WATCHDOG_MS = 45000;
+export const SILENCE_WATCHDOG_MS = 45000;
 
 // Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
 // event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,

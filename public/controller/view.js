@@ -91,12 +91,24 @@ const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'audio
 // confirmed fatal condition, INV-10) must never be silently replaced by a lower-ranked persistent
 // level elbowing in while it's still active -- e.g. a summarize-failure escalation followed by 45s
 // of no transcript events precisely because the server path is backed off. 'dropped' (confirmed
-// data loss) outranks 'behind' (confirmed lag, no loss yet), which outranks 'audio' (a confirmed
-// sustained clip/quiet reading, but the pipeline is still moving), which outranks 'silence'
-// (unconfirmed -- consistent with a normal pause). Recovery still works: it comes from the
-// condition itself clearing to a non-persistent level (e.g. 'listening'), never from a
-// lower-ranked persistent level elbowing in on a higher one.
-const LEVEL_RANK = { problem: 5, dropped: 4, behind: 3, audio: 2, silence: 1 };
+// data loss) outranks 'behind' (confirmed lag, no loss yet).
+//
+// 'silence' outranks 'audio' -- Cato, gating #168 (#5's sustained-condition surface), 2026-09-01:
+// the audio module's own "quiet" reading fires on exactly the same "not speaking" condition as the
+// transcript-side silence watchdog, both at the same 45s figure on purpose (#5 reuses
+// SILENCE_WATCHDOG_MS deliberately). A normal prayer or sermon pause in this room satisfies both,
+// and 'audio' ranked above 'silence' meant that pause displayed "check the microphone" instead of
+// the existing, already-tuned silence message -- reintroducing the exact false-alarm harm #5 itself
+// named as a real harm, not just noise. Steve's call: silence wins that collision.
+//
+// This does leave one known asymmetry, not yet resolved: 'audio' also covers sustained CLIPPING,
+// which cannot happen during real silence and carries no false-positive risk the way 'quiet' does --
+// so ranking it below 'silence' can in principle let an active silence message (a different
+// subsystem, keyed on transcript events rather than the audio module's own speaking/not-speaking
+// read) mask a genuine clipping fault if both happen to be active at once. Narrow and not addressed
+// here; if it matters in practice, split 'audio' into separate 'clipping' (outranks silence) and
+// 'quiet' (does not) levels instead of one shared level.
+const LEVEL_RANK = { problem: 5, dropped: 4, behind: 3, silence: 2, audio: 1 };
 
 // Per-level rail-note presentation: a distinct Unicode prefix (WCAG 1.4.1 -- colour is not the
 // only channel) and CSS class for each persistent level, plus whether it interrupts assertively.

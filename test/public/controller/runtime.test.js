@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
-import { SENTENCE_END_SILENCE_MS } from '../../../public/controller/runtime.js';
+import { SENTENCE_END_SILENCE_MS, SILENCE_WATCHDOG_MS } from '../../../public/controller/runtime.js';
+import { QUIET_SUSTAINED_MS } from '../../../public/services/audio-processing.js';
 
 // Filler text of an exact character length that still clears hasSubstantiveContent's 3-token gate
 // -- 'a'.repeat(n) is a single giant token, not real words, and got blocked outright once that gate
@@ -1439,6 +1440,9 @@ test('a sustained clipping condition raises the rail to a distinct "audio" level
     assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
     assert.match(elements.status.textContent, /clipping for over 5s/);
     assert.match(elements.railNote.textContent, /clipping for over 5s/);
+    // Cato, gating #168: an unconfirmed/non-fatal condition must announce politely, not as
+    // role="alert" -- that's reserved for a confirmed fatal "problem" (INV-10).
+    assert.equal(elements.railNote.attributes.role, 'status');
 
     capturedDeps.onSustainedCondition({ condition: 'clipping', active: false, at: 6100 });
 
@@ -3493,6 +3497,76 @@ test('silence watchdog fires "Check mic" after 45s of no transcript events while
     assert.equal(ctx.state.railStatusLevel, 'listening');
     assert.equal(elements.railStatusWord.textContent, 'Listening');
     assert.equal(elements.railNote.classList.contains('is-silence'), false);
+  });
+});
+
+// Cato, gating #168 (#5's sustained-condition surface), 2026-09-01: the audio module's "quiet"
+// reading fires on exactly the same "not speaking" condition as this watchdog, both at 45s on
+// purpose. A normal prayer/sermon pause satisfies both, so 'audio' outranking 'silence' meant that
+// pause displayed "check the microphone" instead of the existing, already-tuned silence message --
+// the same false-alarm harm #5 itself named. Steve's call: silence wins. Pins both directions of
+// that precedence, not just the rank number in isolation.
+// Cato, gating #168: the two constants are claimed to be deliberately coupled (both reuse the same
+// 45s figure), but nothing asserted that from outside either module -- a test computed from
+// QUIET_SUSTAINED_MS itself would pass at any value. Supplied here as an independent literal.
+test('the audio module\'s quiet threshold is deliberately the same figure as the silence watchdog', () => {
+  assert.equal(SILENCE_WATCHDOG_MS, 45000);
+  assert.equal(QUIET_SUSTAINED_MS, 45000);
+});
+
+test('a normal pause shows the existing silence message, not the audio-quality one -- silence outranks audio', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 1000;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback, delay) => {
+    const id = { callback, delay };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+  const runOnePendingCheck = () => {
+    const [next] = scheduled.splice(0, 1);
+    next?.callback();
+  };
+
+  let capturedDeps = null;
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ elements, ctx, runtime }) => {
+    await runtime.startListening();
+
+    // Silence claims the rail first (a real 45s pause, same as the watchdog test above).
+    for (let i = 0; i < 9; i += 1) {
+      currentTime += 5000;
+      runOnePendingCheck();
+    }
+    assert.equal(ctx.state.railStatusLevel, 'silence');
+
+    // The audio module's own "quiet" reading crosses its threshold at the same moment -- it must
+    // not elbow the existing silence message aside.
+    capturedDeps.onSustainedCondition({ condition: 'quiet', active: true, at: currentTime });
+    assert.equal(ctx.state.railStatusLevel, 'silence', 'audio must not outrank an already-active silence message');
+    assert.equal(elements.railStatusWord.textContent, 'Check mic');
   });
 });
 
