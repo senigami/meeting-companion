@@ -165,6 +165,30 @@ test('a failed summarize call still queues a summary record, marked ok:false wit
   });
 });
 
+// Cato, gating #164 (#151's fix): issuedSource -- read by this catch block to attribute a failed
+// call's record to the provider it actually ran under -- was declared with `let` INSIDE the try
+// block above it, so reading it from `catch` was a ReferenceError. queueRecord swallows any throw
+// from its builder closure, so the whole record silently never landed: no assertion here failed,
+// because there was no record left to assert against. Only reachable with recordingEnabled true,
+// which every test above this one already has via baseState() -- the gap was real, just unpinned.
+test('a failed summarize call still queues its record, attributed to the provider it actually ran under', async () => {
+  await withRuntimeHarness({
+    stateOverrides: baseState(),
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      async summarize() {
+        throw new Error('ECONNRESET');
+      }
+    })
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('A neighbor was forgiven, at long last.');
+
+    const summaryRecords = ctx.state.recordingQueue.filter((r) => r.t === 'summary');
+    assert.equal(summaryRecords.length, 1, 'the failure record must actually land, not be silently dropped');
+    assert.equal(summaryRecords[0].provider, 'openai');
+  });
+});
+
 // --- The recorder must not damage a meeting even if the RECORDER ITSELF is broken -------------
 //
 // ADR-0004's "never damages a meeting" was implemented for the network write but not for the record
