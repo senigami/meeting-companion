@@ -13,7 +13,9 @@ import {
   NOISE_FLOOR_DBFS,
   AMBIENT_SAMPLE_COUNT,
   NOISE_GATE_MARGIN_DB,
-  chunkContainsSpeech
+  chunkContainsSpeech,
+  CLIPPING_SUSTAINED_MS,
+  QUIET_SUSTAINED_MS
 } from '../../../public/services/audio-processing.js';
 
 // Every existing test in this file predates ambient calibration and never intended to pay for its
@@ -315,6 +317,104 @@ test('measurement loop: a near-full-scale signal registers a clip and CLIPPING c
   const levels = conditioner.readLevels();
   assert.equal(levels.classification, 'CLIPPING');
   assert.ok(levels.clipCount >= 1);
+  conditioner.close();
+});
+
+// --- Sustained-condition surface (issue #5) --------------------------------
+
+test('sustained clipping fires onSustainedCondition({active:true}) only once CLIPPING_SUSTAINED_MS has elapsed, and clears the instant clipping stops', async () => {
+  const ctx = makeFakeContext();
+  let fillValue = 0.98; // above the -0.5dBFS clip threshold
+  ctx.createAnalyser = () => ({
+    fftSize: 2048,
+    connect() {},
+    disconnect() {},
+    getFloatTimeDomainData(buffer) {
+      buffer.fill(fillValue);
+    }
+  });
+  let virtualNow = 0;
+  const events = [];
+  const conditioner = createAudioConditioner({
+    audioContextFactory: () => ctx,
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
+    now: () => virtualNow,
+    onDiagnostics: () => {},
+    onSustainedCondition: (event) => events.push(event)
+  });
+  conditioner.connect({ id: 'raw' });
+
+  await new Promise((resolve) => setTimeout(resolve, 70)); // first tick: condition starts, below threshold
+  assert.deepEqual(events, [], 'must not fire before the sustained threshold is reached');
+
+  virtualNow = CLIPPING_SUSTAINED_MS + 1000; // simulate the clock crossing the threshold
+  await new Promise((resolve) => setTimeout(resolve, 70)); // second tick: still clipping, now past threshold
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], { condition: 'clipping', active: true, at: virtualNow });
+
+  fillValue = 0; // clipping stops
+  virtualNow += 100;
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(events.length, 2);
+  assert.deepEqual(events[1], { condition: 'clipping', active: false, at: virtualNow });
+
+  conditioner.close();
+});
+
+test('a brief clip that never reaches CLIPPING_SUSTAINED_MS never fires onSustainedCondition at all', async () => {
+  const ctx = makeFakeContext();
+  let fillValue = 0.98;
+  ctx.createAnalyser = () => ({
+    fftSize: 2048,
+    connect() {},
+    disconnect() {},
+    getFloatTimeDomainData(buffer) {
+      buffer.fill(fillValue);
+    }
+  });
+  const events = [];
+  const conditioner = createAudioConditioner({
+    audioContextFactory: () => ctx,
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
+    now: () => Date.now(), // real, short-lived clock: nowhere near the 5s threshold in this test's lifetime
+    onDiagnostics: () => {},
+    onSustainedCondition: (event) => events.push(event)
+  });
+  conditioner.connect({ id: 'raw' });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  fillValue = 0;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(events, [], 'a spike well under the sustained threshold must stay silent, both ways');
+  conditioner.close();
+});
+
+test('sustained below-noise-floor reading fires onSustainedCondition for the "quiet" condition after QUIET_SUSTAINED_MS, and clears when speech resumes', async () => {
+  const ctx = makeFakeContext(); // default analyser fill is 0 (silence)
+  let virtualNow = 0;
+  const events = [];
+  const conditioner = createAudioConditioner({
+    audioContextFactory: () => ctx,
+    settings: { audioConditioningEnabled: true, audioProcessingPreset: 'gentle' },
+    now: () => virtualNow,
+    onDiagnostics: () => {},
+    onSustainedCondition: (event) => events.push(event)
+  });
+  conditioner.connect({ id: 'raw' });
+
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.deepEqual(events, [], 'must not fire before QUIET_SUSTAINED_MS -- a normal pause is not a fault');
+
+  virtualNow = QUIET_SUSTAINED_MS + 1000;
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], { condition: 'quiet', active: true, at: virtualNow });
+
+  ctx._nodes.analyser.getFloatTimeDomainData = (buffer) => buffer.fill(0.5); // speech resumes, well above the floor
+  virtualNow += 100;
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(events.length, 2);
+  assert.deepEqual(events[1], { condition: 'quiet', active: false, at: virtualNow });
+
   conditioner.close();
 });
 

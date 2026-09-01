@@ -1409,6 +1409,79 @@ test('the once-per-start microphone-constraints diagnostic reaches #status witho
   });
 });
 
+test('a sustained clipping condition raises the rail to a distinct "audio" level, not "problem", and clears it back to listening when it stops', async () => {
+  let capturedDeps = null;
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'openai', openAiReady: true },
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(typeof capturedDeps.onSustainedCondition, 'function');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+
+    capturedDeps.onSustainedCondition({ condition: 'clipping', active: true, at: 6000 });
+
+    assert.equal(elements.railStatusWord.textContent, 'Audio quality');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-audio'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
+    assert.match(elements.status.textContent, /clipping for over 5s/);
+    assert.match(elements.railNote.textContent, /clipping for over 5s/);
+
+    capturedDeps.onSustainedCondition({ condition: 'clipping', active: false, at: 6100 });
+
+    assert.equal(elements.railStatusWord.textContent, 'Listening');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-audio'), false);
+  });
+});
+
+test('a sustained below-noise-floor reading names the microphone check, distinctly from clipping\'s wording, and does not clobber a higher-ranked problem already showing', async () => {
+  let capturedDeps = null;
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'openai', openAiReady: true },
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) })
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    capturedDeps.onSustainedCondition({ condition: 'quiet', active: true, at: 45000 });
+    assert.equal(elements.railStatusWord.textContent, 'Audio quality');
+    assert.match(elements.status.textContent, /below the noise floor for over 45s/);
+
+    // A confirmed fatal condition must never be elbowed back to "Audio quality" by this clearing.
+    capturedDeps.onStatus('Microphone stopped.');
+    assert.equal(elements.railStatusWord.textContent, 'Problem');
+
+    capturedDeps.onSustainedCondition({ condition: 'quiet', active: false, at: 45100 });
+    assert.equal(elements.railStatusWord.textContent, 'Problem', 'a lower-ranked recovery must not clobber an active problem');
+  });
+});
+
 test('the transcription driver is given a mode setter it can use to change the active summarization mode', async () => {
   let capturedOnModeChange = null;
   const driver = {

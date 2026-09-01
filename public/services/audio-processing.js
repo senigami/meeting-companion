@@ -72,6 +72,21 @@ const PRESETS = {
 
 const LIMITER_PARAMS = { threshold: -3, ratio: 20, knee: 0, attack: 0.001, release: 0.05 };
 
+// Sustained-condition thresholds (issue #5). The 500ms-throttled `diagnostic()` messages above are
+// one-shot/console-only by design (INV-10) -- a recurring clip or dropout needs its own duration-based
+// gate rather than another prose message, or it either spams the rail every 500ms or never reaches it
+// at all. Clipping is unambiguous evidence of signal damage happening right now (it cannot occur
+// during real silence), so it earns a short fuse: 5s of continuous clipping is well past a single loud
+// word or door slam and is aggressive enough that the operator still has time to act on it live.
+export const CLIPPING_SUSTAINED_MS = 5000;
+// A sustained reading below the calibrated noise floor is the same physical event the silence
+// watchdog (runtime.js's SILENCE_WATCHDOG_MS) already guards against from the transcript side, and
+// it carries the identical false-positive risk Steve ruled on there: this room's long sermon pauses
+// and reflective silence during prayer are entirely normal and must never read as a fault. Reusing
+// the exact same 45s figure (not importing it -- this module has no dependency on the controller)
+// keeps the two instruments from ever disagreeing about how long is too long.
+export const QUIET_SUSTAINED_MS = 45000;
+
 // A neutral compressor -- threshold 0dB, ratio 1:1 -- passes signal through unchanged, used when
 // a stage is individually disabled but the fixed graph stays wired (live re-tune must never
 // rebuild the graph or touch the mic; see brief's "Live re-tune vs mic reacquisition").
@@ -214,7 +229,13 @@ export function createAudioConditioner({
   audioContextFactory,
   settings = {},
   now = () => Date.now(),
-  onDiagnostics = () => {}
+  onDiagnostics = () => {},
+  // Fires once when a tracked condition ({ condition: 'clipping' | 'quiet', active: true }) crosses
+  // its sustained threshold, and once more ({ active: false }) the instant it clears -- never on
+  // every measurement tick in between, so a caller can drive a single rail message that starts and
+  // stops with the condition instead of re-deciding it every 50ms. See CLIPPING_SUSTAINED_MS /
+  // QUIET_SUSTAINED_MS above for why the two conditions get different fuses.
+  onSustainedCondition = () => {}
 } = {}) {
   let currentSettings = { ...settings };
   let ctx = null;
@@ -242,6 +263,37 @@ export function createAudioConditioner({
     speaking: false
   };
   let lastClipAt = -Infinity;
+  // One entry per tracked condition; `since` is the tick timestamp the condition first became true
+  // (null while it is false), `active` is whether it has already crossed its threshold and fired.
+  const sustained = {
+    clipping: { since: null, active: false },
+    quiet: { since: null, active: false }
+  };
+
+  function trackSustainedCondition(key, conditionNow, nowMs, thresholdMs) {
+    const entry = sustained[key];
+    if (!conditionNow) {
+      entry.since = null;
+      if (entry.active) {
+        entry.active = false;
+        emitSustainedCondition(key, false, nowMs);
+      }
+      return;
+    }
+    if (entry.since == null) entry.since = nowMs;
+    if (!entry.active && nowMs - entry.since >= thresholdMs) {
+      entry.active = true;
+      emitSustainedCondition(key, true, nowMs);
+    }
+  }
+
+  function emitSustainedCondition(condition, active, atMs) {
+    try {
+      onSustainedCondition({ condition, active, at: atMs });
+    } catch {
+      // Sustained-condition reporting must never take down conditioning or capture.
+    }
+  }
 
   function diagnostic(message) {
     const nowMs = now();
@@ -308,14 +360,21 @@ export function createAudioConditioner({
       try { agcGainNode.gain.value = dbToLinear(gainDb); } catch {}
     }
 
+    const classification = classifyLevel({ rmsDbfs, peakDbfs, speaking, clippedRecently });
     levels = {
       rms_dbfs: rmsDbfs,
       peak_dbfs: peakDbfs,
       gain_db: gainDb,
       clipCount: levels.clipCount,
-      classification: classifyLevel({ rmsDbfs, peakDbfs, speaking, clippedRecently }),
+      classification,
       speaking
     };
+
+    trackSustainedCondition('clipping', classification === 'CLIPPING', nowMs, CLIPPING_SUSTAINED_MS);
+    // classifyLevel's 'IDLE' is exactly "not speaking" -- i.e. at or below the noise floor -- not the
+    // 'LOW' band (speaking, just quietly), which is a different, non-silence condition this issue is
+    // not asking us to alarm on.
+    trackSustainedCondition('quiet', classification === 'IDLE', nowMs, QUIET_SUSTAINED_MS);
   }
 
   function startMeasurementLoop() {
