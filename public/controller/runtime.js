@@ -1522,7 +1522,11 @@ export function createRuntime(ctx, deps = {}) {
   // handing back the in-flight promise, because the tick callers await their own return value and
   // must not be made to block on a slow call they were turned away from.
   function summarizeCurrentText(text, options) {
-    if (ctx.state.paused) return Promise.resolve();
+    // #150: options.force lets a caller run the forced final drain (INV-11) while the meeting stays
+    // paused, without touching ctx.state.paused itself -- unlike stopListening's fix (#149), which
+    // could safely clear paused because Stop always ends any pause. startNewSpeaker must NOT do
+    // that: the operator is meant to stay paused across a mode change if they were paused before it.
+    if (ctx.state.paused && !options?.force) return Promise.resolve();
     if (ctx.state.summarizeInFlight) {
       noteSkippedSummarizeTick();
       return Promise.resolve();
@@ -1590,16 +1594,19 @@ export function createRuntime(ctx, deps = {}) {
     }
   }
 
-  async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS, maxRuns = MAX_DRAIN_RUNS_PER_TICK } = {}) {
+  async function runSummarizeCurrentText(text, { settleMs = BUCKET_SETTLE_MS, maxRuns = MAX_DRAIN_RUNS_PER_TICK, force = false } = {}) {
     if (text) {
-      await drainOnce(text, settleMs);
+      await drainOnce(text, settleMs, force);
       return;
     }
     let runs = 0;
     let ok = true;
-    while (ok && !ctx.state.paused && runs < maxRuns && mustKeepDraining(settleMs)) {
+    // #150: `force` has to ride along with every `paused` check on this path, not just the one
+    // summarizeCurrentText itself guards -- this loop condition and drainOnce's own post-network
+    // check (below) each independently stop a forced flush from doing anything while paused.
+    while (ok && (force || !ctx.state.paused) && runs < maxRuns && mustKeepDraining(settleMs)) {
       runs += 1;
-      ok = await drainOnce(undefined, settleMs);
+      ok = await drainOnce(undefined, settleMs, force);
     }
     // The cap-hit check below is purely informational (whether a real backlog remains after the
     // cap), so a fault here is treated as "no cap message" rather than forced true -- the fault
@@ -1607,7 +1614,7 @@ export function createRuntime(ctx, deps = {}) {
     // again next tick since drainOnce never removes the offending chunk (INV-11).
     let stillPending = false;
     try {
-      stillPending = ok && !ctx.state.paused && runs >= maxRuns && hasCompleteModeRun(settleMs);
+      stillPending = ok && (force || !ctx.state.paused) && runs >= maxRuns && hasCompleteModeRun(settleMs);
     } catch (_error) {
       stillPending = false;
     }
@@ -1633,7 +1640,7 @@ export function createRuntime(ctx, deps = {}) {
   // the loop above to immediately ask for another run; everything else (paused, bucket fault,
   // provider failure, or a deduped no-op that never reached the network) returns `false` and ends
   // the tick's drain right there, exactly as a single un-looped call would have.
-  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS) {
+  async function drainOnce(text, settleMs = BUCKET_SETTLE_MS, force = false) {
     resetSkippedSummarizeTicks();
 
     let consumedChunks = null;
@@ -1833,9 +1840,14 @@ export function createRuntime(ctx, deps = {}) {
 
       resetSummarizeBackoff();
 
-      if (ctx.state.paused) return false;
-      // The bucket only drains on success while unpaused -- a failed or pause-interrupted request
-      // re-sends the same sentences next tick (INV-11).
+      // #150: an ordinary tick must still bail here on a pause that landed WHILE the network call
+      // was in flight (INV-11 -- a pause-interrupted request re-sends the same sentences next
+      // tick). A forced flush (Stop, mode change) is different: `paused` was already true, and
+      // known to be true, before this call was ever made, so there is no such race to protect
+      // against, and bailing here would just make the caller's whole forced drain a no-op.
+      if (ctx.state.paused && !force) return false;
+      // The bucket only drains on success while unpaused (or forced) -- a failed or
+      // pause-interrupted request re-sends the same sentences next tick (INV-11).
       ctx.state.lastSentText = recent;
       if (consumedChunks?.length) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
@@ -2763,7 +2775,10 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.state.summarizeCallPromise) {
       await ctx.state.summarizeCallPromise;
     }
-    await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS });
+    // force: true -- this drain must run even while paused (INV-11's forced final drain applies at
+    // a speaker change same as at Stop), but unlike stopListening, staying paused across a mode
+    // change is the whole point, so ctx.state.paused itself is never touched here (#150).
+    await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS, force: true });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentText = '';
     // #106: the new speaker's first complete sentence deserves the same #31 fast path the very

@@ -1140,6 +1140,44 @@ test('stopping after a pause still forces the final drain -- INV-11 is not defea
   });
 });
 
+// Cato, #150: the sibling of the #149/round-4 fix above, at the other forced-flush call site.
+// summarizeCurrentText's `if (ctx.state.paused) return` also silently defeated startNewSpeaker's
+// INV-11 drain -- reached from every mode-button press -- whenever the operator was paused. Unlike
+// stopListening, the fix must not clear `paused`: staying paused across a mode change is the point.
+test('changing mode while paused still forces the final drain, and leaves the meeting paused', async () => {
+  let sentText = null;
+  const driver = {
+    id: 'browser',
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+  const succeedingDriver = {
+    id: 'openai',
+    summarize: async ({ recentTranscript }) => {
+      sentText = recentTranscript;
+      return { line: '' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => succeedingDriver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'and that concludes the closing remarks', at: now }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.startListening();
+    await runtime.togglePauseAi();
+    await runtime.setMode('information');
+
+    assert.equal(sentText, 'and that concludes the closing remarks', 'the flush must not have been skipped by the paused flag');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the stranded chunk must be consumed, not left behind');
+    assert.equal(ctx.state.paused, true, 'unlike Stop, a mode change must not un-pause the meeting');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {
