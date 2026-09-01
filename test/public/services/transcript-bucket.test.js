@@ -141,6 +141,19 @@ test('removeConsumed leaves chunks that arrived after partition untouched', () =
   assert.deepEqual(remaining.map((chunk) => chunk.text), ['brand new line']);
 });
 
+// #157: two chunks sharing one `at` (same-millisecond finals, or a watchdog rewrite of the chunk
+// it targets) where one text prefixes the other. A find()-based match let the second bucket chunk
+// re-match the already-consumed item, silently eating real, never-sent text off its front.
+test('removeConsumed does not let a second same-`at` chunk re-match an already-consumed item', () => {
+  const remaining = removeConsumed(
+    [{ text: 'Hi', at: 2000 }, { text: 'History lesson', at: 2000 }],
+    [{ text: 'Hi', at: 2000 }]
+  );
+  // The first chunk is the one actually consumed and drops out; the second is untouched, never
+  // sliced -- not the pre-fix "story lesson", which corrupted text nobody sent.
+  assert.deepEqual(remaining.map((chunk) => chunk.text), ['History lesson']);
+});
+
 test('bucketText joins chunks with the interim preview and caps length from the end', () => {
   const chunks = [{ text: 'first part', at: NOW }];
   assert.equal(bucketText(chunks, 'still speaking'), 'first part still speaking');

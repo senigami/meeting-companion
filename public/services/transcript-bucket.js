@@ -154,11 +154,20 @@ export function removeConsumed(chunks = [], consumed = []) {
   if (!Array.isArray(consumed) || !consumed.length) return chunks;
   const list = Array.isArray(chunks) ? chunks : [];
 
+  // Two bucket chunks can share the same `at` (#157: two recognizer finals in the same
+  // millisecond, or a watchdog rewrite of the chunk it targets). Matching by find() alone lets
+  // both claim the same consumed item, so the second match slices real, never-sent text off the
+  // front of the wrong chunk. `claimed` marks a consumed item used after its first match so it
+  // cannot match again.
+  const claimed = new Set();
   return list
     .map((chunk) => {
-      const match = consumed.find((item) => item.at === chunk.at && chunk.text.startsWith(item.text));
-      if (!match) return chunk;
-      const leftover = normalizeText(chunk.text.slice(match.text.length));
+      const matchIndex = consumed.findIndex(
+        (item, index) => !claimed.has(index) && item.at === chunk.at && chunk.text.startsWith(item.text)
+      );
+      if (matchIndex === -1) return chunk;
+      claimed.add(matchIndex);
+      const leftover = normalizeText(chunk.text.slice(consumed[matchIndex].text.length));
       return leftover ? { ...chunk, text: leftover } : null;
     })
     .filter(Boolean);
