@@ -43,7 +43,7 @@ import {
   describeMicCalibration,
   MIC_CALIBRATION_MAX_AGE_MS
 } from '../services/audio-monitor.js';
-import { createMicProbe } from '../services/audio-processing.js';
+import { createMicProbe, CLIPPING_SUSTAINED_MS, QUIET_SUSTAINED_MS } from '../services/audio-processing.js';
 import {
   flashRailNote,
   renderDisplay,
@@ -168,7 +168,7 @@ const SILENCE_CHECK_INTERVAL_MS = 5000;
 // -- is long enough that it is no longer plausibly just a pause in speech, and short enough that a
 // genuinely unplugged mic or a silently-crashed speech engine is caught within under a minute
 // instead of running the rest of the service showing a calm, wrong "Listening."
-const SILENCE_WATCHDOG_MS = 45000;
+export const SILENCE_WATCHDOG_MS = 45000;
 
 // Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
 // event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,
@@ -575,6 +575,31 @@ export function createRuntime(ctx, deps = {}) {
   // succeeds again.
   function clearSpeechDroppedAlert() {
     if (ctx.state.railStatusLevel !== 'dropped') return;
+    const recoveredLevel = activeTranscriptionStatusLevel();
+    updateStatus(ctx, recoveredLevel === 'listening' ? 'Listening.' : 'Manual mode.', {
+      level: recoveredLevel
+    });
+  }
+
+  // Issue #5: the conditioner's own measurement (audio-processing.js) reports a sustained
+  // clip/quiet condition only once it has actually crossed CLIPPING_SUSTAINED_MS/QUIET_SUSTAINED_MS
+  // -- never per-tick -- so this is one rail message per condition-instance, not a stream of them.
+  // Text names the specific condition rather than a generic "audio problem": an operator deciding
+  // whether to interrupt the meeting needs to know which of "turn the gain down" or "check the
+  // mic is plugged in" applies.
+  function noteSustainedAudioCondition({ condition } = {}) {
+    const text = condition === 'clipping'
+      ? `Audio has been clipping for over ${Math.round(CLIPPING_SUSTAINED_MS / 1000)}s — some speech may be distorted; check microphone gain or placement.`
+      : `Audio has read below the noise floor for over ${Math.round(QUIET_SUSTAINED_MS / 1000)}s — check the microphone is connected and unmuted.`;
+    updateStatus(ctx, text, { level: 'audio' });
+  }
+
+  // Mirrors clearSpeechDroppedAlert's recovery guard: only recover the rail if 'audio' is still the
+  // level actually showing, so a higher-ranked persistent condition that has since taken over (e.g.
+  // a fatal 'problem') is never clobbered back to "Listening." just because the audio condition
+  // that preceded it happened to clear.
+  function clearSustainedAudioAlert() {
+    if (ctx.state.railStatusLevel !== 'audio') return;
     const recoveredLevel = activeTranscriptionStatusLevel();
     updateStatus(ctx, recoveredLevel === 'listening' ? 'Listening.' : 'Manual mode.', {
       level: recoveredLevel
@@ -1099,8 +1124,7 @@ export function createRuntime(ctx, deps = {}) {
       // Every other diagnostic from this module (measurement-failure fallbacks, graph-setup
       // failures, the audio-shedding backlog warning) can recur every ~500ms under sustained
       // failure -- routing those to the rail would be exactly the per-chunk spam INV-10 exists to
-      // prevent, so they go to console only until Marlow designs a dedicated, throttled surface
-      // for them. That handoff is not built here.
+      // prevent, so they stay console-only.
       // Most audio diagnostics recur every ~500ms while listening, so the console is the right home
       // for them: putting that on the rail would drown every other message the operator needs. But
       // deciding which ones DO deserve the rail by matching their opening words was the same prose
@@ -1108,13 +1132,25 @@ export function createRuntime(ctx, deps = {}) {
       // "the chosen microphone was unavailable; using the system default instead" is exactly the
       // kind of thing an operator must be told, since the app just overrode a device they picked on
       // purpose, and the prefix check sent it to the console alone. The producer now marks a
-      // diagnostic `notable` instead. A throttled surface for the recurring ones is still unbuilt
-      // and belongs to the status-honesty seat; this only fixes the one-shot messages.
+      // diagnostic `notable` instead. The recurring ones that DO need the rail -- sustained
+      // clipping or a sustained sub-noise-floor reading (issue #5) -- go through the dedicated
+      // onSustainedCondition channel below, which fires once per condition-instance, not per tick.
       onAudioDiagnostics: ({ message, notable } = {}) => {
         if (!message) return;
         console.warn('[audio]', message);
         if (notable) {
           updateStatus(ctx, message);
+        }
+      },
+      // The throttled surface for the recurring ~500ms diagnostics referenced above: not another
+      // message per tick, but one rail message for the whole span a sustained clip/quiet condition
+      // is active, cleared the instant the conditioner reports it over (issue #5).
+      onSustainedCondition: ({ condition, active } = {}) => {
+        if (!condition) return;
+        if (active) {
+          noteSustainedAudioCondition({ condition });
+        } else {
+          clearSustainedAudioAlert();
         }
       },
       // A driver may state its own level. Sniffing prose with transcriptionStatusLevel() was the

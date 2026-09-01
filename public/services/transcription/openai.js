@@ -102,6 +102,9 @@ export function createOpenAITranscriptionDriver({
   audioContextFactory = () => (typeof AudioContext !== 'undefined' ? new AudioContext() : (typeof webkitAudioContext !== 'undefined' ? new webkitAudioContext() : null)),
   now = () => Date.now(),
   onAudioDiagnostics = () => {},
+  // Passed straight through to the conditioner (audio-processing.js); see its own doc comment for
+  // the sustained clip/quiet contract. Owned by the status-honesty seat, not this driver.
+  onSustainedCondition = () => {},
   vadFactory = async (options) => {
     const vad = await loadVad();
     return vad.MicVAD.new(options);
@@ -581,7 +584,8 @@ export function createOpenAITranscriptionDriver({
         audioContextFactory,
         settings: audioSettings,
         now,
-        onDiagnostics: onAudioDiagnostics
+        onDiagnostics: onAudioDiagnostics,
+        onSustainedCondition
       });
       conditionedStream = conditioner.connect(stream);
 

@@ -72,7 +72,12 @@ const RAIL_STATUS_WORDS = {
   // running longer than the update interval. Distinct from 'dropped' -- no speech has been lost
   // here, the wall is just late -- and distinct from 'silence', which is a time-based guess, not an
   // observed fact.
-  behind: 'Running behind'
+  behind: 'Running behind',
+  // Confirmed, not speculative (issue #5): only set once the conditioner's own measurement has seen
+  // sustained clipping or a sustained sub-noise-floor reading for its whole threshold window (see
+  // CLIPPING_SUSTAINED_MS / QUIET_SUSTAINED_MS in audio-processing.js) -- never on a single tick.
+  // One shared word for both conditions; the rail note text says which one it is.
+  audio: 'Audio quality'
 };
 
 // Levels serious enough that their rail-note explanation must stay up (no auto-hide) until the
@@ -80,25 +85,40 @@ const RAIL_STATUS_WORDS = {
 // fatal condition (INV-10); 'dropped' and 'behind' are confirmed-but-non-fatal (INV-13 data loss /
 // scheduling lag); 'silence' is not confirmed fatal, only prolonged and unexplained -- see
 // showRailPersistentNote for how all four are still styled and announced differently.
-const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'silence']);
+const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'audio', 'silence']);
 
-// Ordered severity for the four persistent levels, most confirmed/severe first: 'problem' (a
+// Ordered severity for the five persistent levels, most confirmed/severe first: 'problem' (a
 // confirmed fatal condition, INV-10) must never be silently replaced by a lower-ranked persistent
 // level elbowing in while it's still active -- e.g. a summarize-failure escalation followed by 45s
 // of no transcript events precisely because the server path is backed off. 'dropped' (confirmed
-// data loss) outranks 'behind' (confirmed lag, no loss yet) which outranks 'silence' (unconfirmed).
-// Recovery still works: it comes from the condition itself clearing to a non-persistent level
-// (e.g. 'listening'), never from a lower-ranked persistent level elbowing in on a higher one.
-const LEVEL_RANK = { problem: 4, dropped: 3, behind: 2, silence: 1 };
+// data loss) outranks 'behind' (confirmed lag, no loss yet).
+//
+// 'silence' outranks 'audio' -- Cato, gating #168 (#5's sustained-condition surface), 2026-09-01:
+// the audio module's own "quiet" reading fires on exactly the same "not speaking" condition as the
+// transcript-side silence watchdog, both at the same 45s figure on purpose (#5 reuses
+// SILENCE_WATCHDOG_MS deliberately). A normal prayer or sermon pause in this room satisfies both,
+// and 'audio' ranked above 'silence' meant that pause displayed "check the microphone" instead of
+// the existing, already-tuned silence message -- reintroducing the exact false-alarm harm #5 itself
+// named as a real harm, not just noise. Steve's call: silence wins that collision.
+//
+// This does leave one known asymmetry, not yet resolved: 'audio' also covers sustained CLIPPING,
+// which cannot happen during real silence and carries no false-positive risk the way 'quiet' does --
+// so ranking it below 'silence' can in principle let an active silence message (a different
+// subsystem, keyed on transcript events rather than the audio module's own speaking/not-speaking
+// read) mask a genuine clipping fault if both happen to be active at once. Narrow and not addressed
+// here; if it matters in practice, split 'audio' into separate 'clipping' (outranks silence) and
+// 'quiet' (does not) levels instead of one shared level.
+const LEVEL_RANK = { problem: 5, dropped: 4, behind: 3, silence: 2, audio: 1 };
 
 // Per-level rail-note presentation: a distinct Unicode prefix (WCAG 1.4.1 -- colour is not the
 // only channel) and CSS class for each persistent level, plus whether it interrupts assertively.
-// Only a confirmed fatal condition (INV-10) is announced as role="alert"; the other three are
+// Only a confirmed fatal condition (INV-10) is announced as role="alert"; the rest are
 // role="status"/polite so they don't also start crying wolf.
 const PERSISTENT_LEVEL_META = {
   problem: { className: 'is-problem', prefix: '⚠ ', urgent: true },
   dropped: { className: 'is-dropped', prefix: '✂ ', urgent: false },
   behind: { className: 'is-behind', prefix: '⏳ ', urgent: false },
+  audio: { className: 'is-audio', prefix: '〰 ', urgent: false },
   silence: { className: 'is-silence', prefix: '⏱ ', urgent: false }
 };
 const PERSISTENT_LEVEL_CLASSES = Object.values(PERSISTENT_LEVEL_META).map((meta) => meta.className);
