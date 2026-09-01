@@ -351,7 +351,26 @@ test('the review page states its own background, so a dark-themed browser cannot
     }
   });
 
+  const css = await invoke(app, { method: 'GET', url: '/sessions/style.css' });
+
+  assert.match(css.body, /body \{[^}]*background:\s*#fff/);
+});
+
+// The strict CSP (server.js) sets default-src 'self' with no style-src / 'unsafe-inline', so an
+// inline <style> block would be silently blocked -- found live while gating #155/#158 (Cato retro
+// review, .memory/cato-retro-gate-155-158.md): the CSP shipped in the same commit as this page and
+// broke it. Pinned so the page can't regress back to an inline style tag without this failing.
+test('the review page links a real stylesheet rather than an inline <style> block, so the CSP does not block it', async () => {
+  const app = createApp({
+    sessionRecorder: {
+      async appendRecords() { return { ok: true, written: 0 }; },
+      async listRecordings() { return []; },
+      async readRecording() { return '\n'; }
+    }
+  });
+
   const response = await invoke(app, { method: 'GET', url: '/sessions/session-a/review' });
 
-  assert.match(response.body, /body \{[^}]*background:\s*#fff/);
+  assert.doesNotMatch(response.body, /<style>/);
+  assert.match(response.body, /<link rel="stylesheet" href="\/sessions\/style\.css">/);
 });

@@ -46,7 +46,7 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-const PAGE_STYLE = `
+export const PAGE_STYLE = `
   /* The background is explicit because the text colour is: on a dark-themed browser a transparent
      body paints near-black behind #1a1a1a text and the whole table becomes unreadable. Every colour
      on this page is chosen for a light ground, so it states the ground rather than inheriting one. */
@@ -85,7 +85,7 @@ export function buildSessionListHtml(recordings = []) {
 
   return `<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Recorded sessions</title><style>${PAGE_STYLE}</style></head>
+<head><meta charset="utf-8"><title>Recorded sessions</title><link rel="stylesheet" href="/sessions/style.css"></head>
 <body>
 <h1>Recorded sessions</h1>
 <ul class="recording-list">
@@ -179,7 +179,7 @@ export function buildSessionReviewHtml(id, ndjsonText, { showCorrections = false
 
   return `<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Session review: ${escapeHtml(id)}</title><style>${PAGE_STYLE}</style></head>
+<head><meta charset="utf-8"><title>Session review: ${escapeHtml(id)}</title><link rel="stylesheet" href="/sessions/style.css"></head>
 <body>
 <h1>Session review: ${escapeHtml(id)}</h1>
 <p><a href="/sessions">&larr; all sessions</a></p>
