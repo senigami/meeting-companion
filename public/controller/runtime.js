@@ -1784,6 +1784,9 @@ export function createRuntime(ctx, deps = {}) {
       // has its own incidental filter (isNonAnswerLine on the model's reply) and this is not a
       // change to that path's behavior. Steve's call, 2026-08-16: a filler word must not occupy a
       // reading-load card slot verbatim just because it happens to be short and punctuated.
+      // #151: unused for a passthrough result (no network call, no race window); set inside the
+      // driver branch below, before the await, to the source that call actually ran under.
+      let issuedSource = null;
       const result = isPassthroughEligible(recent, ctx.state.readingBudget?.words)
         && shouldAcceptModelLine(recent, visibleLines)
         && !isFillerLine(recent)
@@ -1795,6 +1798,11 @@ export function createRuntime(ctx, deps = {}) {
         // with its bullet marker still attached. Warrick, #120 review, 2026-08-16.
         ? { line: cleanModelLine(recent), verbatim: true, wasShortened: false, discardedByCap: 0, discardedByCapClient: 0 }
         : await (async () => {
+            // #151: recorded now, before the await, so a provider switch that lands while this
+            // call is in flight can be detected against the CURRENT source once the result comes
+            // back -- the source the call actually ran under, not whichever is active by the time
+            // it resolves.
+            issuedSource = ctx.state.summarizationSource;
             const driver = await ensureSummarizationDriver();
             return driver.summarize({
               mode: sendMode,
@@ -1829,7 +1837,9 @@ export function createRuntime(ctx, deps = {}) {
         hadPreviousBlock: ctx.state.summaryHistory.length > 0,
         sent: recent,
         returned: result.line || '',
-        provider: result.verbatim ? 'passthrough' : ctx.state.summarizationSource,
+        // #151: the source this call actually ran under, not whichever is active by the time it
+        // resolves -- a provider switch mid-flight must not misattribute the record either.
+        provider: result.verbatim ? 'passthrough' : issuedSource,
         ok: true,
         latencyMs: nowFn() - summarizeStartedAt,
         wasShortened: result.wasShortened,
@@ -1846,6 +1856,11 @@ export function createRuntime(ctx, deps = {}) {
       // known to be true, before this call was ever made, so there is no such race to protect
       // against, and bailing here would just make the caller's whole forced drain a no-op.
       if (ctx.state.paused && !force) return false;
+      // #151: the provider switched while this call was in flight -- discard it exactly like a
+      // pause-interrupted result (not consumed, re-sent under the new provider next tick), rather
+      // than displaying a result attributed to a source the operator has since moved away from.
+      // Only reachable when result is not verbatim (issuedSource is only ever set on that branch).
+      if (issuedSource !== null && issuedSource !== ctx.state.summarizationSource) return false;
       // The bucket only drains on success while unpaused (or forced) -- a failed or
       // pause-interrupted request re-sends the same sentences next tick (INV-11).
       ctx.state.lastSentText = recent;

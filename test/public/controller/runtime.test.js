@@ -1178,6 +1178,38 @@ test('changing mode while paused still forces the final drain, and leaves the me
   });
 });
 
+// #151 (split off #62, Steve's proposed fix verbatim): a provider switch landing between a
+// summarize call going out and its result coming back must not attribute that result to the new
+// provider. Tags the in-flight call with the source it was issued under and discards a result
+// whose source no longer matches by the time it resolves -- same treatment as a pause-interrupted
+// call (not consumed, re-sent next tick), not a crash and not a silently mislabeled card.
+test('a provider switch mid-flight discards the stale result instead of attributing it to the new provider', async () => {
+  let ctxRef = null;
+  const driver = {
+    id: 'openai',
+    summarize: async () => {
+      // Simulate the switch landing WHILE this call is still out, before it resolves.
+      ctxRef.state.summarizationSource = 'claude';
+      return { line: 'a card from the old provider' };
+    }
+  };
+  const now = Date.now();
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'the closing announcement before the switch', at: now - 30000 }]
+    }
+  }, async ({ ctx, runtime }) => {
+    ctxRef = ctx;
+    await runtime.summarizeCurrentText();
+
+    assert.equal(ctx.state.transcriptItems.length, 0, 'no card must land under the new provider for a call issued under the old one');
+    assert.equal(ctx.state.transcriptChunks.length, 1, 'the chunk must be re-sent next tick, not consumed, exactly like a pause-interrupted call');
+    assert.equal(ctx.state.summarizationSource, 'claude', 'the switch itself is real and must not be reverted by the discard');
+  });
+});
+
 test('a fatal browser speech recognition error escalates the rail indicator to problem', async () => {
   let capturedOnStatus = null;
   const driver = {
