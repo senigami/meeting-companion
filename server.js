@@ -10,7 +10,7 @@ import { normalizeText } from './public/services/text.js';
 import { summarizeWithSource } from './server/summarization.js';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from './server/model-config.js';
 import { createSessionRecorder } from './server/session-recorder.js';
-import { buildSessionListHtml, buildSessionReviewHtml } from './server/session-review.js';
+import { buildSessionListHtml, buildSessionReviewHtml, PAGE_STYLE } from './server/session-review.js';
 import { createReadingPaceStore } from './server/reading-pace-store.js';
 import { resolveAppCommit } from './server/app-commit.js';
 
@@ -386,6 +386,13 @@ export function createApp({
   // (this is recorded transcript content, so it stays behind the same loopback gate) and the same
   // guard instance, so a third read route here inherits it rather than quietly bypassing it.
   app.use('/sessions', refuseUnlessLoopback);
+
+  // Served as a real stylesheet, not an inline <style> block, so the strict CSP's default-src
+  // 'self' (no style-src, no 'unsafe-inline') doesn't block it -- the same reasoning that already
+  // keeps this app free of inline script.
+  app.get('/sessions/style.css', (req, res) => {
+    res.type('text/css').send(PAGE_STYLE);
+  });
 
   app.get('/sessions', async (req, res) => {
     try {
