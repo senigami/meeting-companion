@@ -52,13 +52,19 @@ export function recommendWordsPerCard(medianWpm, seconds = COMFORTABLE_READING_S
   return { rawWords, words, seconds };
 }
 
+// exceedsMax (#56): the inverse of the old belowFloor case. Once words-per-card is the control the
+// operator sets directly (rather than derived from the interval), a slow reader asked for a large
+// card can need more time than SUMMARY_INTERVAL_MAX_SECONDS allows -- the derived interval still
+// clamps to something reachable, but that clamp is now a lie about how long the card actually takes
+// to read unless the caller surfaces it. Same rule Ansel applied to belowFloor: tell the truth about
+// the raw figure, never hide a degraded configuration behind a clamped number that looks fine.
 export function recommendSummaryIntervalSeconds(medianWpm, words) {
   const rawSeconds = medianWpm > 0 ? (words / medianWpm) * 60 : SUMMARY_INTERVAL_MIN_SECONDS;
   const seconds = clampSummaryIntervalSeconds(
     Math.round(rawSeconds),
     SUMMARY_INTERVAL_MIN_SECONDS
   );
-  return { rawSeconds, seconds };
+  return { rawSeconds, seconds, exceedsMax: rawSeconds > SUMMARY_INTERVAL_MAX_SECONDS };
 }
 
 // Does reading proportionally slow down as a card gets longer? Returns the correlation direction

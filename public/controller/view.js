@@ -5,7 +5,6 @@ import {
 } from '../services/view-settings.js';
 import { transcriptOverflow } from '../services/transcript-display.js';
 import { applyQuickPanelSnap, loadQuickPanelSnap } from './quick-panel-sheet.js';
-import { usableIntervalFloor } from '../services/reading-pace.js';
 import { autoExpandRailForCondition, resetRailAutoExpand } from './rail-collapse.js';
 
 const MODE_META = {
@@ -910,15 +909,22 @@ function updateSliderFill(input) {
 
 export function updateSummaryIntervalControl(ctx) {
   if (!ctx.dom.summaryIntervalInput || !ctx.dom.summaryIntervalValue) return;
-  // #56. The unusable part of the range is removed rather than labelled: at this reader's measured
-  // pace every position below this one derives a card budget under the floor, and a caption is not
-  // a guard. The floor moves with the measurement, so a faster profile gives the range back.
-  const floor = usableIntervalFloor(ctx);
-  ctx.dom.summaryIntervalInput.min = String(floor);
-  ctx.dom.summaryIntervalInput.setAttribute?.('min', String(floor));
+  // #56: the update interval is now READ-ONLY, derived from words-per-card and the reader's pace --
+  // the control the operator drags is summaryMaxWords (below), never this one. The slider stays in
+  // the DOM (disabled) purely so its position is still a visible cue of the cadence in effect.
   ctx.dom.summaryIntervalInput.value = String(ctx.state.summaryIntervalSeconds);
   ctx.dom.summaryIntervalInput.setAttribute('aria-valuetext', `${ctx.state.summaryIntervalSeconds}s`);
-  ctx.dom.summaryIntervalValue.textContent = `${ctx.state.summaryIntervalSeconds}s`;
+  ctx.dom.summaryIntervalInput.disabled = true;
+  ctx.dom.summaryIntervalInput.setAttribute('aria-readonly', 'true');
+  // exceedsMax is the inverse of the old belowFloor case (Ansel): the reader's pace needs MORE time
+  // for this many words than the app's own interval ceiling allows, so the derived interval is
+  // clamped short of what the card actually takes to read. That must be said, not hidden behind a
+  // clamped number that looks like a normal cadence.
+  const exceedsMax = Boolean(ctx.state.summaryIntervalBudget?.exceedsMax);
+  ctx.dom.summaryIntervalValue.textContent = exceedsMax
+    ? `${ctx.state.summaryIntervalSeconds}s, too short for this reader at this many words`
+    : `${ctx.state.summaryIntervalSeconds}s`;
+  ctx.dom.summaryIntervalValue.classList?.toggle?.('is-belowFloor', exceedsMax);
   updateSliderFill(ctx.dom.summaryIntervalInput);
 }
 
@@ -928,28 +934,20 @@ function pluraliseWords(count) {
 
 export function updateSummaryMaxWordsControl(ctx) {
   if (!ctx.dom.summaryMaxWordsInput || !ctx.dom.summaryMaxWordsValue) return;
-  // The thumb position clamps into the slider's own range even when the true derived number sits
-  // outside it (e.g. a below-floor pace deriving 3 words) -- the text below still shows the honest
-  // true figure, this is only where the handle can physically sit.
+  // #56: this is now the PRIMARY control -- the operator chooses this number directly, and the
+  // update interval is derived from it (updateSummaryIntervalControl above), never the other way
+  // round. The value on screen is always exactly what will be asked for: there is no clamp-vs-true
+  // mismatch to reconcile any more, because the slider's own floor (USABLE_CARD_WORDS_FLOOR, set on
+  // runtime.js's setWordsPerCard) makes every reachable position a usable one by construction.
   ctx.dom.summaryMaxWordsInput.value = String(clampSummaryMaxWordsOverride(ctx.state.summaryMaxWords));
-  // The TRUE budget, not the clamped one, whenever the two differ. At 30 wpm every interval from 2s
-  // to 15s clamped up to the same 11 and was displayed as "11 words", so the number on screen was
-  // false across the entire usable range of the control that produces it -- and the operator pushing
-  // that control saw nothing move. A derived figure that cannot be trusted is worse than the two
-  // independent dials it replaced, because it looks authoritative.
-  // Read, never recomputed. runtime.js's recomputeSummaryMaxWords owns this number.
   const budget = ctx.state.readingBudget;
-  // Three states, not two. Ansel's ruling: a budget sitting exactly on the floor must not read as
-  // comfortable, because the live configuration lands there and rounding in the measured pace flips
-  // the verdict with nothing changing about how readable the card actually is.
-  const text = budget?.belowFloor
-    ? `${pluraliseWords(Math.max(1, Math.round(budget.rawWords)))}, too short for this reader`
-    : budget?.marginal
-      ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
-      : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
+  // "marginal" still means what it always meant: a chosen count that clears the floor with no room
+  // to spare (Ansel's ruling -- a boundary met at zero margin is brittle even though it is honest).
+  const text = budget?.marginal
+    ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
+    : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
   ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', text);
   ctx.dom.summaryMaxWordsValue.textContent = text;
-  ctx.dom.summaryMaxWordsValue.classList.toggle('is-belowFloor', Boolean(budget?.belowFloor));
   ctx.dom.summaryMaxWordsValue.classList.toggle('is-marginal', Boolean(budget?.marginal));
   updateSliderFill(ctx.dom.summaryMaxWordsInput);
 }
