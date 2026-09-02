@@ -411,16 +411,20 @@ test('the timing sliders span exactly the range their own constants allow', asyn
   const html = await readFile(new URL('../../public/index.html', import.meta.url), 'utf8');
   const { SUMMARY_INTERVAL_MIN_SECONDS, SUMMARY_INTERVAL_MAX_SECONDS } =
     await import('../../public/services/view-settings.js');
-  const { MAX_WORDS_MIN, MAX_WORDS_MAX } = await import('../../public/services/summary-prompt.js');
+  const { MAX_WORDS_MAX } = await import('../../public/services/summary-prompt.js');
+  const { USABLE_CARD_WORDS_FLOOR } = await import('../../public/services/reading-pace.js');
 
   const interval = html.match(/<input id="summaryInterval"[^>]*>/)[0];
   assert.match(interval, new RegExp(`min="${SUMMARY_INTERVAL_MIN_SECONDS}"`), 'interval min must match the constant');
   assert.match(interval, new RegExp(`max="${SUMMARY_INTERVAL_MAX_SECONDS}"`), 'interval max must match the constant');
 
-  // The words slider's value IS the word count now (2026-08-09, a fast manual override), not an
-  // index into a small option set -- it must span exactly what the server will actually honour.
+  // #56: words-per-card is the primary control now, and its floor is the readability floor
+  // (USABLE_CARD_WORDS_FLOOR, reading-pace.js), not the server's raw clamp (MAX_WORDS_MIN) -- a
+  // card this app shows must always clear the floor, even though the server would technically
+  // accept fewer words. The ceiling is still the server-side clamp: nothing this control offers
+  // should exceed what the server will actually honour.
   const words = html.match(/<input id="summaryMaxWords"[^>]*>/)[0];
-  assert.match(words, new RegExp(`min="${MAX_WORDS_MIN}"`), 'words min must match the server-side clamp');
+  assert.match(words, new RegExp(`min="${USABLE_CARD_WORDS_FLOOR}"`), 'words min must match the readability floor');
   assert.match(words, new RegExp(`max="${MAX_WORDS_MAX}"`), 'words max must match the server-side clamp');
 });
 

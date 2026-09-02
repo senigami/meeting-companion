@@ -12,7 +12,6 @@ import {
   medianWpmFromProfile,
   DEFAULT_MEDIAN_WPM,
   readingBudget,
-  minimumUsableIntervalSeconds,
   USABLE_CARD_WORDS_FLOOR
 } from '../../../public/services/reading-pace.js';
 
@@ -187,28 +186,13 @@ test('a faster reader clears the floor at a short interval, so the flag tracks t
   assert.equal(readingBudget(30, 10).belowFloor, true);
 });
 
-test('#56: the shortest usable interval is derived from the measured pace, not fixed', () => {
-  // Expected values computed by hand from the floor of 10 words: at 30 wpm a card takes 20 seconds
-  // to read, at 60 wpm it takes 10, at 120 wpm it takes 5. None of these come out of the code.
-  assert.equal(minimumUsableIntervalSeconds(30), 20);
-  assert.equal(minimumUsableIntervalSeconds(60), 10);
-  assert.equal(minimumUsableIntervalSeconds(120), 5);
+// minimumUsableIntervalSeconds/usableIntervalFloor (and the three tests that lived here) were
+// removed 2026-09-01: #56 reversed which side of words-vs-interval is primary, and nothing has
+// called either function since (Cato's #56 review). See reading-pace.js's comment beside
+// USABLE_CARD_WORDS_FLOOR for the full reasoning.
 
-  // Rounds up rather than down: at 33 wpm a ten-word card needs 18.18 seconds, so 18 buys only 9.9
-  // words and does not clear the floor. 19 is the first whole second that does.
-  assert.equal(minimumUsableIntervalSeconds(33), 19);
-});
-
-test('#56: a reader too slow for any interval on the slider gets the longest one, not an impossible floor', () => {
-  // At 10 wpm a 10-word card needs a minute, and the control stops at 30 seconds. The floor must
-  // stay inside the range so the control is still operable; belowFloor is what says it is not enough.
-  assert.equal(minimumUsableIntervalSeconds(10), 30);
+test('#56: a reader too slow for any interval still reports belowFloor honestly, even at the ceiling', () => {
+  // At 10 wpm a 10-word card needs a minute, and the control stops at 30 seconds -- belowFloor is
+  // what says that configuration is not enough, independent of any interval-side floor.
   assert.equal(readingBudget(10, 30).belowFloor, true);
-});
-
-test('#56: a missing or nonsense pace leaves the floor where it was', () => {
-  assert.equal(minimumUsableIntervalSeconds(0), 2);
-  assert.equal(minimumUsableIntervalSeconds(-5), 2);
-  assert.equal(minimumUsableIntervalSeconds(undefined), 2);
-  assert.equal(minimumUsableIntervalSeconds(Number.NaN), 2);
 });

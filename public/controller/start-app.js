@@ -3,14 +3,19 @@ import {
   clampFontSize,
   clampFontFamily,
   clampFontWeight,
-  clampSummaryIntervalSeconds,
+  clampSummaryMaxWordsOverride,
   fontSizeFromSliderPosition,
   clampAudioProcessingPreset,
   clampAudioHighPassHz,
   clampAudioBoolean,
   AUDIO_SETTINGS_DEFAULTS
 } from '../services/view-settings.js';
-import { DEFAULT_MEDIAN_WPM, readingBudget } from '../services/reading-pace.js';
+import {
+  DEFAULT_MEDIAN_WPM,
+  MARGINAL_CARD_WORDS_CEILING,
+  USABLE_CARD_WORDS_FLOOR,
+  recommendSummaryIntervalSeconds
+} from '../services/reading-pace.js';
 import {
   bindRailResize,
   loadRailWidth
@@ -56,7 +61,9 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
-  summaryInterval: 'summaryIntervalSeconds',
+  // summaryInterval (localStorage key 'summaryIntervalSeconds') removed 2026-09-01: nothing read it
+  // back -- the interval is fully derived at boot from summaryMaxWords and the pace (see runtime.js's
+  // recomputeSummaryInterval), so persisting it was a write with no read path.
   summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
   summarizationSource: 'summarizationSource',
@@ -105,35 +112,36 @@ export function startApp() {
       fontWeight: clampFontWeight(localStorage.getItem(STORAGE.fontWeight) || 600),
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
-      summaryIntervalSeconds: clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5),
-      // DERIVED (issue #44), not read from localStorage, and seeded from readingBudget rather than
-      // derivedCardWords -- which is the SNAPPED helper, and using it here quietly undid the whole
-      // fix on the one path most readers are on.
-      //
-      // Found by Cato before this shipped. At the default (no profile, 5s interval, assumed 30 wpm)
-      // the true budget is 2.5 words and this line seeded 11. readingBudget was never initialised at
-      // all, so updateSummaryMaxWordsControl's optional chains fell through to the healthy branch:
-      // the screen read "11 words" with no warning and every summarize call was told 11. Not a first
-      // frame flicker either -- recomputeSummaryMaxWords only runs on an interval change or a profile
-      // apply, and applyLastReadingPaceProfile returns early with no remembered name, so with an
-      // operator who never drags the slider the false 11 lasted the whole session.
-      //
-      // Both fields are seeded from ONE call for the same reason the view stopped computing its own:
-      // two places deriving this quantity is the fault #44 exists to remove.
+      // #56: words-per-card is now the PRIMARY, persisted setting (default 14, matching
+      // summary-prompt.js's SUMMARY_MAX_WORDS), floored at USABLE_CARD_WORDS_FLOOR so a stale or
+      // hand-edited localStorage value can never seed an unusable card. The update interval is
+      // DERIVED from it and the app's default pace (no profile has resolved yet at boot -- see
+      // applyLastReadingPaceProfile), both computed from the one call below so nothing here can
+      // disagree with runtime.js's own arithmetic (the exact fault #44, and now #56, exists to
+      // remove).
       ...(() => {
-        const seconds = clampSummaryIntervalSeconds(localStorage.getItem(STORAGE.summaryInterval) || 5);
-        const budget = readingBudget(DEFAULT_MEDIAN_WPM, seconds);
-        return { summaryMaxWords: budget.words, readingBudget: budget };
+        const words = Math.max(
+          USABLE_CARD_WORDS_FLOOR,
+          clampSummaryMaxWordsOverride(localStorage.getItem(STORAGE.summaryMaxWords) || 14, 14)
+        );
+        const derived = recommendSummaryIntervalSeconds(DEFAULT_MEDIAN_WPM, words);
+        return {
+          summaryMaxWords: words,
+          summaryIntervalSeconds: derived.seconds,
+          summaryIntervalBudget: derived,
+          readingBudget: {
+            rawWords: words,
+            words,
+            belowFloor: false,
+            marginal: words < MARGINAL_CARD_WORDS_CEILING
+          }
+        };
       })(),
       // No profile until applyLastReadingPaceProfile (runtime.js) resolves, same "must work with none
       // set" requirement issue #44 states explicitly -- every reader before this shipped had none.
       // No card on the wall yet, so the first complete chunk summarizes on arrival (#31).
       firstCardShown: false,
       readingPaceProfile: null,
-      // Set only by dragging Words per card directly (runtime.js's setSummaryMaxWordsOverride) --
-      // recomputeSummaryMaxWords skips re-deriving while this is true, and applying any profile
-      // selection (including "No profile") always clears it back.
-      summaryMaxWordsManual: false,
       readingPaceProfileName: localStorage.getItem(STORAGE.readingPaceProfileName) || '',
       displayMarginGuidesVisible: false,
       displayMarginAdjusting: false,
@@ -654,16 +662,15 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.fontWeightInput?.addEventListener('input', (e) => {
     runtime.setFontWeight(e.target.value);
   });
-  ctx.dom.summaryIntervalInput.addEventListener('input', (e) => {
-    runtime.setSummaryInterval(e.target.value);
-  });
-  // 2026-08-09: re-enabled as a fast manual override for mid-meeting adjustment, without redoing the
-  // whole reading-pace measurement (see setSummaryMaxWordsOverride in runtime.js for how this stays
-  // consistent with #44 -- it clears any applied profile first, so the override can never disagree
-  // with one). The slider's value IS the word count now (6-24, one at a time), not an index into a
-  // small option set -- Steve wanted every value in that range reachable for a live adjustment.
+  // #56: the update-interval slider is read-only now (disabled in updateSummaryIntervalControl), so
+  // no listener drives it -- it is purely a display of what words-per-card below derives.
+  //
+  // Words per card is the PRIMARY control (#56): the operator sets this number directly, and the
+  // update interval is derived from it and the reader's pace, so every reachable position on this
+  // slider is a usable one. The slider's value IS the word count, one at a time, floored at
+  // USABLE_CARD_WORDS_FLOOR (runtime.js's setWordsPerCard).
   ctx.dom.summaryMaxWordsInput.addEventListener('input', (e) => {
-    runtime.setSummaryMaxWordsOverride(e.target.value);
+    runtime.setWordsPerCard(e.target.value);
   });
   ctx.dom.readingPaceProfileSelect?.addEventListener('change', (e) => {
     runtime.setReadingPaceProfileName(e.target.value);

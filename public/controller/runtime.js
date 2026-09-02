@@ -25,13 +25,9 @@ import {
 import {
   DEFAULT_MEDIAN_WPM,
   MARGINAL_CARD_WORDS_CEILING,
-  READING_PACE_COMFORTABLE_SECONDS,
   USABLE_CARD_WORDS_FLOOR,
   medianWpmFromProfile,
-  readingBudget,
-  recommendSummaryIntervalSeconds,
-  recommendWordsPerCard,
-  usableIntervalFloor
+  recommendSummaryIntervalSeconds
 } from '../services/reading-pace.js';
 import {
   listAudioInputs,
@@ -96,7 +92,9 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
-  summaryInterval: 'summaryIntervalSeconds',
+  // summaryInterval (localStorage key 'summaryIntervalSeconds') was removed 2026-09-01: #56 made the
+  // interval fully derived from summaryMaxWords and the pace at every boot, so nothing ever read the
+  // persisted value back -- it was a write with no read path, and #56 review flagged it dead.
   summaryMaxWords: 'summaryMaxWords',
   // A POINTER, not the measurement itself (issue #44): the measured pace stays on disk under
   // reader-profiles/, gitignored, loopback-only, same as recordings/. This is only the NAME of the
@@ -2162,8 +2160,8 @@ export function createRuntime(ctx, deps = {}) {
 
   // The one pace this budget is derived from: the applied profile's measured median, or the app's
   // documented default with none applied (reading-pace.js's DEFAULT_MEDIAN_WPM). Never read directly
-  // by anything outside this file -- everything else goes through recomputeSummaryMaxWords below, so
-  // there is exactly one place that turns a pace into a word count.
+  // by anything outside this file -- everything else goes through recomputeSummaryInterval below, so
+  // there is exactly one place that turns a pace into a card duration.
   function medianWpmForBudget() {
     // Explicitly > 0 rather than ?? -- a 0 is not nullish, so `??` let a profile whose median
     // computed to zero through as a real pace, and every card after that was sized from it.
@@ -2171,107 +2169,88 @@ export function createRuntime(ctx, deps = {}) {
     return Number.isFinite(measured) && measured > 0 ? measured : DEFAULT_MEDIAN_WPM;
   }
 
-  // Words per card is DERIVED, not an independent setting (issue #44, Steve's call confirmed by
-  // Ansel): reading load is one rate, and a slider that could disagree with the measured pace is how
-  // it disagreed. Called whenever either input changes -- the interval (setSummaryInterval below) or
-  // the applied profile (applyReadingPaceProfile) -- so ctx.state.summaryMaxWords can never go stale
-  // against either.
-  //
-  // 2026-08-09: Steve needs a fast mid-meeting override, without re-running the whole reading-pace
-  // measurement. setSummaryMaxWordsOverride (below) sets summaryMaxWordsManual, and this function
-  // then does nothing until a real profile is applied again -- the override can never disagree with
-  // a profile because choosing it always drops back to no profile first (see that function).
-  function recomputeSummaryMaxWords() {
-    if (ctx.state.summaryMaxWordsManual) return;
-    // The whole budget is stored, not just the clamped word count, so the view never recomputes it.
-    // A first version had the view derive its own copy from state and it read one interval behind --
-    // it ran before summaryIntervalSeconds was committed, so the screen said "8 words, too short" at
-    // a 20s interval where the real answer is 10 and fine. Two places computing one quantity is the
-    // exact fault #44 exists to remove, and putting the second one in the DISPLAY is worse, because
-    // that is the copy a person reads and trusts.
-    const budget = readingBudget(medianWpmForBudget(), ctx.state.summaryIntervalSeconds);
-    const unchanged = budget.words === ctx.state.summaryMaxWords
-      && budget.belowFloor === ctx.state.readingBudget?.belowFloor
-      && budget.rawWords === ctx.state.readingBudget?.rawWords;
+  // #56, Ansel's stronger fix, Steve's decision 2026-09-01: words-per-card is now the control the
+  // operator sets, and the update interval is DERIVED from it -- the reverse of #44's direction. The
+  // old shape (interval chosen, words derived) always left an unusable stretch reachable on the
+  // interval slider, because nothing stopped an interval from deriving a budget under
+  // USABLE_CARD_WORDS_FLOOR; the only real fix was to stop the words-per-card number from ever being
+  // able to fall below the floor in the first place, which means it can no longer be the derived
+  // side of the equation. clampSummaryMaxWordsOverride's own floor is USABLE_CARD_WORDS_FLOOR (view
+  // wiring below), so every reachable position on this control is a usable one by construction --
+  // there is no belowFloor state to detect or report here any more.
+  function recomputeSummaryInterval() {
+    // The whole derivation is stored, not just the clamped seconds, so the view never recomputes it
+    // (the same reason #44's readingBudget was stored whole rather than recomputed in updateSummaryIntervalControl):
+    // two places computing one quantity is the fault this issue exists to remove a second time, now
+    // on the other axis.
+    const derived = recommendSummaryIntervalSeconds(medianWpmForBudget(), ctx.state.summaryMaxWords);
+    const unchanged = derived.seconds === ctx.state.summaryIntervalSeconds
+      && derived.exceedsMax === ctx.state.summaryIntervalBudget?.exceedsMax;
+    ctx.state.summaryIntervalBudget = derived;
     if (unchanged) return;
-    ctx.state.readingBudget = budget;
-    ctx.state.summaryMaxWords = budget.words;
-    updateSummaryMaxWordsControl(ctx);
+    ctx.state.summaryIntervalSeconds = derived.seconds;
+    updateSummaryIntervalControl(ctx);
+    if (ctx.state.listening && !ctx.state.paused) {
+      startLoop();
+    }
   }
 
-  // The fast override itself: sets an exact word count directly, bypassing the pace/interval
-  // arithmetic entirely. Clears any applied profile FIRST -- a manual number and a reader's measured
-  // pace could otherwise silently disagree, which is exactly the failure #44 removed, so this never
-  // lets the two coexist. Reselecting the profile afterward (applyReadingPaceProfile) always wins
-  // back over this, restoring its own pace, interval, and word count together.
-  function setSummaryMaxWordsOverride(words) {
-    // Checked against readingPaceProfile itself, not readingPaceProfileName -- a caller can apply a
-    // profile object directly without ever setting the remembered name (applyLastReadingPaceProfile
-    // sets the name first, but applyReadingPaceProfile alone does not), and this must still catch it.
-    // setReadingPaceProfileName('') is not reused here: it no-ops when the name is already '', which
-    // would silently skip clearing a profile applied that other way.
-    if (ctx.state.readingPaceProfile) {
-      ctx.state.readingPaceProfileName = '';
-      localStorage.setItem(STORAGE.readingPaceProfileName, '');
-      applyReadingPaceProfile(null, null);
-      populateReadingPaceProfileOptions();
-    }
-    const clamped = clampSummaryMaxWordsOverride(words, ctx.state.summaryMaxWords);
-    ctx.state.summaryMaxWordsManual = true;
+  // The primary control itself: sets the exact word count the operator asked for. No profile-clearing
+  // side effect -- unlike #44's manual override, a chosen word count and a measured pace never
+  // disagree here, because the pace only ever determines how much TIME that count gets, never the
+  // count itself. Selecting a profile afterward changes the derived interval, not this number.
+  function setWordsPerCard(words) {
+    const clamped = Math.max(
+      USABLE_CARD_WORDS_FLOOR,
+      clampSummaryMaxWordsOverride(words, ctx.state.summaryMaxWords)
+    );
+    if (clamped === ctx.state.summaryMaxWords) return;
     ctx.state.summaryMaxWords = clamped;
+    localStorage.setItem(STORAGE.summaryMaxWords, String(clamped));
+    // Kept for #120's passthrough-eligibility check (summarizeCurrentText reads ctx.state.readingBudget.words
+    // as the card's word budget) and any other consumer of the old shape. belowFloor is always false
+    // now -- the floor above makes it unreachable -- and marginal keeps meaning what it always meant:
+    // a budget that clears the floor with no margin to spare.
     ctx.state.readingBudget = {
       rawWords: clamped,
       words: clamped,
-      belowFloor: clamped < USABLE_CARD_WORDS_FLOOR,
-      marginal: clamped >= USABLE_CARD_WORDS_FLOOR && clamped < MARGINAL_CARD_WORDS_CEILING
+      belowFloor: false,
+      marginal: clamped < MARGINAL_CARD_WORDS_CEILING
     };
+    recomputeSummaryInterval();
     updateSummaryMaxWordsControl(ctx);
     updateStatus(ctx, `Words per card set to ${clamped}.`);
   }
 
+  // Internal only now (#56): the update-interval slider is read-only in the UI, driven entirely by
+  // recomputeSummaryInterval above. Kept as a plain setter -- rather than folded into that function --
+  // because tests and internal callers still need a way to force a specific interval directly, without
+  // going through the words/pace arithmetic. Deliberately unclamped by any pace-derived floor (that
+  // floor was removed with usableIntervalFloor, reading-pace.js, #56 review) -- only the control's own
+  // MIN/MAX range still applies, via clampSummaryIntervalSeconds below. Nothing persists this value any
+  // more (#56 review): the interval is fully re-derived from summaryMaxWords and the pace at every
+  // boot, so a stored number here was a write with no read path.
   function setSummaryInterval(nextInterval) {
-    // #56. The slider's own min is moved to match, but the floor has to hold here too: a stored
-    // value from a faster profile, a keyboard press, or a caller passing a number directly all
-    // arrive without going past the control.
-    const next = Math.max(
-      usableIntervalFloor(ctx),
-      clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds)
-    );
+    const next = clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds);
     if (next === ctx.state.summaryIntervalSeconds) return;
     ctx.state.summaryIntervalSeconds = next;
-    localStorage.setItem(STORAGE.summaryInterval, String(next));
     updateSummaryIntervalControl(ctx);
-    recomputeSummaryMaxWords();
     updateStatus(ctx, `Update interval set to ${next}s.`);
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();
     }
   }
 
-  // Applies a saved reader profile (or clears it, when profile is null/unusable) as a full bookmark
-  // of settings, not just a pace number: the font size it was measured at, and the update interval
-  // its measured pace actually recommends, both get restored along with it. Steve, 2026-08-09: a
-  // profile that only restored pace left the interval wherever it happened to be, so picking a
-  // profile after nudging the slider silently landed on a mix of "this reader's measured pace" and
-  // "whatever was last dragged" with no way back to the profile's own numbers short of re-measuring.
-  //
-  // The interval is recomputed from medianWpm via the same recommendSummaryIntervalSeconds arithmetic
-  // the results screen already shows (public/reading-pace.js), not a value stored on the profile --
-  // existing profiles carry only recordedAt/fontSizePx/cards, and recomputing means an old profile
-  // saved before this existed still gets a real interval instead of nothing.
+  // Applies a saved reader profile (or clears it, when profile is null/unusable) as a bookmark of the
+  // reading PACE, not of the word count any more (#56) -- the font size it was measured at still
+  // comes along, because a pace measured at one type size does not transfer to another, but the
+  // words-per-card the operator has dialled in is theirs to keep: reselecting a profile changes how
+  // much TIME that count gets, never the count itself.
   function applyReadingPaceProfile(name, profile) {
-    // Any explicit profile selection -- a real one or "No profile" -- always wins over a stale
-    // manual override (2026-08-09): the whole point of reselecting is landing back on that choice's
-    // own numbers, not a value left over from before it was picked.
-    ctx.state.summaryMaxWordsManual = false;
     const medianWpm = medianWpmFromProfile(profile);
     if (medianWpm == null) {
       ctx.state.readingPaceProfile = null;
-      // The control has to be re-rendered even though no value changed: clearing a profile lowers
-      // the floor again, and a slider left at the old minimum forbids what the setter now permits,
-      // with no way back below it by dragging (Cato, gating #97).
-      updateSummaryIntervalControl(ctx);
-      recomputeSummaryMaxWords();
+      recomputeSummaryInterval();
       return;
     }
     ctx.state.readingPaceProfile = {
@@ -2289,19 +2268,7 @@ export function createRuntime(ctx, deps = {}) {
       setFontSize(profile.fontSizePx);
       updateStatus(ctx, `Text size set to ${ctx.state.fontSize}px, the size this reading pace was measured at (was ${previous}px).`);
     }
-    const recommendedWords = recommendWordsPerCard(medianWpm, READING_PACE_COMFORTABLE_SECONDS).words;
-    const recommendedInterval = recommendSummaryIntervalSeconds(medianWpm, recommendedWords).seconds;
-    if (recommendedInterval !== ctx.state.summaryIntervalSeconds) {
-      const previousInterval = ctx.state.summaryIntervalSeconds;
-      setSummaryInterval(recommendedInterval);
-      updateStatus(ctx, `Update interval set to ${ctx.state.summaryIntervalSeconds}s, recommended for this reader's measured pace (was ${previousInterval}s).`);
-    } else {
-      // setSummaryInterval never runs when the recommendation matches what's already set, and it is
-      // the only other thing that re-renders the control -- without this a slower profile's raised
-      // floor never reaches the slider's own min/max.
-      updateSummaryIntervalControl(ctx);
-    }
-    recomputeSummaryMaxWords();
+    recomputeSummaryInterval();
   }
 
   // Runs once at boot (start-app.js). No profile pointer, a fetch failure, or a server that refuses
@@ -2895,7 +2862,7 @@ export function createRuntime(ctx, deps = {}) {
       return setSettingsOpen(ctx, open, options);
     },
     setSummaryInterval,
-    setSummaryMaxWordsOverride,
+    setWordsPerCard,
     applyReadingPaceProfile,
     applyLastReadingPaceProfile,
     refreshReadingPaceProfileList,

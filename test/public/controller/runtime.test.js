@@ -4868,17 +4868,18 @@ test('pressing Start Listening opens the fast path; an internal force-resume doe
   });
 });
 
-test('#56: an interval too short for the measured reader is not reachable once their profile is applied', async () => {
-  // At 30 wpm a 10-word card takes 20 seconds to read, so every position below 20s on the slider
-  // derives a budget under the floor. Ansel's point: that configuration should not be reachable,
-  // rather than reachable with a caption saying it does not work.
+test('#56: the update interval is derived from the applied profile pace at the standing word count', async () => {
+  // At 30 wpm a 10-word card (USABLE_CARD_WORDS_FLOOR) takes 20 seconds to read. Ansel's point,
+  // reversed by Steve's #56 decision: rather than removing an unusable stretch of the interval
+  // slider, the interval slider is now read-only and always derives to a usable value, because
+  // words-per-card can never itself fall below the floor.
   await withRuntimeHarness({
-    stateOverrides: { summaryIntervalSeconds: 5 }
+    stateOverrides: {}
   }, async ({ ctx, elements, runtime }) => {
-    // With no measured profile nothing moves: the default pace is not a measurement of this reader,
-    // and changing the out-of-the-box cadence is not this card's call.
-    runtime.setSummaryInterval(9);
-    assert.equal(ctx.state.summaryIntervalSeconds, 9);
+    // With no measured profile the interval derives against the app's default assumed pace, not a
+    // measurement of this reader.
+    runtime.setWordsPerCard(10);
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'the app default pace derives 20s for a 10-word card');
 
     runtime.applyReadingPaceProfile('steve', {
       recordedAt: '2026-08-02T10:00:00.000Z',
@@ -4888,18 +4889,20 @@ test('#56: an interval too short for the measured reader is not reachable once t
       ]
     });
 
-    // 2026-08-09: a profile is a full bookmark now, so this lands on the profile's OWN recommended
-    // interval (22s at 30 wpm), not merely raised to the 20s floor -- 22 also happens to clear it.
-    assert.equal(ctx.state.summaryIntervalSeconds, 22, "the interval is set to this reader's recommended pace");
-    assert.equal(elements.summaryIntervalInput.min, '20', 'and the slider cannot be dragged back below the floor');
+    // Same pace (30 wpm) as the default assumption here, so the interval is unchanged, but it is now
+    // this reader's own MEASURED pace driving it, not an assumption.
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, "the interval matches this reader's measured pace");
+    assert.equal(elements.summaryIntervalInput.disabled, true, 'the interval control is read-only now');
 
+    // The interval control takes no input any more -- setSummaryInterval is an internal setter kept
+    // for callers that still need to force a specific value (tests, a stored value); it does not
+    // reach the UI event path (start-app.js's bindViewerControls has no listener on this input).
     runtime.setSummaryInterval(4);
-    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'a value arriving from anywhere else is held at the floor too');
+    assert.equal(ctx.state.summaryIntervalSeconds, 4, 'the internal setter itself is unclamped by any floor');
   });
 });
 
-test('#56: the slider and the floor cannot drift apart when the interval itself does not move', async () => {
-  // Both paths found by Cato gating #97, and both leave the control disagreeing with the setter.
+test('#56: the interval re-derives from words-per-card alone once a profile is cleared', async () => {
   const SLOW_PROFILE = {
     recordedAt: '2026-08-02T10:00:00.000Z',
     cards: [
@@ -4909,21 +4912,17 @@ test('#56: the slider and the floor cannot drift apart when the interval itself 
   };
 
   await withRuntimeHarness({
-    // 22s is this profile's own recommended interval (30 wpm) -- already sitting there, so applying
-    // it takes the setSummaryInterval no-op path (next === current) and only updateSummaryIntervalControl
-    // runs, which is the exact path #97 found stale.
-    stateOverrides: { summaryIntervalSeconds: 22 }
-  }, async ({ ctx, elements, runtime }) => {
+    stateOverrides: { summaryMaxWords: 10 }
+  }, async ({ ctx, runtime }) => {
     runtime.applyReadingPaceProfile('steve', SLOW_PROFILE);
-    assert.equal(ctx.state.summaryIntervalSeconds, 22, 'an interval that already matches the recommendation is left alone');
-    assert.equal(elements.summaryIntervalInput.min, '20', 'and the unusable range is still taken away');
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, "the profile's own measured pace derives the interval");
 
-    // Clearing the profile gives the range back. Without this the operator is locked above 20s with
-    // no way down through the control, while the setter would happily accept 5.
+    // Clearing the profile falls back to the app's default assumed pace (also 30 wpm here, so the
+    // interval is unchanged) -- the word count itself is untouched by clearing a profile.
     runtime.applyReadingPaceProfile('', null);
-    assert.equal(elements.summaryIntervalInput.min, '2', 'no measurement, no floor');
-    runtime.setSummaryInterval(5);
-    assert.equal(ctx.state.summaryIntervalSeconds, 5);
+    assert.equal(ctx.state.readingPaceProfile, null);
+    assert.equal(ctx.state.summaryMaxWords, 10, 'clearing a profile is a pace-only reset');
+    assert.equal(ctx.state.summaryIntervalSeconds, 20, 'and re-derives against the app default pace');
   });
 });
 

@@ -31,6 +31,9 @@ function createElement(initial = {}) {
     getAttribute(name) {
       return this.attributes[name];
     },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    },
     addEventListener() {},
     focus() {},
     requestFullscreen() {},
@@ -211,22 +214,17 @@ test('app bootstrap loads without module errors and starts keyless on the unread
     assert.match(elements.status.textContent, /Browser transcription works with no key/i);
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5%');
-    assert.equal(elements.summaryIntervalValue.textContent, '5s');
-    // The FIRST FRAME's reading budget, before any interval drag or profile apply. Nothing tested
-    // this state and the runtime harness is structurally blind to it: reading-pace-profile.test.js
-    // asserts summaryMaxWords is undefined as a "the harness does not seed this" sanity check, and
-    // every other test then changes the interval or applies a profile, which is the trigger that hid
-    // the defect.
-    //
-    // Found by Cato, 2026-08-04: the boot seed used the SNAPPED helper and never initialised
-    // readingBudget, so at the shipped default (no profile, 5s, assumed 30 wpm, true budget 2.5
-    // words) the screen read "11 words" with no warning and every summarize call was told 11. It was
-    // not a flicker -- recomputeSummaryMaxWords only runs on an interval change or a profile apply,
-    // so an operator who never touched the slider kept the false number all session.
-    assert.match(elements.summaryMaxWordsValue.textContent, /too short for this reader/,
-      'the default 5s interval cannot be met at this reader pace, and the first frame must say so');
-    assert.doesNotMatch(elements.summaryMaxWordsValue.textContent, /^11 words$/,
-      'and must never present the nearest slider option as though it were the budget');
+    // #56: words-per-card is now the PRIMARY, persisted setting, and the interval is DERIVED from it.
+    // With no stored value (localStorage.getItem returns null here), the default resolves to 14
+    // words -- comfortably clear of USABLE_CARD_WORDS_FLOOR, not sitting on it -- so a first-time
+    // reader's very first card isn't already at the marginal boundary. At the app's default assumed
+    // pace of 30 wpm that derives a 28s interval (14 words / 30 wpm * 60).
+    assert.equal(elements.summaryIntervalValue.textContent, '28s');
+    // The FIRST FRAME's reading budget, before any profile apply or words-per-card drag. 14 words
+    // clears MARGINAL_CARD_WORDS_CEILING, so no "only just enough" qualifier -- #56 made every
+    // reachable position on this control usable by construction, so belowFloor can no longer occur
+    // on the first frame or any other.
+    assert.equal(elements.summaryMaxWordsValue.textContent, '14 words');
     assert.equal(elements.settingsAlertBadge.hidden, false);
     assert.equal(elements.alertsSection.hidden, false);
     assert.match(elements.status.textContent, /Browser transcription works with no key/i);

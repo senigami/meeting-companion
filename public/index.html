@@ -238,30 +238,34 @@
           </section>
 
           <section class="settingsCard settingsViewCard" data-settings-section="timing">
-            <div class="section-label">Update interval</div>
+            <div class="section-label">Reading load</div>
             <div class="settingsStack">
-              <div class="range-field" id="summaryIntervalField">
-                <div class="range-head">
-                  <label for="summaryInterval">Update interval</label>
-                  <output id="summaryIntervalValue" for="summaryInterval"></output>
-                </div>
-                <input id="summaryInterval" class="sliderInput" type="range" min="2" max="30" step="1" />
-                <div class="field-note">One second at a time, up to 30s. With a reader profile applied, the shortest setting is what this reader can finish a card in.</div>
-              </div>
               <div class="range-field" id="summaryMaxWordsField">
                 <div class="range-head">
                   <label for="summaryMaxWords">Words per card</label>
                   <output id="summaryMaxWordsValue" for="summaryMaxWords"></output>
                 </div>
-                <!-- Words per card is DERIVED by default (issue #44): the reader's measured pace (or
-                     the app's default, with no profile applied) times the update interval above.
-                     2026-08-09: dragging this directly is a fast mid-meeting override -- it clears
-                     any applied profile first (setSummaryMaxWordsOverride, runtime.js), so it can
-                     never disagree with a reader's measured pace. Reselecting a profile restores its
-                     own number. Range matches MAX_WORDS_MIN/MAX_WORDS_MAX (summary-prompt.js), the
-                     same bound the server clamps a summarize call to. -->
-                <input id="summaryMaxWords" class="sliderInput" type="range" min="6" max="24" step="1" />
-                <div class="field-note">Derived from the <a href="#readingPaceProfileField">reading pace</a> and the update interval above. Drag to override for this meeting -- reselecting a profile restores its own number.</div>
+                <!-- #56: this is the PRIMARY control now, not a derived display or an override of
+                     one. The operator sets the card size directly; the update interval below is
+                     DERIVED from this number and the reader's pace (measured or assumed), so every
+                     position on this slider is a usable one by construction -- there is no interval
+                     short enough to make a chosen word count unreadable. Floor matches
+                     USABLE_CARD_WORDS_FLOOR (reading-pace.js), not MAX_WORDS_MIN: a card this app
+                     shows must always clear the readability floor, even though the server-side
+                     prompt clamp (summary-prompt.js) technically allows lower. -->
+                <input id="summaryMaxWords" class="sliderInput" type="range" min="10" max="24" step="1" />
+                <div class="field-note">How much reads at once. The update interval below is set to match, using the <a href="#readingPaceProfileField">reading pace</a> below.</div>
+              </div>
+              <div class="range-field" id="summaryIntervalField">
+                <div class="range-head">
+                  <label for="summaryInterval">Update interval</label>
+                  <output id="summaryIntervalValue" for="summaryInterval"></output>
+                </div>
+                <!-- #56: read-only now, derived from words-per-card above and the reader's pace --
+                     see updateSummaryIntervalControl (view.js). Left in the DOM (disabled) as a
+                     visible cue of the cadence in effect, not a control of its own. -->
+                <input id="summaryInterval" class="sliderInput" type="range" min="2" max="30" step="1" disabled />
+                <div class="field-note">Derived from words per card and this reader's pace -- not a separate setting.</div>
               </div>
               <div class="range-field" id="readingPaceProfileField">
                 <div class="range-head">
