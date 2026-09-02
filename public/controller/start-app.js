@@ -61,7 +61,9 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
-  summaryInterval: 'summaryIntervalSeconds',
+  // summaryInterval (localStorage key 'summaryIntervalSeconds') removed 2026-09-01: nothing read it
+  // back -- the interval is fully derived at boot from summaryMaxWords and the pace (see runtime.js's
+  // recomputeSummaryInterval), so persisting it was a write with no read path.
   summaryMaxWords: 'summaryMaxWords',
   transcriptionSource: 'transcriptionSource',
   summarizationSource: 'summarizationSource',
@@ -120,7 +122,7 @@ export function startApp() {
       ...(() => {
         const words = Math.max(
           USABLE_CARD_WORDS_FLOOR,
-          clampSummaryMaxWordsOverride(localStorage.getItem(STORAGE.summaryMaxWords), 14)
+          clampSummaryMaxWordsOverride(localStorage.getItem(STORAGE.summaryMaxWords) || 14, 14)
         );
         const derived = recommendSummaryIntervalSeconds(DEFAULT_MEDIAN_WPM, words);
         return {

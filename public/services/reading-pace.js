@@ -128,6 +128,13 @@ export function derivedCardWords(medianWpm, intervalSeconds) {
 // USABLE_CARD_WORDS_FLOOR comes from Ansel's ruling (2026-08-02): below roughly this, brief's own
 // compression collapses to noise, because a name plus a number can eat eight words on its own. It is
 // his call and not arithmetic, which is why it is named rather than inlined.
+//
+// minimumUsableIntervalSeconds/usableIntervalFloor (the interval-side floor from the pre-#56
+// direction, where the operator dragged the interval and words were derived from it) were removed
+// here 2026-09-01: #56 reversed which side is primary, and the floor now lives entirely on the
+// words-per-card side (setWordsPerCard's own Math.max against this constant, runtime.js) -- there is
+// no interval short enough left to reach that a floor would still need to catch. Neither function had
+// a caller anywhere outside its own three tests (Cato's #56 review flagged the dead pair).
 export const USABLE_CARD_WORDS_FLOOR = 10;
 
 // Above the floor but without room to spare. Ansel's ruling, 2026-08-04: a boundary met with zero
@@ -153,37 +160,6 @@ const MIN_PROMPT_WORDS = 4;
 // being told eleven, which manufactures headroom nobody verified and makes a degraded card
 // indistinguishable from a healthy one to the only component that could have compensated. The
 // operator is told separately (belowFloor), and now so is the model.
-// #56, Ansel's recommendation of 2026-08-04. Telling the operator an interval is too short for
-// this reader is honest, and it still serves a configuration that cannot work: at the measured pace
-// of about 30 wpm, everything below 20s derives a budget under USABLE_CARD_WORDS_FLOOR, so more than
-// half the slider was reachable and unusable with only a caption in the way. The floor of the
-// control is therefore conditioned on the measurement rather than fixed at the 2s that was chosen
-// before anybody's pace was known.
-//
-// Derived, not chosen: the budget is wpm/60 * seconds, so the first whole second that clears the
-// floor is ceil(FLOOR * 60 / wpm). Rounding UP, because a second that lands exactly on the floor
-// still clears it and a fraction below does not.
-//
-// Returns SUMMARY_INTERVAL_MAX_SECONDS when even the longest interval cannot clear the floor (a
-// reader slower than about 20 wpm). That is a real state and the caller must not treat it as a
-// usable configuration: the whole range is too short, and belowFloor still says so.
-export function minimumUsableIntervalSeconds(medianWpm) {
-  if (!Number.isFinite(medianWpm) || medianWpm <= 0) return SUMMARY_INTERVAL_MIN_SECONDS;
-  const needed = Math.ceil((USABLE_CARD_WORDS_FLOOR * 60) / medianWpm);
-  return Math.min(Math.max(needed, SUMMARY_INTERVAL_MIN_SECONDS), SUMMARY_INTERVAL_MAX_SECONDS);
-}
-
-// Deliberately keyed on a MEASURED profile and nothing else. DEFAULT_MEDIAN_WPM is 30, so applying
-// the floor to it would move the out-of-the-box interval from 5s to 20s for everyone who has never
-// run the calibration, and changing the app's default cadence is Steve's call rather than a
-// consequence of this fix (filed alongside #56). With no profile the control keeps the range it has
-// always had, and belowFloor still tells the truth about it.
-export function usableIntervalFloor(ctx) {
-  const measured = Number(ctx?.state?.readingPaceProfile?.medianWpm);
-  if (!Number.isFinite(measured) || measured <= 0) return SUMMARY_INTERVAL_MIN_SECONDS;
-  return minimumUsableIntervalSeconds(measured);
-}
-
 export function readingBudget(medianWpm, intervalSeconds) {
   const { rawWords } = recommendWordsPerCard(medianWpm, intervalSeconds);
   const trueWords = Math.max(MIN_PROMPT_WORDS, Math.round(rawWords));

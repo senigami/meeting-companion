@@ -914,8 +914,13 @@ export function updateSummaryIntervalControl(ctx) {
   // the DOM (disabled) purely so its position is still a visible cue of the cadence in effect.
   ctx.dom.summaryIntervalInput.value = String(ctx.state.summaryIntervalSeconds);
   ctx.dom.summaryIntervalInput.setAttribute('aria-valuetext', `${ctx.state.summaryIntervalSeconds}s`);
+  // Genuinely disabled, not aria-readonly (Ansel, #56 review): `disabled` already drops the control
+  // from the tab order, which makes a co-present `aria-readonly="true"` dead weight at best and
+  // actively misleading at worst to anyone inspecting the DOM state. Pick one -- this one, because the
+  // control has nothing left for an operator to do with it; its only remaining job is the sighted
+  // visual cue the comment above describes.
   ctx.dom.summaryIntervalInput.disabled = true;
-  ctx.dom.summaryIntervalInput.setAttribute('aria-readonly', 'true');
+  ctx.dom.summaryIntervalInput.removeAttribute('aria-readonly');
   // exceedsMax is the inverse of the old belowFloor case (Ansel): the reader's pace needs MORE time
   // for this many words than the app's own interval ceiling allows, so the derived interval is
   // clamped short of what the card actually takes to read. That must be said, not hidden behind a
@@ -943,9 +948,18 @@ export function updateSummaryMaxWordsControl(ctx) {
   const budget = ctx.state.readingBudget;
   // "marginal" still means what it always meant: a chosen count that clears the floor with no room
   // to spare (Ansel's ruling -- a boundary met at zero margin is brittle even though it is honest).
-  const text = budget?.marginal
-    ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
-    : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
+  //
+  // exceedsMax must reach here too, not just the disabled interval's sighted-only note beside it
+  // (Ansel, #56 review): this is the control an operator actually drags, and the interval slider next
+  // to it can no longer be tabbed to at all now that it is genuinely disabled -- a screen-reader
+  // operator who never lands on that other control must still be told this many words is too slow for
+  // this reader to fit in the app's interval ceiling.
+  const exceedsMax = Boolean(ctx.state.summaryIntervalBudget?.exceedsMax);
+  const text = exceedsMax
+    ? `${pluraliseWords(ctx.state.summaryMaxWords)}, too many for this reader to read in time`
+    : budget?.marginal
+      ? `${pluraliseWords(ctx.state.summaryMaxWords)}, only just enough`
+      : `${pluraliseWords(ctx.state.summaryMaxWords)}`;
   ctx.dom.summaryMaxWordsInput.setAttribute('aria-valuetext', text);
   ctx.dom.summaryMaxWordsValue.textContent = text;
   ctx.dom.summaryMaxWordsValue.classList.toggle('is-marginal', Boolean(budget?.marginal));

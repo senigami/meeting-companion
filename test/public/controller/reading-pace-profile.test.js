@@ -185,6 +185,48 @@ test('applyLastReadingPaceProfile degrades silently when the server refuses or i
   });
 });
 
+test('#56: a word count the reader is too slow for reports exceedsMax and says so on both controls', async () => {
+  await withRuntimeHarness({
+    elementOverrides: {
+      summaryMaxWordsInput: createElement({ value: '0' }),
+      summaryMaxWordsValue: createElement({ textContent: '' }),
+      summaryIntervalInput: createElement({ value: '0' }),
+      summaryIntervalValue: createElement({ textContent: '' })
+    },
+    stateOverrides: {}
+  }, async ({ ctx, runtime }) => {
+    // At the app default pace (30 wpm), a 20-word card takes 40s to read, which exceeds the app's own
+    // 30s interval ceiling -- the derived interval still clamps to something reachable, but that clamp
+    // is a lie about how long the card actually takes unless exceedsMax says so.
+    runtime.setWordsPerCard(20);
+    assert.equal(ctx.state.summaryIntervalBudget.exceedsMax, true,
+      'a 20-word card at the default pace genuinely cannot fit inside the interval ceiling');
+    assert.equal(ctx.state.summaryIntervalSeconds, 30, 'the derived interval still clamps to the reachable ceiling');
+    assert.match(ctx.dom.summaryIntervalValue.textContent, /too short for this reader/,
+      'the sighted note beside the disabled interval control must say so');
+    assert.match(ctx.dom.summaryMaxWordsInput.getAttribute('aria-valuetext'), /too many for this reader/,
+      'a screen-reader operator on the words control -- the only one still reachable by keyboard -- must be told too');
+  });
+});
+
+test('#56: a word count comfortably inside the interval ceiling reports no exceedsMax warning anywhere', async () => {
+  await withRuntimeHarness({
+    elementOverrides: {
+      summaryMaxWordsInput: createElement({ value: '0' }),
+      summaryMaxWordsValue: createElement({ textContent: '' }),
+      summaryIntervalInput: createElement({ value: '0' }),
+      summaryIntervalValue: createElement({ textContent: '' })
+    },
+    stateOverrides: {}
+  }, async ({ ctx, runtime }) => {
+    // 14 words at 30 wpm takes 28s, comfortably under the 30s ceiling.
+    runtime.setWordsPerCard(14);
+    assert.equal(ctx.state.summaryIntervalBudget.exceedsMax, false);
+    assert.doesNotMatch(ctx.dom.summaryIntervalValue.textContent, /too short for this reader/);
+    assert.doesNotMatch(ctx.dom.summaryMaxWordsInput.getAttribute('aria-valuetext'), /too many for this reader/);
+  });
+});
+
 test('a measured 30wpm profile at a 20-word card lands on brief, and a faster reader lands on condense', () => {
   // The end-to-end point of #44 (and now #56): the chosen budget feeds straight into the level
   // Cato's guard protects, with no separate call needed to keep them in sync.

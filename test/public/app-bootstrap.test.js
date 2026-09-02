@@ -31,6 +31,9 @@ function createElement(initial = {}) {
     getAttribute(name) {
       return this.attributes[name];
     },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    },
     addEventListener() {},
     focus() {},
     requestFullscreen() {},
@@ -212,16 +215,16 @@ test('app bootstrap loads without module errors and starts keyless on the unread
     assert.equal(elements.fontSizeValue.textContent, '84px');
     assert.equal(elements.displayMarginValue.textContent, '4.5%');
     // #56: words-per-card is now the PRIMARY, persisted setting, and the interval is DERIVED from it.
-    // With no stored value (localStorage.getItem returns null here), clampSummaryMaxWordsOverride's
-    // own fallback resolution lands below USABLE_CARD_WORDS_FLOOR, so setup-app.js's floor raises it
-    // to exactly 10 -- the smallest usable card, at the app's default assumed pace of 30 wpm, derives
-    // a 20s interval (10 words / 30 wpm * 60).
-    assert.equal(elements.summaryIntervalValue.textContent, '20s');
-    // The FIRST FRAME's reading budget, before any profile apply or words-per-card drag. Sitting
-    // exactly at the floor is "marginal" (Ansel's ruling: a boundary met with zero margin is honest
-    // but brittle), never "too short" -- #56 made every reachable position on this control usable by
-    // construction, so belowFloor can no longer occur on the first frame or any other.
-    assert.equal(elements.summaryMaxWordsValue.textContent, '10 words, only just enough');
+    // With no stored value (localStorage.getItem returns null here), the default resolves to 14
+    // words -- comfortably clear of USABLE_CARD_WORDS_FLOOR, not sitting on it -- so a first-time
+    // reader's very first card isn't already at the marginal boundary. At the app's default assumed
+    // pace of 30 wpm that derives a 28s interval (14 words / 30 wpm * 60).
+    assert.equal(elements.summaryIntervalValue.textContent, '28s');
+    // The FIRST FRAME's reading budget, before any profile apply or words-per-card drag. 14 words
+    // clears MARGINAL_CARD_WORDS_CEILING, so no "only just enough" qualifier -- #56 made every
+    // reachable position on this control usable by construction, so belowFloor can no longer occur
+    // on the first frame or any other.
+    assert.equal(elements.summaryMaxWordsValue.textContent, '14 words');
     assert.equal(elements.settingsAlertBadge.hidden, false);
     assert.equal(elements.alertsSection.hidden, false);
     assert.match(elements.status.textContent, /Browser transcription works with no key/i);

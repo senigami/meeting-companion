@@ -31,6 +31,9 @@ function createElement(initial = {}) {
     getAttribute(name) {
       return this.attributes[name];
     },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    },
     addEventListener() {},
     focus() {},
     select() {},

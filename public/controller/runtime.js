@@ -92,7 +92,9 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
-  summaryInterval: 'summaryIntervalSeconds',
+  // summaryInterval (localStorage key 'summaryIntervalSeconds') was removed 2026-09-01: #56 made the
+  // interval fully derived from summaryMaxWords and the pace at every boot, so nothing ever read the
+  // persisted value back -- it was a write with no read path, and #56 review flagged it dead.
   summaryMaxWords: 'summaryMaxWords',
   // A POINTER, not the measurement itself (issue #44): the measured pace stays on disk under
   // reader-profiles/, gitignored, loopback-only, same as recordings/. This is only the NAME of the
@@ -2187,7 +2189,6 @@ export function createRuntime(ctx, deps = {}) {
     ctx.state.summaryIntervalBudget = derived;
     if (unchanged) return;
     ctx.state.summaryIntervalSeconds = derived.seconds;
-    localStorage.setItem(STORAGE.summaryInterval, String(derived.seconds));
     updateSummaryIntervalControl(ctx);
     if (ctx.state.listening && !ctx.state.paused) {
       startLoop();
@@ -2223,13 +2224,16 @@ export function createRuntime(ctx, deps = {}) {
 
   // Internal only now (#56): the update-interval slider is read-only in the UI, driven entirely by
   // recomputeSummaryInterval above. Kept as a plain setter -- rather than folded into that function --
-  // because tests and internal callers still need a way to force a specific interval (e.g. simulating
-  // a stored value) without going through the words/pace arithmetic.
+  // because tests and internal callers still need a way to force a specific interval directly, without
+  // going through the words/pace arithmetic. Deliberately unclamped by any pace-derived floor (that
+  // floor was removed with usableIntervalFloor, reading-pace.js, #56 review) -- only the control's own
+  // MIN/MAX range still applies, via clampSummaryIntervalSeconds below. Nothing persists this value any
+  // more (#56 review): the interval is fully re-derived from summaryMaxWords and the pace at every
+  // boot, so a stored number here was a write with no read path.
   function setSummaryInterval(nextInterval) {
     const next = clampSummaryIntervalSeconds(nextInterval, ctx.state.summaryIntervalSeconds);
     if (next === ctx.state.summaryIntervalSeconds) return;
     ctx.state.summaryIntervalSeconds = next;
-    localStorage.setItem(STORAGE.summaryInterval, String(next));
     updateSummaryIntervalControl(ctx);
     updateStatus(ctx, `Update interval set to ${next}s.`);
     if (ctx.state.listening && !ctx.state.paused) {
