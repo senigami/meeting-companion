@@ -261,10 +261,12 @@ html.is-resizing-rail .railResizeHandle::before {
   --rail-status-color: #5ac8fa;
 }
 
-.railStatusDot.is-level-audio {
+.railStatusDot.is-level-clipping,
+.railStatusDot.is-level-quiet {
   /* chrome literal: a distinct purple -- confirmed (a sustained clip/quiet reading actually
      measured, issue #5), so it is not the unconfirmed silence gold, but capture is still running
-     and no speech has been lost, so it is not dropped-orange or problem-red either. */
+     and no speech has been lost, so it is not dropped-orange or problem-red either. 'clipping' and
+     'quiet' share this look; only their rank against 'silence' differs (#169, LEVEL_RANK). */
   --rail-status-color: #bf5af2;
 }
 
@@ -275,7 +277,8 @@ html.is-resizing-rail .railResizeHandle::before {
   .railStatusDot.is-level-problem,
   .railStatusDot.is-level-dropped,
   .railStatusDot.is-level-behind,
-  .railStatusDot.is-level-audio,
+  .railStatusDot.is-level-clipping,
+  .railStatusDot.is-level-quiet,
   .railStatusDot.is-level-silence {
     animation: railStatusPulse 480ms ease-out;
   }
@@ -352,7 +355,7 @@ html.is-resizing-rail .railResizeHandle::before {
 }
 
 .railNote.is-audio {
-  /* chrome literal: matches --rail-status-color for .is-level-audio. #bf5af2 against
+  /* chrome literal: matches --rail-status-color for .is-level-clipping/.is-level-quiet. #bf5af2 against
      --chrome-bg (#1e1e1e) computes to ~4.73:1 by the WCAG relative-luminance formula (hand
      calculation) -- clears AA (4.5:1) for 12px text, but only just, so it's the one figure in
      this block worth re-checking with a real contrast tool if the background token ever moves.

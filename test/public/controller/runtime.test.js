@@ -1410,7 +1410,7 @@ test('the once-per-start microphone-constraints diagnostic reaches #status witho
   });
 });
 
-test('a sustained clipping condition raises the rail to a distinct "audio" level, not "problem", and clears it back to listening when it stops', async () => {
+test('a sustained clipping condition raises the rail to a distinct "clipping" level, not "problem", and clears it back to listening when it stops', async () => {
   let capturedDeps = null;
   const driver = {
     id: 'openai',
@@ -1436,7 +1436,7 @@ test('a sustained clipping condition raises the rail to a distinct "audio" level
     capturedDeps.onSustainedCondition({ condition: 'clipping', active: true, at: 6000 });
 
     assert.equal(elements.railStatusWord.textContent, 'Audio quality');
-    assert.equal(elements.railStatusDot.classList.contains('is-level-audio'), true);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-clipping'), true);
     assert.equal(elements.railStatusDot.classList.contains('is-level-problem'), false);
     assert.match(elements.status.textContent, /clipping for over 5s/);
     assert.match(elements.railNote.textContent, /clipping for over 5s/);
@@ -1448,7 +1448,72 @@ test('a sustained clipping condition raises the rail to a distinct "audio" level
 
     assert.equal(elements.railStatusWord.textContent, 'Listening');
     assert.equal(elements.railStatusDot.classList.contains('is-level-listening'), true);
-    assert.equal(elements.railStatusDot.classList.contains('is-level-audio'), false);
+    assert.equal(elements.railStatusDot.classList.contains('is-level-clipping'), false);
+  });
+});
+
+// #169: 'clipping' and 'quiet' used to be one shared 'audio' level ranked below 'silence', so an
+// active silence message permanently masked a genuine clipping fault -- clipping only re-raises on
+// its own active->inactive edge, so nothing brought it back once silence took the rail. Clipping
+// cannot happen during real silence, so it now ranks above 'silence' while 'quiet' does not.
+test('a sustained clipping condition takes the rail over an already-active silence message -- clipping outranks silence', async () => {
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  let currentTime = 1000;
+  const nowFn = () => currentTime;
+  const scheduled = [];
+  const setTimeoutFn = (callback, delay) => {
+    const id = { callback, delay };
+    scheduled.push(id);
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    const index = scheduled.indexOf(id);
+    if (index !== -1) scheduled.splice(index, 1);
+  };
+  const runOnePendingCheck = () => {
+    const [next] = scheduled.splice(0, 1);
+    next?.callback();
+  };
+
+  let capturedDeps = null;
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: (source, deps) => {
+      capturedDeps = deps;
+      return driver;
+    },
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    nowFn,
+    setTimeoutFn,
+    clearTimeoutFn
+  }, async ({ elements, ctx, runtime }) => {
+    await runtime.startListening();
+
+    // Silence claims the rail first, same as the "quiet must not outrank silence" test above.
+    for (let i = 0; i < 9; i += 1) {
+      currentTime += 5000;
+      runOnePendingCheck();
+    }
+    assert.equal(ctx.state.railStatusLevel, 'silence');
+
+    // A genuine clipping fault crosses its threshold while silence is still showing -- unlike
+    // 'quiet', it must take the rail rather than being masked by the pre-existing silence message.
+    capturedDeps.onSustainedCondition({ condition: 'clipping', active: true, at: currentTime });
+    assert.equal(ctx.state.railStatusLevel, 'clipping', 'clipping must outrank an already-active silence message');
+    assert.equal(elements.railStatusWord.textContent, 'Audio quality');
+
+    // Clearing clipping recovers past silence, not back into it -- activeTranscriptionStatusLevel
+    // reflects the live transcription state, not the stale silence condition that preceded it.
+    capturedDeps.onSustainedCondition({ condition: 'clipping', active: false, at: currentTime + 100 });
+    assert.notEqual(ctx.state.railStatusLevel, 'clipping');
   });
 });
 
@@ -3514,7 +3579,7 @@ test('the audio module\'s quiet threshold is deliberately the same figure as the
   assert.equal(QUIET_SUSTAINED_MS, 45000);
 });
 
-test('a normal pause shows the existing silence message, not the audio-quality one -- silence outranks audio', async () => {
+test('a normal pause shows the existing silence message, not the audio-quality one -- silence outranks quiet', async () => {
   const driver = {
     id: 'browser',
     label: 'Browser',
@@ -3565,7 +3630,7 @@ test('a normal pause shows the existing silence message, not the audio-quality o
     // The audio module's own "quiet" reading crosses its threshold at the same moment -- it must
     // not elbow the existing silence message aside.
     capturedDeps.onSustainedCondition({ condition: 'quiet', active: true, at: currentTime });
-    assert.equal(ctx.state.railStatusLevel, 'silence', 'audio must not outrank an already-active silence message');
+    assert.equal(ctx.state.railStatusLevel, 'silence', 'quiet must not outrank an already-active silence message');
     assert.equal(elements.railStatusWord.textContent, 'Check mic');
   });
 });

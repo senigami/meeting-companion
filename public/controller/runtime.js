@@ -585,19 +585,26 @@ export function createRuntime(ctx, deps = {}) {
   // Text names the specific condition rather than a generic "audio problem": an operator deciding
   // whether to interrupt the meeting needs to know which of "turn the gain down" or "check the
   // mic is plugged in" applies.
+  // 'clipping' and 'quiet' are separate rail levels, not one shared 'audio' level -- #169: a
+  // silence message active at the same moment as a clipping fault outranked and permanently
+  // replaced it (clipping only re-raises on its own active->inactive edge, so nothing brought it
+  // back once silence took the rail). Clipping cannot happen during real silence, so it ranks
+  // above 'silence'; 'quiet' keeps the below-silence rank silence already had. See LEVEL_RANK.
   function noteSustainedAudioCondition({ condition } = {}) {
+    const level = condition === 'clipping' ? 'clipping' : 'quiet';
     const text = condition === 'clipping'
       ? `Audio has been clipping for over ${Math.round(CLIPPING_SUSTAINED_MS / 1000)}s — some speech may be distorted; check microphone gain or placement.`
       : `Audio has read below the noise floor for over ${Math.round(QUIET_SUSTAINED_MS / 1000)}s — check the microphone is connected and unmuted.`;
-    updateStatus(ctx, text, { level: 'audio' });
+    updateStatus(ctx, text, { level });
   }
 
-  // Mirrors clearSpeechDroppedAlert's recovery guard: only recover the rail if 'audio' is still the
-  // level actually showing, so a higher-ranked persistent condition that has since taken over (e.g.
-  // a fatal 'problem') is never clobbered back to "Listening." just because the audio condition
-  // that preceded it happened to clear.
-  function clearSustainedAudioAlert() {
-    if (ctx.state.railStatusLevel !== 'audio') return;
+  // Mirrors clearSpeechDroppedAlert's recovery guard: only recover the rail if the level actually
+  // showing is the one this condition raised, so a higher-ranked persistent condition that has
+  // since taken over (e.g. a fatal 'problem', or 'silence' outranking a cleared 'quiet') is never
+  // clobbered back to "Listening." just because the audio condition that preceded it cleared.
+  function clearSustainedAudioAlert({ condition } = {}) {
+    const level = condition === 'clipping' ? 'clipping' : 'quiet';
+    if (ctx.state.railStatusLevel !== level) return;
     const recoveredLevel = activeTranscriptionStatusLevel();
     updateStatus(ctx, recoveredLevel === 'listening' ? 'Listening.' : 'Manual mode.', {
       level: recoveredLevel
@@ -1148,7 +1155,7 @@ export function createRuntime(ctx, deps = {}) {
         if (active) {
           noteSustainedAudioCondition({ condition });
         } else {
-          clearSustainedAudioAlert();
+          clearSustainedAudioAlert({ condition });
         }
       },
       // A driver may state its own level. Sniffing prose with transcriptionStatusLevel() was the

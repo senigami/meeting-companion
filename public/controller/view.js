@@ -75,8 +75,10 @@ const RAIL_STATUS_WORDS = {
   // Confirmed, not speculative (issue #5): only set once the conditioner's own measurement has seen
   // sustained clipping or a sustained sub-noise-floor reading for its whole threshold window (see
   // CLIPPING_SUSTAINED_MS / QUIET_SUSTAINED_MS in audio-processing.js) -- never on a single tick.
-  // One shared word for both conditions; the rail note text says which one it is.
-  audio: 'Audio quality'
+  // One shared word for both conditions ('clipping' and 'quiet' rank differently, see LEVEL_RANK,
+  // but read identically here); the rail note text says which one it is.
+  clipping: 'Audio quality',
+  quiet: 'Audio quality'
 };
 
 // Levels serious enough that their rail-note explanation must stay up (no auto-hide) until the
@@ -84,40 +86,42 @@ const RAIL_STATUS_WORDS = {
 // fatal condition (INV-10); 'dropped' and 'behind' are confirmed-but-non-fatal (INV-13 data loss /
 // scheduling lag); 'silence' is not confirmed fatal, only prolonged and unexplained -- see
 // showRailPersistentNote for how all four are still styled and announced differently.
-const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'audio', 'silence']);
+const PERSISTENT_STATUS_LEVELS = new Set(['problem', 'dropped', 'behind', 'clipping', 'silence', 'quiet']);
 
-// Ordered severity for the five persistent levels, most confirmed/severe first: 'problem' (a
+// Ordered severity for the six persistent levels, most confirmed/severe first: 'problem' (a
 // confirmed fatal condition, INV-10) must never be silently replaced by a lower-ranked persistent
 // level elbowing in while it's still active -- e.g. a summarize-failure escalation followed by 45s
 // of no transcript events precisely because the server path is backed off. 'dropped' (confirmed
 // data loss) outranks 'behind' (confirmed lag, no loss yet).
 //
-// 'silence' outranks 'audio' -- Cato, gating #168 (#5's sustained-condition surface), 2026-09-01:
+// 'silence' outranks 'quiet' -- Cato, gating #168 (#5's sustained-condition surface), 2026-09-01:
 // the audio module's own "quiet" reading fires on exactly the same "not speaking" condition as the
 // transcript-side silence watchdog, both at the same 45s figure on purpose (#5 reuses
 // SILENCE_WATCHDOG_MS deliberately). A normal prayer or sermon pause in this room satisfies both,
-// and 'audio' ranked above 'silence' meant that pause displayed "check the microphone" instead of
-// the existing, already-tuned silence message -- reintroducing the exact false-alarm harm #5 itself
-// named as a real harm, not just noise. Steve's call: silence wins that collision.
+// and 'quiet' ranked above 'silence' would mean that pause displays "check the microphone" instead
+// of the existing, already-tuned silence message -- reintroducing the exact false-alarm harm #5
+// itself named as a real harm, not just noise. Steve's call: silence wins that collision.
 //
-// This does leave one known asymmetry, not yet resolved: 'audio' also covers sustained CLIPPING,
-// which cannot happen during real silence and carries no false-positive risk the way 'quiet' does --
-// so ranking it below 'silence' can in principle let an active silence message (a different
-// subsystem, keyed on transcript events rather than the audio module's own speaking/not-speaking
-// read) mask a genuine clipping fault if both happen to be active at once. Narrow and not addressed
-// here; if it matters in practice, split 'audio' into separate 'clipping' (outranks silence) and
-// 'quiet' (does not) levels instead of one shared level.
-const LEVEL_RANK = { problem: 5, dropped: 4, behind: 3, silence: 2, audio: 1 };
+// 'clipping' outranks 'silence', unlike 'quiet' -- Cato, gating #168/#169, 2026-09-02: clipping and
+// silence were originally one shared 'audio' level ranked below 'silence', which let an active
+// silence message permanently mask a genuine clipping fault if both were active at once (clipping
+// only re-raises on its own active->inactive edge, so once silence took over the rail nothing ever
+// brought clipping back). Clipping cannot occur during real silence -- there is no audio to clip --
+// so ranking it above 'silence' carries none of 'quiet''s false-positive risk.
+const LEVEL_RANK = { problem: 6, dropped: 5, behind: 4, clipping: 3, silence: 2, quiet: 1 };
 
 // Per-level rail-note presentation: a distinct Unicode prefix (WCAG 1.4.1 -- colour is not the
 // only channel) and CSS class for each persistent level, plus whether it interrupts assertively.
 // Only a confirmed fatal condition (INV-10) is announced as role="alert"; the rest are
-// role="status"/polite so they don't also start crying wolf.
+// role="status"/polite so they don't also start crying wolf. 'clipping' and 'quiet' share the same
+// glyph/class/colour (both are the audio module's own sustained-condition reading, issue #5) --
+// only their rank differs, per the LEVEL_RANK comment above.
 const PERSISTENT_LEVEL_META = {
   problem: { className: 'is-problem', prefix: '⚠ ', urgent: true },
   dropped: { className: 'is-dropped', prefix: '✂ ', urgent: false },
   behind: { className: 'is-behind', prefix: '⏳ ', urgent: false },
-  audio: { className: 'is-audio', prefix: '〰 ', urgent: false },
+  clipping: { className: 'is-audio', prefix: '〰 ', urgent: false },
+  quiet: { className: 'is-audio', prefix: '〰 ', urgent: false },
   silence: { className: 'is-silence', prefix: '⏱ ', urgent: false }
 };
 const PERSISTENT_LEVEL_CLASSES = Object.values(PERSISTENT_LEVEL_META).map((meta) => meta.className);
