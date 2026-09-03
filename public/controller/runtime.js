@@ -1818,12 +1818,23 @@ export function createRuntime(ctx, deps = {}) {
       // are the ones a reader is looking at, so restating one is the most visible possible
       // duplicate.
       //
-      // Keep ALL pending (they are already decided and are going on screen, which is why #61 added
-      // them) plus the last DEDUPE_WINDOW_LINES committed. The window is bounded either way: one
-      // call returns at most RUNAWAY_LINE_GUARD cards, so pending tops out just under that.
+      // Keep the last DEDUPE_WINDOW_LINES pending (they are already decided and are going on
+      // screen, which is why #61 added them) plus the last DEDUPE_WINDOW_LINES committed. #158 kept
+      // ALL pending here on the theory that "one call returns at most RUNAWAY_LINE_GUARD cards, so
+      // pending tops out just under that" -- true for a single summarize call, false across a
+      // meeting: enqueue appends unconditionally and the release queue drains one card per interval
+      // (as low as 2s, public/index.html), so a sustained fast pace grows pending without bound
+      // instead of draining between calls. An unbounded window is not just a memory leak -- it is
+      // MORE pending text for shouldAcceptModelLine's fuzzy dedupe to match against, so real new
+      // content late in a long meeting risks getting silently rejected as a "duplicate" of something
+      // said many minutes earlier. Ansel, #160: dedupe correctness for the one real reader outranks
+      // keeping a theoretical guarantee that does not hold under real operator settings. Slicing
+      // pending the same way as committed restores the bound without reintroducing #86: the two
+      // halves stay on separate slices, so a full burst still cannot crowd committed out of its own
+      // budget.
       const visibleLines = [
         ...ctx.state.transcriptItems.slice(-DEDUPE_WINDOW_LINES),
-        ...cardReleaseQueue.pendingItems()
+        ...cardReleaseQueue.pendingItems().slice(-DEDUPE_WINDOW_LINES)
       ].map((item) => item.text);
 
       // shouldAcceptModelLine is the same accept/reject gate the summarizer path has always run on

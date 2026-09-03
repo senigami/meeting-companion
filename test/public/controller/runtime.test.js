@@ -5471,3 +5471,51 @@ test('the dedupe window stays bounded when the release queue is empty', async ()
     assert.deepEqual(seenVisibleLines, Array.from({ length: 12 }, (_, i) => `Line ${i + 28}`));
   });
 });
+
+test('the dedupe window stays bounded when the release queue backlog outgrows one burst (#160)', async () => {
+  // #158 kept ALL pending on the theory that one call returns at most RUNAWAY_LINE_GUARD cards, so
+  // pending "tops out just under that". True per-call, false across a meeting: enqueue appends
+  // unconditionally and the queue drains one card per interval, so two bursts landing before the
+  // release timer fires leave more than RUNAWAY_LINE_GUARD sitting in pending. Ansel's ruling on
+  // #160: the pending half of the window must be capped the same as the committed half, or a long
+  // meeting hands the model an ever-growing dedupe window to fuzzy-match new content against.
+  let call = 0;
+  let seenVisibleLines = null;
+  const driver = {
+    id: 'openai',
+    summarize: async ({ visibleLines }) => {
+      call += 1;
+      if (call === 1) return { line: Array.from({ length: 12 }, (_, i) => `Burst A card ${i}.`).join('\n') };
+      if (call === 2) return { line: Array.from({ length: 12 }, (_, i) => `Burst B card ${i}.`).join('\n') };
+      seenVisibleLines = visibleLines;
+      return { line: '' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: { mode: 'information', transcriptItems: [] }
+  }, async ({ ctx, runtime }) => {
+    // Call 1: a full burst. The idle queue releases its first card immediately (commits it), leaving
+    // 11 of Burst A pending. Call 2: a second full burst lands before the release timer ever fires
+    // (the fake timer is never advanced), so it just appends -- pending is now 11 + 12 = 23, well
+    // past RUNAWAY_LINE_GUARD (12).
+    ctx.state.transcriptChunks.push({ text: 'Announcement one.', at: Date.now() - 30000, mode: 'information' });
+    await runtime.summarizeCurrentText();
+    ctx.state.transcriptChunks.push({ text: 'Announcement two.', at: Date.now() - 20000, mode: 'information' });
+    await runtime.summarizeCurrentText();
+
+    // Call 3: what the model actually sees now.
+    ctx.state.transcriptChunks.push({ text: 'Announcement three.', at: Date.now() - 10000, mode: 'information' });
+    await runtime.summarizeCurrentText();
+
+    // Committed is just "Burst A card 0." (the idle-queue fast-release from call 1). Pending must be
+    // capped at 12 -- same as committed -- not the full 23-deep backlog #158 would have kept.
+    const pendingInWindow = seenVisibleLines.slice(1);
+    assert.equal(seenVisibleLines[0], 'Burst A card 0.');
+    assert.equal(pendingInWindow.length, 12, 'pending must be capped at the runaway guard, same as committed');
+    // The cap keeps the most RECENTLY enqueued pending cards -- all of Burst B, none of the
+    // still-older Burst A leftovers -- mirroring how the committed slice keeps the most recent.
+    assert.deepEqual(pendingInWindow, Array.from({ length: 12 }, (_, i) => `Burst B card ${i}.`));
+  });
+});
