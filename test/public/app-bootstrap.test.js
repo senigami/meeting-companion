@@ -446,3 +446,189 @@ test('ready check test button calls testProviderKey and the sample button closes
     }
   }
 });
+
+// #156, gated by Cato: the fix is two runtime.js/start-app.js one-liners, but nothing exercised
+// the actual DOM bindings -- a regression that dropped `{ force: true }` from either
+// bindTranscriptSummaries call site would pass every runtime.test.js test (those call
+// summarizeCurrentText directly) while silently reintroducing the bug this issue reports. Drives
+// both real entry points (the button and the Ctrl+Enter keydown) through the actual startApp()
+// wiring while AI is paused.
+test('pressing "Summarize once" or Ctrl+Enter while paused still produces a card, via the real DOM bindings', async () => {
+  const originalDocument = global.document;
+  const originalLocalStorage = global.localStorage;
+  const originalFetch = global.fetch;
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+
+  const elements = {
+    display: createElement({ focus() {} }),
+    panel: createElement(),
+    apiWarning: createElement({ hidden: true }),
+    manualInput: createElement({ value: '' }),
+    pasteTranscript: createClickable({ value: '' }),
+    status: createElement({ textContent: '' }),
+    liveTranscript: createElement({ textContent: '' }),
+    railTranscript: createElement({ textContent: '' }),
+    railStatusDot: createElement({ classList: { toggle() {} } }),
+    railStatusWord: createElement({ textContent: '' }),
+    railNote: createElement({ textContent: '' }),
+    transcriptViewport: createElement({ scrollTop: 0, clientHeight: 600, scrollHeight: 600 }),
+    transcriptStack: createElement(),
+    fontSize: createElement({ value: '84' }),
+    fontSizeValue: createElement({ textContent: '' }),
+    displayMargin: createElement({ value: '4.5' }),
+    displayMarginValue: createElement({ textContent: '' }),
+    summaryInterval: createElement({ value: '1' }),
+    summaryIntervalValue: createElement({ textContent: '' }),
+    summaryMaxWords: createElement({ value: '2' }),
+    summaryMaxWordsValue: createElement({ textContent: '' }),
+    viewPanel: createElement({ hidden: true }),
+    viewButton: createElement(),
+    closeViewPanel: createElement(),
+    settingsPanel: createElement({ hidden: true }),
+    settingsBackdrop: createElement({ hidden: true }),
+    alertsSection: createElement({ hidden: true }),
+    settingsAlertBadge: createElement({ hidden: true }),
+    settingsButton: createElement({}),
+    closeSettings: createElement(),
+    serviceRegistrationCard: createElement(),
+    serviceRegistrationKeyInput: createElement({ value: '' }),
+    serviceRegistrationSave: createElement(),
+    serviceRegistrationTest: createElement(),
+    serviceRegistrationDelete: createElement(),
+    serviceRegistrationOpenAi: createElement({ dataset: { registerProvider: 'openai' } }),
+    serviceRegistrationClaude: createElement({ dataset: { registerProvider: 'claude' } }),
+    addManual: createElement(),
+    summarizeOnce: createClickable(),
+    startListening: createElement(),
+    stopListening: createElement({ disabled: true }),
+    pauseAi: createClickable(),
+    undo: createElement(),
+    clear: createElement(),
+    clearLabel: createElement({ textContent: 'Clear' }),
+    fullscreen: createClickable()
+  };
+
+  const modeButtons = [
+    createElement({ dataset: { mode: 'speaker' } }),
+    createElement({ dataset: { mode: 'information' } }),
+    createElement({ dataset: { mode: 'song' } }),
+    createElement({ dataset: { mode: 'prayer' } })
+  ];
+
+  const transcriptionButtons = [
+    createElement({ dataset: { kind: 'transcription', source: 'browser' } }),
+    createElement({ dataset: { kind: 'transcription', source: 'openai' } })
+  ];
+
+  const summarizationButtons = [
+    createElement({ dataset: { kind: 'summarization', source: 'openai' } }),
+    createElement({ dataset: { kind: 'summarization', source: 'claude' } })
+  ];
+
+  global.localStorage = {
+    getItem() { return null; },
+    setItem() {}
+  };
+
+  global.fetch = async (url) => {
+    if (url === '/api/summarize') {
+      return { ok: true, json: async () => ({ line: 'The meeting will resume at seven.' }) };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        // Server-issued key, not a client one -- this is what actually makes 'openai' ready at
+        // boot without the test having to drive the settings-registration flow first.
+        hasOpenAIKey: true,
+        hasAnthropicKey: false,
+        model: null,
+        sources: {
+          transcription: [
+            { id: 'browser', label: 'Browser', description: 'Browser' },
+            { id: 'openai', label: 'OpenAI', description: 'OpenAI' }
+          ],
+          summarization: [
+            { id: 'openai', label: 'OpenAI', description: 'OpenAI' },
+            { id: 'claude', label: 'Claude', description: 'Claude' }
+          ]
+        }
+      })
+    };
+  };
+
+  Object.defineProperty(global, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } },
+    writable: true
+  });
+  global.document = {
+    fullscreenElement: null,
+    documentElement: { style: { setProperty() {} }, requestFullscreen() {} },
+    exitFullscreen() {},
+    handlers: {},
+    getElementById(id) {
+      return elements[id] || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '.mode') return modeButtons;
+      if (selector === '[data-kind="transcription"]') return transcriptionButtons;
+      if (selector === '[data-kind="summarization"]') return summarizationButtons;
+      if (selector === '[data-register-provider]') {
+        return [elements.serviceRegistrationOpenAi, elements.serviceRegistrationClaude];
+      }
+      return [];
+    },
+    addEventListener(type, handler) {
+      this.handlers[type] = handler;
+    }
+  };
+
+  delete global.window;
+
+  try {
+    await import('../../public/app.js?bootstrap-test=' + Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    elements.pauseAi.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(elements.railStatusWord.textContent, 'Paused');
+
+    elements.pasteTranscript.value = 'The meeting will resume at seven.';
+    elements.summarizeOnce.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.match(
+      elements.status.textContent,
+      /Added:.*resume at seven/,
+      '"Summarize once" must still produce a card while paused'
+    );
+    assert.equal(elements.railStatusWord.textContent, 'Paused', 'the rail must not claim the pause ended');
+
+    global.fetch = async (url) => {
+      if (url === '/api/summarize') {
+        return { ok: true, json: async () => ({ line: 'A second pasted line.' }) };
+      }
+      return { ok: true, json: async () => ({ sources: { transcription: [], summarization: [] } }) };
+    };
+
+    elements.pasteTranscript.value = 'A second pasted line, sent by keyboard this time.';
+    elements.pasteTranscript.handlers.keydown({ ctrlKey: true, key: 'Enter', preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.match(
+      elements.status.textContent,
+      /Added:.*second pasted line/,
+      'Ctrl+Enter must also still produce a card while paused'
+    );
+    assert.equal(elements.railStatusWord.textContent, 'Paused');
+  } finally {
+    global.document = originalDocument;
+    global.localStorage = originalLocalStorage;
+    global.fetch = originalFetch;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(global, 'navigator', originalNavigatorDescriptor);
+    } else {
+      delete global.navigator;
+    }
+  }
+});

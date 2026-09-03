@@ -1179,6 +1179,61 @@ test('changing mode while paused still forces the final drain, and leaves the me
   });
 });
 
+// Marlow's ruling on #156: an explicit "Summarize once" / Ctrl+Enter press on caller-supplied text
+// (never a bucket drain -- runSummarizeCurrentText returns early for `text` before touching the
+// bucket, so none of INV-11's forced-drain concerns apply) must run even while AI is paused, and
+// the rail must keep reading "Paused" throughout -- not flip to "Listening"/"Manual" and imply the
+// pause ended. Warrick's lean on #156, adopted: the operator asked for one specific card about text
+// they supplied by hand, so silently swallowing the press is worse than running it.
+test('"Summarize once" on pasted text runs while paused, and the rail keeps reading Paused', async () => {
+  const driver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'The meeting will resume at seven.' })
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.togglePauseAi();
+    assert.equal(ctx.state.paused, true);
+    assert.equal(elements.railStatusWord.textContent, 'Paused');
+
+    await runtime.summarizeCurrentText('pasted transcript text', { force: true });
+
+    assert.equal(
+      ctx.state.transcriptItems.some((item) => item.text === 'The meeting will resume at seven.'),
+      true,
+      'the explicit press must still produce a card'
+    );
+    assert.equal(ctx.state.paused, true, 'force must never itself clear paused');
+    assert.equal(elements.railStatusWord.textContent, 'Paused', 'the rail must not claim the pause ended');
+    assert.equal(ctx.state.railStatusLevel, 'paused');
+  });
+});
+
+test('"Summarize once" on pasted text is silently dropped while AI is paused and force is omitted', async () => {
+  // Companion case: without an explicit force, the pre-existing pause gate is untouched -- this
+  // guards against a future edit accidentally making force the default for every caller.
+  let calls = 0;
+  const driver = {
+    id: 'openai',
+    summarize: async () => {
+      calls += 1;
+      return { line: 'should not run' };
+    }
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver
+  }, async ({ ctx, runtime }) => {
+    await runtime.togglePauseAi();
+    await runtime.summarizeCurrentText('pasted transcript text');
+
+    assert.equal(calls, 0, 'without force, pause must still block the call exactly as before #156');
+    assert.equal(ctx.state.transcriptItems.length, 0);
+  });
+});
+
 // #151 (split off #62, Steve's proposed fix verbatim): a provider switch landing between a
 // summarize call going out and its result coming back must not attribute that result to the new
 // provider. Tags the in-flight call with the source it was issued under and discards a result

@@ -406,13 +406,22 @@ function bindManualEntry(ctx, runtime) {
 }
 
 function bindTranscriptSummaries(ctx, runtime) {
+  // #156, Marlow's call: this is caller-supplied text, never a bucket drain (runSummarizeCurrentText
+  // returns early for it before touching the bucket), so INV-11's forced-drain concerns don't apply
+  // here -- the only thing `force` bypasses on this path is summarizeCurrentText's own
+  // `if (ctx.state.paused) return;` gate. An operator who pastes text and explicitly presses
+  // Ctrl/Cmd+Enter or "Summarize once" is asking for one specific card about text they supplied by
+  // hand; silently swallowing that press because AI happens to be paused (including an automatic
+  // song-mode pause the operator never chose) is worse than running it. `force: true` never clears
+  // ctx.state.paused, so the rail keeps reading "Paused" throughout -- see runtime.js's `paused`
+  // override of recoveredLevel.
   ctx.dom.pasteTranscript.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return;
     e.preventDefault();
-    runtime.summarizeCurrentText(ctx.dom.pasteTranscript.value);
+    runtime.summarizeCurrentText(ctx.dom.pasteTranscript.value, { force: true });
   });
 
-  $('summarizeOnce').addEventListener('click', () => runtime.summarizeCurrentText(ctx.dom.pasteTranscript.value));
+  $('summarizeOnce').addEventListener('click', () => runtime.summarizeCurrentText(ctx.dom.pasteTranscript.value, { force: true }));
 }
 
 // `plaintext-only` (Chromium/Firefox) blocks a paste or an Enter press from inserting real markup

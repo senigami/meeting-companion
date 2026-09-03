@@ -1944,7 +1944,15 @@ export function createRuntime(ctx, deps = {}) {
         ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
         showRecentTranscript();
       }
-      const recoveredLevel = activeTranscriptionStatusLevel();
+      // #156: a forced call (INV-11's flush, or an explicit "Summarize once" while paused) can
+      // land its result while ctx.state.paused is still true -- force never clears paused itself
+      // (#150). activeTranscriptionStatusLevel() only ever answers 'listening'/'manual'; it has no
+      // notion of paused at all, so using it here unconditionally would flip the rail off "Paused"
+      // and onto a word that claims the mic/AI pipeline resumed when nothing about that state
+      // changed. Reporting 'paused' instead keeps the rail truthful: the card the operator asked
+      // for still lands, but the live status stays exactly what it was before they pressed the
+      // button.
+      const recoveredLevel = ctx.state.paused ? 'paused' : activeTranscriptionStatusLevel();
       if (result.line) {
         // Labelled from the CHUNK's own mode/speaker (sendMode/sendSpeaker), not current state --
         // backlogged speech must read under the mode and speaker it was actually said in, even if
