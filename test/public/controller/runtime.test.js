@@ -4026,6 +4026,226 @@ test('closing the settings panel stops an active mic level test', async () => {
   });
 });
 
+// #37: startListening() now runs its own automatic mic probe for the browser source, warning on
+// the rail before the reactive 45s watchdog (#94) ever gets a chance to notice a silent device.
+test('starting browser transcription probes the default mic and warns the rail on digital silence', async () => {
+  let stopped = false;
+  const fakeProbe = {
+    async start() {
+      return { ok: true, calibration: { ambientFloorDbfs: -Infinity, gateDbfs: null, tooNoisy: false, measuredAt: Date.now() } };
+    },
+    readLevels() { return null; },
+    stop() { stopped = true; }
+  };
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    // The probe is fire-and-forget (never awaited by startListening, so the rail note never
+    // delays "Listening."), so let its already-resolved promise chain run before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(
+      elements.status.textContent,
+      'This microphone is delivering silence -- check it is unmuted, connected, and (if it is a laptop\'s built-in mic) that the lid is open.'
+    );
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), true);
+    assert.equal(stopped, true, 'the probe must release its own mic track once it has its reading');
+  });
+});
+
+test('starting browser transcription with a real-sounding room leaves the rail alone', async () => {
+  const fakeProbe = {
+    async start() {
+      return { ok: true, calibration: { ambientFloorDbfs: -45, gateDbfs: -40, tooNoisy: false, measuredAt: Date.now() } };
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(elements.status.textContent, 'Listening.');
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), false);
+  });
+});
+
+test('a failed automatic mic probe is swallowed, not thrown, and never blocks starting to listen', async () => {
+  const fakeProbe = {
+    async start() {
+      throw new Error('getUserMedia denied');
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = {
+    id: 'browser',
+    label: 'Browser',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ elements, runtime }) => {
+    await assert.doesNotReject(runtime.startListening());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(elements.status.textContent, 'Listening.');
+  });
+});
+
+test('the automatic mic probe never runs for the openai transcription source', async () => {
+  let started = false;
+  const fakeProbe = {
+    async start() {
+      started = true;
+      return { ok: true, calibration: { ambientFloorDbfs: -Infinity } };
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = {
+    id: 'openai',
+    label: 'OpenAI',
+    isLive: true,
+    async start() {},
+    async stop() {},
+    setMode() {}
+  };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe,
+    stateOverrides: { transcriptionSource: 'openai', openAiReady: true }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(started, false, 'the OpenAI source path must never be touched by the browser-only probe');
+    assert.equal(elements.status.textContent, 'Listening.');
+  });
+});
+
+// --- #37: proactive digital-silence probe on browser transcription start ----------------------
+// browser.js's own reactive check (#94) only fires after two no-speech timeouts and a 45s floor.
+// The four core scenarios (warns on silence, stays quiet on real signal, never runs for
+// non-browser sources, swallows a probe failure) are already covered by the tests just above.
+// This adds the one thing they don't prove: that startListening() genuinely never awaits the
+// probe at all, rather than just happening to resolve fast in the fakes above.
+
+test('startListening does not wait on the digital-silence probe before returning (fire-and-forget)', async () => {
+  let resolveProbe;
+  const fakeProbe = {
+    start() {
+      return new Promise((resolve) => { resolveProbe = resolve; });
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = { id: 'browser', label: 'Browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ ctx, runtime }) => {
+    // If startListening awaited the probe, this would hang forever (resolveProbe is never called
+    // until after the assertion below).
+    await runtime.startListening();
+    assert.equal(ctx.state.listening, true);
+    resolveProbe({ ok: true });
+  });
+});
+
+// review-adversarial (Saboteur), 2026-09-10: createMicProbeFn is invoked synchronously, outside
+// any per-call try/catch, from inside startListening()'s own try block -- a factory that throws
+// before start() is even called used to propagate out as "Could not start listening", masking a
+// driver.start() that had already succeeded.
+test('a mic-probe factory that throws synchronously never fails startListening or masks a successful driver start', async () => {
+  const driver = { id: 'browser', label: 'Browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => { throw new Error('factory exploded'); }
+  }, async ({ ctx, runtime }) => {
+    await assert.doesNotReject(runtime.startListening());
+    assert.equal(ctx.state.listening, true, 'the driver had already started; a probe-construction failure must not undo that');
+    assert.equal(ctx.dom.status.textContent, 'Listening.');
+  });
+});
+
+test('a probe rejection from the digital-silence check never surfaces as an unhandled rejection or throws', async () => {
+  const fakeProbe = {
+    async start() { throw new Error('boom'); },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = { id: 'browser', label: 'Browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ runtime }) => {
+    await assert.doesNotReject(runtime.startListening());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+});
+
+// A fire-and-forget probe can resolve after Stop was already pressed. It must not stomp the rail
+// with a stale silence warning once nobody is listening any more.
+test('a digital-silence probe that resolves after Stop was pressed does not touch the rail', async () => {
+  let resolveProbe;
+  const fakeProbe = {
+    start() {
+      return new Promise((resolve) => { resolveProbe = resolve; });
+    },
+    readLevels() { return null; },
+    stop() {}
+  };
+  const driver = { id: 'browser', label: 'Browser', isLive: true, async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    stateOverrides: { transcriptionSource: 'browser' },
+    createTranscriptionDriverFn: () => driver,
+    createMicProbeFn: () => fakeProbe
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    await runtime.stopListening();
+    resolveProbe({ ok: true, calibration: { ambientFloorDbfs: -Infinity } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(elements.railStatusDot.classList.contains('is-level-silence'), false);
+  });
+});
+
 // Replay is a recorded session, not a live feed (GitHub issue #3). The driver states its own
 // honest level, but startListening() used to overwrite that with "Listening." at rail level
 // `listening` for every driver alike -- so the rail read "Listening" while a recording played, and

@@ -1118,6 +1118,58 @@ export function createRuntime(ctx, deps = {}) {
     await startAudioLevelTest();
   }
 
+  // #37: browser transcription (unlike openai.js) hands the Web Speech API no device choice at
+  // all -- it always gets whatever the browser considers the DEFAULT input, so a probe run here
+  // deliberately omits deviceId rather than reusing ctx.state.audioDeviceId. A closed laptop lid
+  // hands Chrome the built-in mic in a state that enumerates, opens, and fires onaudiostart while
+  // measuring pure digital silence (ambientFloorDbfs === -Infinity), which is exactly what
+  // reportedSilentDevice in browser.js only notices after two no-speech timeouts (#94's ~10-16s
+  // floor). This runs concurrently with the driver's own start() -- not awaited by it -- so it
+  // never delays the "Listening." status on the rail with its ~1.5s calibration window; it only
+  // ever raises a warning earlier than #94 would, never blocks or replaces the driver starting.
+  // Reuses the existing 'silence' rail level rather than adding a new one: same wording family,
+  // same recovery path (noteTranscriptActivity already clears 'silence' the moment real audio
+  // arrives), so nothing new has to know how to clear this.
+  function probeDefaultMicForDigitalSilence() {
+    // Diagnostic only, and called from inside startListening()'s try block: a synchronous throw
+    // right here (a bad factory, a settings accessor that throws) must never be mistaken for
+    // driver.start() itself failing -- that would report "Could not start listening" while the
+    // real driver had already started successfully, which is worse than the silence warning this
+    // exists to catch. Same best-effort posture as the async .catch() below, just covering the
+    // synchronous half of the call.
+    let probe;
+    try {
+      probe = createMicProbeFn({ audioSettings: buildAudioSettings() });
+    } catch {
+      return;
+    }
+    probe
+      .start()
+      .then((result) => {
+        // Fire-and-forget means this can resolve well after Stop was pressed, or after the
+        // operator switched sources -- either way "listening on browser" may no longer be true
+        // by the time this callback runs, and stomping the rail with a stale silence warning
+        // then would be wrong (nobody is listening, or a different driver already owns the rail).
+        if (
+          ctx.state.listening &&
+          ctx.state.transcriptionSource === 'browser' &&
+          result?.ok &&
+          result.calibration?.ambientFloorDbfs === -Infinity
+        ) {
+          updateStatus(
+            ctx,
+            'This microphone is delivering silence -- check it is unmuted, connected, and (if it is a laptop\'s built-in mic) that the lid is open.',
+            { level: 'silence' }
+          );
+        }
+      })
+      .catch(() => {
+        // Best-effort only: a probe that fails to open (permission denied, no device) is not itself
+        // evidence of digital silence, and the real driver's own start() reports its own failures.
+      })
+      .finally(() => probe.stop());
+  }
+
   function buildTranscriptionDriver() {
     return createTranscriptionDriverFn(ctx.state.transcriptionSource, {
       onEvent: handleTranscriptEvent,
@@ -2409,6 +2461,9 @@ export function createRuntime(ctx, deps = {}) {
 
     try {
       await driver.start({ currentMode: ctx.state.mode });
+      // #37: fire-and-forget, browser source only -- see probeDefaultMicForDigitalSilence's own
+      // comment for why this never awaits and never touches the openai.js path.
+      if (ctx.state.transcriptionSource === 'browser') probeDefaultMicForDigitalSilence();
       // NOT a liveness signal -- this only means "a transcription driver is running" and
       // stop/pause/loop logic depends on that. Whether a microphone is actually live comes from
       // the driver's own `isLive` via activeTranscriptionStatusLevel().
