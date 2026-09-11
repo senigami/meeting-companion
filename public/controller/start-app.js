@@ -38,6 +38,7 @@ import {
   updateModeButtons,
   updatePauseButton,
   updateSourceButtons,
+  syncAudioConditioningControls,
   renderProgramPanel,
   updateSpeakerDatalist
 } from './view.js';
@@ -604,15 +605,14 @@ function bindControlButtons(ctx, runtime) {
   }
   if (ctx.dom.audioConditioningEnabledInput) {
     ctx.dom.audioConditioningEnabledInput.checked = ctx.state.audioConditioningEnabled;
-    if (ctx.dom.audioProcessingPresetSelect) {
-      ctx.dom.audioProcessingPresetSelect.value = ctx.state.audioProcessingPreset;
-      ctx.dom.audioProcessingPresetSelect.disabled = !ctx.state.audioConditioningEnabled;
-    }
+    if (ctx.dom.audioProcessingPresetSelect) ctx.dom.audioProcessingPresetSelect.value = ctx.state.audioProcessingPreset;
+    // Initial disabled/title state (both "off until the master switch is on" and "unavailable on any
+    // source but OpenAI") is set once by updateSourceButtons() at the end of startApp() below -- this
+    // listener re-syncs the same function on every toggle rather than re-deriving the condition here,
+    // so the two can never drift apart (see docs/08-audio-conditioning.md on the source restriction).
     ctx.dom.audioConditioningEnabledInput.addEventListener('change', (event) => {
       runtime.setAudioConditioningEnabled(event.target.checked);
-      if (ctx.dom.audioProcessingPresetSelect) {
-        ctx.dom.audioProcessingPresetSelect.disabled = !event.target.checked;
-      }
+      syncAudioConditioningControls(ctx);
     });
   }
   ctx.dom.audioProcessingPresetSelect?.addEventListener('change', (event) => {
