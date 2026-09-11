@@ -15,7 +15,6 @@ import { fetchWithTimeout } from '../services/fetch-timeout.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
   AUDIO_SETTINGS_KEYS,
-  clampAudioBoolean,
   clampAudioProcessingPreset,
   clampDisplayMargin,
   clampFontSize,
@@ -1456,7 +1455,10 @@ export function createRuntime(ctx, deps = {}) {
   }
 
   function setAudioConditioningEnabled(nextEnabled) {
-    ctx.state.audioConditioningEnabled = clampAudioBoolean(String(Boolean(nextEnabled)), ctx.state.audioConditioningEnabled);
+    // clampAudioBoolean (view-settings.js) exists to parse the literal 'true'/'false' strings read
+    // back OUT of localStorage, where an absent/garbled key needs a fallback -- it isn't needed here,
+    // since Boolean(nextEnabled) is always a real boolean with nothing to fall back to.
+    ctx.state.audioConditioningEnabled = Boolean(nextEnabled);
     localStorage.setItem(STORAGE.audioConditioningEnabled, String(ctx.state.audioConditioningEnabled));
   }
 
