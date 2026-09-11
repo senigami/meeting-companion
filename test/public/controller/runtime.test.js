@@ -4680,6 +4680,35 @@ test('turning recording off before the header has been flushed does not leave th
   });
 });
 
+test('setAudioProcessingPreset clamps to a known option and persists it (issue #7)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { audioProcessingPreset: 'gentle' }
+  }, async ({ ctx, runtime }) => {
+    runtime.setAudioProcessingPreset('normal');
+    assert.equal(ctx.state.audioProcessingPreset, 'normal');
+    assert.equal(localStorage.getItem('audioProcessingPreset'), 'normal');
+
+    // An unrecognised value falls back to the current setting rather than being stored verbatim.
+    runtime.setAudioProcessingPreset('bogus');
+    assert.equal(ctx.state.audioProcessingPreset, 'normal');
+    assert.equal(localStorage.getItem('audioProcessingPreset'), 'normal');
+  });
+});
+
+test('setAudioConditioningEnabled toggles the master switch and persists it (issue #7)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { audioConditioningEnabled: false }
+  }, async ({ ctx, runtime }) => {
+    runtime.setAudioConditioningEnabled(true);
+    assert.equal(ctx.state.audioConditioningEnabled, true);
+    assert.equal(localStorage.getItem('audioConditioningEnabled'), 'true');
+
+    runtime.setAudioConditioningEnabled(false);
+    assert.equal(ctx.state.audioConditioningEnabled, false);
+    assert.equal(localStorage.getItem('audioConditioningEnabled'), 'false');
+  });
+});
+
 test('several cards from one summary are released one at a time, not dropped on the wall together', async () => {
   // A live summarize call is one card per call now (2026-08-10), but addLine's own multi-line
   // splitting is still real, general-purpose behaviour -- exercised here directly, and for real by

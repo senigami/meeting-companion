@@ -303,6 +303,8 @@ export function startApp() {
       stopListening: $('stopListening'),
       fullscreen: $('fullscreen'),
       audioDeviceSelect: $('audioDeviceSelect'),
+      audioConditioningEnabledInput: $('audioConditioningEnabledInput'),
+      audioProcessingPresetSelect: $('audioProcessingPresetSelect'),
       recordingEnabledInput: $('recordingEnabledInput'),
       audioLevelTestButton: $('audioLevelTestButton'),
       audioLevelBar: $('audioLevelBar'),
@@ -600,6 +602,22 @@ function bindControlButtons(ctx, runtime) {
       runtime.setRecordingEnabled(event.target.checked);
     });
   }
+  if (ctx.dom.audioConditioningEnabledInput) {
+    ctx.dom.audioConditioningEnabledInput.checked = ctx.state.audioConditioningEnabled;
+    if (ctx.dom.audioProcessingPresetSelect) {
+      ctx.dom.audioProcessingPresetSelect.value = ctx.state.audioProcessingPreset;
+      ctx.dom.audioProcessingPresetSelect.disabled = !ctx.state.audioConditioningEnabled;
+    }
+    ctx.dom.audioConditioningEnabledInput.addEventListener('change', (event) => {
+      runtime.setAudioConditioningEnabled(event.target.checked);
+      if (ctx.dom.audioProcessingPresetSelect) {
+        ctx.dom.audioProcessingPresetSelect.disabled = !event.target.checked;
+      }
+    });
+  }
+  ctx.dom.audioProcessingPresetSelect?.addEventListener('change', (event) => {
+    runtime.setAudioProcessingPreset(event.target.value);
+  });
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
   ctx.dom.settingsPanel?.addEventListener('close', () => runtime.setSettingsOpen(false, { focusReturn: true }));

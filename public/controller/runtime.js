@@ -15,6 +15,8 @@ import { fetchWithTimeout } from '../services/fetch-timeout.js';
 import { getDefaultSummarizationSource } from '../services/catalog.js';
 import {
   AUDIO_SETTINGS_KEYS,
+  clampAudioBoolean,
+  clampAudioProcessingPreset,
   clampDisplayMargin,
   clampFontSize,
   clampFontFamily,
@@ -1435,6 +1437,27 @@ export function createRuntime(ctx, deps = {}) {
     }
     el.textContent = 'Recording session to a local file.';
     el.dataset.state = 'on';
+  }
+
+  // Issue #7: the conditioning graph (audio-processing.js) and its master switch have existed since
+  // before this app had any way to reach them -- audioConditioningEnabled defaulted to false with no
+  // control, so the whole graph was dead weight nobody could turn on. Steve's ruling on the issue was
+  // to expose rather than delete, while a preset picker plus the master toggle covers what an operator
+  // actually needs to experiment (the individual filter nodes -- high-pass Hz, compressor, limiter, and
+  // the three browser constraints -- stay hand-edit-only: AUDIO_SETTINGS_DEFAULTS above documents the
+  // browser constraints specifically as a room-acoustics judgment call with no measurements behind it
+  // yet, not something a picker should paper over). Both setters follow setRecordingEnabled's pattern:
+  // update state, persist immediately, no restart of an in-progress capture -- buildAudioSettings()
+  // reads ctx.state fresh the next time the mic opens (createMicProbeFn/createTranscriptionDriver call
+  // sites above), the same way a changed audioDeviceId only takes effect on the next open.
+  function setAudioProcessingPreset(nextPreset) {
+    ctx.state.audioProcessingPreset = clampAudioProcessingPreset(nextPreset, ctx.state.audioProcessingPreset);
+    localStorage.setItem(STORAGE.audioProcessingPreset, ctx.state.audioProcessingPreset);
+  }
+
+  function setAudioConditioningEnabled(nextEnabled) {
+    ctx.state.audioConditioningEnabled = clampAudioBoolean(String(Boolean(nextEnabled)), ctx.state.audioConditioningEnabled);
+    localStorage.setItem(STORAGE.audioConditioningEnabled, String(ctx.state.audioConditioningEnabled));
   }
 
   function setRecordingEnabled(nextEnabled) {
@@ -2863,6 +2886,8 @@ export function createRuntime(ctx, deps = {}) {
     clearLines,
     handleTranscriptEvent,
     setRecordingEnabled,
+    setAudioProcessingPreset,
+    setAudioConditioningEnabled,
     // Exposed so a test (or a future replay/diagnostics tool) can trigger a flush deterministically
     // instead of waiting on the real setInterval inside startLoop.
     flushRecordingQueue,
