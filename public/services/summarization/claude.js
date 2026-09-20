@@ -52,7 +52,10 @@ export function createClaudeSummarizer({
         // than this client's cap allows, which is precisely the #63 shape. Summing turned that alarm
         // into an indistinguishable larger number; separate, it is the one signal that would catch the
         // next #63 without anybody tracing the path by hand.
-        discardedByCapClient: discardedByCap
+        discardedByCapClient: discardedByCap,
+        // #177: see openai.js -- the server is the only place that ever sees the raw reply before
+        // rejection, so this is passed through rather than re-derived from `data.line`.
+        unanswered: Boolean(data.unanswered)
       };
     }
   };

@@ -1234,6 +1234,75 @@ test('"Summarize once" on pasted text is silently dropped while AI is paused and
   });
 });
 
+// #177: the actual bug. A 200 OK carrying a refusal/non-answer used to drain the bucket exactly
+// like a real accepted card, because the drain only ever checked `paused`/provider-switch, never
+// whether the reply was judged an actual answer. result.unanswered (summary-prompt.js) is now
+// checked the same way a thrown error already is (INV-11): the chunk must survive, uneaten, for
+// the next tick to re-send.
+test('a non-answer reply (result.unanswered) does not drain the bucket -- the real speech is re-sent next tick', async () => {
+  const driver = {
+    id: 'openai',
+    summarize: async () => ({ line: '', unanswered: true })
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('Okay so here we are on test number three And');
+
+    assert.equal(ctx.state.transcriptItems.length, 0, 'a non-answer must never land on the wall as if it were a card');
+    assert.equal(ctx.state.transcriptChunks.length, 1, 'the real spoken text must survive the call, exactly like a thrown error (INV-11)');
+  });
+});
+
+// The retry cap already exists for a thrown error (escalateSummarizeFailure at 3 failures); a
+// non-answer must trip the SAME counter rather than looping forever if a provider keeps giving
+// well-formed-but-wrong replies.
+test('three consecutive non-answer replies escalate exactly like three thrown errors would', async () => {
+  const driver = {
+    id: 'openai',
+    summarize: async () => ({ line: '', unanswered: true })
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver,
+    stateOverrides: {
+      transcriptChunks: [{ text: 'a very important announcement', at: Date.now() }]
+    }
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('first non-answer text');
+    assert.equal(ctx.state.summarizeFailureCount, 1);
+
+    await runtime.summarizeCurrentText('second non-answer text');
+    assert.equal(ctx.state.summarizeFailureCount, 2);
+
+    await runtime.summarizeCurrentText('third non-answer text');
+    assert.equal(ctx.state.summarizeFailureCount, 3);
+    assert.equal(ctx.state.summarizeFailureAlertActive, true);
+  });
+});
+
+// A real accepted reply must still drain normally -- the new check must not hold back legitimate
+// content.
+test('an ordinary accepted reply still drains the bucket as before', async () => {
+  const driver = {
+    id: 'openai',
+    summarize: async () => ({ line: 'Sacrament meeting starts at nine.' })
+  };
+
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => driver
+  }, async ({ ctx, runtime }) => {
+    await runtime.summarizeCurrentText('real spoken content');
+
+    assert.equal(ctx.state.transcriptItems.length, 1, 'the accepted card must still land as before');
+    assert.equal(ctx.state.lastSentText, 'real spoken content');
+  });
+});
+
 // #151 (split off #62, Steve's proposed fix verbatim): a provider switch landing between a
 // summarize call going out and its result coming back must not attribute that result to the new
 // provider. Tags the in-flight call with the source it was issued under and discards a result

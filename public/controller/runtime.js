@@ -1921,7 +1921,15 @@ export function createRuntime(ctx, deps = {}) {
         discardedByCapClient: result.discardedByCapClient
       }));
 
-      resetSummarizeBackoff();
+      // #177: a non-answer reply must not be treated as the recovery signal resetSummarizeBackoff
+      // represents (it clears the failure count, the backoff interval, and every alert it owns) --
+      // otherwise a provider that keeps returning non-answers never accumulates toward the
+      // escalation threshold below, because every single tick would reset it right back to zero
+      // before the check ever ran. Kept in its ORIGINAL position (before the pause/provider-switch
+      // guards below) -- several existing tests depend on resetSummarizeBackoff firing there, not
+      // after the pause guard, to observe pause-recovery status text correctly (see
+      // "resetSummarizeBackoff(), before summarizeCurrentText's own ... guard" in runtime.test.js).
+      if (!result.unanswered) resetSummarizeBackoff();
 
       // #150: an ordinary tick must still bail here on a pause that landed WHILE the network call
       // was in flight (INV-11 -- a pause-interrupted request re-sends the same sentences next
@@ -1937,13 +1945,6 @@ export function createRuntime(ctx, deps = {}) {
       // means the provider switched AGAIN during that retry's own round trip -- rare enough to
       // accept the discard rather than retry without bound.
       if (issuedSource !== null && issuedSource !== ctx.state.summarizationSource) return false;
-      // The bucket only drains on success while unpaused (or forced) -- a failed or
-      // pause-interrupted request re-sends the same sentences next tick (INV-11).
-      ctx.state.lastSentText = recent;
-      if (consumedChunks?.length) {
-        ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
-        showRecentTranscript();
-      }
       // #156: a forced call (INV-11's flush, or an explicit "Summarize once" while paused) can
       // land its result while ctx.state.paused is still true -- force never clears paused itself
       // (#150). activeTranscriptionStatusLevel() only ever answers 'listening'/'manual'; it has no
@@ -1952,7 +1953,39 @@ export function createRuntime(ctx, deps = {}) {
       // changed. Reporting 'paused' instead keeps the rail truthful: the card the operator asked
       // for still lands, but the live status stays exactly what it was before they pressed the
       // button.
+      //
+      // Hoisted above the #177 unanswered check below so both branches can report the same
+      // truthful level -- neither one is a "paused/manual" state change, so both should read it.
       const recoveredLevel = ctx.state.paused ? 'paused' : activeTranscriptionStatusLevel();
+      // #177: a 200 OK carrying an off-topic non-answer is, for INV-11's purposes, the same as a
+      // thrown error -- the model never actually attempted to summarize, so the real spoken text
+      // must not be discarded. result.unanswered is only ever set by the server (the one place that
+      // sees the raw reply before shouldAcceptModelLine rejects it), never by the
+      // verbatim-passthrough branch above, and deliberately never for a plain refusal (see
+      // cleanModelLinesWithLoss's own comment: a refusal must not count against this counter, an
+      // existing decision this fix does not reopen). Reuses the exact failure counter and
+      // escalation a thrown error already trips (below in the catch block) rather than inventing a
+      // second retry mechanism, so a provider that keeps giving non-answers still eventually
+      // surfaces to the operator instead of retrying forever.
+      if (result.unanswered) {
+        ctx.state.summarizeFailureCount = (ctx.state.summarizeFailureCount || 0) + 1;
+        if (ctx.state.summarizeFailureCount === 3) {
+          escalateSummarizeFailure();
+        }
+        updateStatus(
+          ctx,
+          'Reply did not summarize the transcript; retrying.',
+          ctx.state.summarizeFailureAlertActive ? { level: 'problem' } : { level: recoveredLevel }
+        );
+        return false;
+      }
+      // The bucket only drains on success while unpaused (or forced) -- a failed or
+      // pause-interrupted request re-sends the same sentences next tick (INV-11).
+      ctx.state.lastSentText = recent;
+      if (consumedChunks?.length) {
+        ctx.state.transcriptChunks = removeConsumed(ctx.state.transcriptChunks, consumedChunks);
+        showRecentTranscript();
+      }
       if (result.line) {
         // Labelled from the CHUNK's own mode/speaker (sendMode/sendSpeaker), not current state --
         // backlogged speech must read under the mode and speaker it was actually said in, even if

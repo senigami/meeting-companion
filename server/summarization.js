@@ -203,7 +203,7 @@ function finishReply(rawText, visibleLines) {
 // shortening. maxLines stays a generous safety cap (RUNAWAY_LINE_GUARD, not 1) purely against a
 // truly runaway reply; an ordinary 2-3 sentence answer never comes close to it.
 function finishLines(rawText, visibleLines) {
-  const { accepted: acceptedLines, discardedByCap } = cleanModelLinesWithLoss(rawText, visibleLines, { maxLines: RUNAWAY_LINE_GUARD });
+  const { accepted: acceptedLines, discardedByCap, unanswered } = cleanModelLinesWithLoss(rawText, visibleLines, { maxLines: RUNAWAY_LINE_GUARD });
   const joined = acceptedLines.join(' ');
   const shortened = shortenToLimit(joined, DISPLAY_LINE_MAX_CHARS);
 
@@ -211,7 +211,12 @@ function finishLines(rawText, visibleLines) {
   // failures: shortening trims a line's characters and the line still arrives, while a discard means
   // real speech never reached the reader. Collapsing them into one boolean is what made three
   // successive silent-loss defects look like clean calls.
-  return { line: shortened, wasShortened: shortened !== joined, discardedByCap };
+  //
+  // unanswered (#177) is reported for the same reason: this is the one place that ever sees the raw
+  // reply before rejection, since the client re-runs cleanModelLinesWithLoss only on what this
+  // function already accepted. Without carrying it across the wire, the caller has no way to tell a
+  // refusal/non-answer apart from a call that genuinely had nothing new to add.
+  return { line: shortened, wasShortened: shortened !== joined, discardedByCap, unanswered };
 }
 
 async function summarizeWithClaude({

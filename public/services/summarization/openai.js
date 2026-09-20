@@ -54,7 +54,13 @@ export function createOpenAISummarizer({
         // than this client's cap allows, which is precisely the #63 shape. Summing turned that alarm
         // into an indistinguishable larger number; separate, it is the one signal that would catch the
         // next #63 without anybody tracing the path by hand.
-        discardedByCapClient: discardedByCap
+        discardedByCapClient: discardedByCap,
+        // #177: passed straight through from the server, which is the only place that ever sees the
+        // raw reply before rejection -- by the time it reaches `data.line`, a refusal/non-answer is
+        // already filtered out, so re-running cleanModelLinesWithLoss here could never rediscover it.
+        // runtime.js uses this to hold back the transcript-bucket drain the same way a thrown error
+        // already does (INV-11), instead of only gating display.
+        unanswered: Boolean(data.unanswered)
       };
     }
   };

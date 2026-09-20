@@ -32,3 +32,26 @@ test('openai summarizer never forwards previousBlock, even if a caller still pas
   assert.equal(request.url, '/api/summarize');
   assert.ok(!('previousBlock' in JSON.parse(request.options.body)));
 });
+
+// #177: `unanswered` is passed straight through from the server response. The server is the only
+// place that ever sees the raw reply before cleanModelLinesWithLoss rejects it -- by the time
+// `data.line` reaches this driver, a refusal/non-answer is already filtered out of it, so
+// re-deriving the flag from `data.line` here would always read false. runtime.js relies on this to
+// hold back the transcript-bucket drain (INV-11).
+test('openai summarizer passes the server-reported `unanswered` flag through unchanged', async () => {
+  const summarizer = createOpenAISummarizer({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '', unanswered: true }) })
+  });
+
+  const result = await summarizer.summarize({ recentTranscript: 'Real spoken content.', visibleLines: [] });
+  assert.equal(result.unanswered, true);
+});
+
+test('openai summarizer reports `unanswered: false` for an ordinary accepted reply', async () => {
+  const summarizer = createOpenAISummarizer({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: 'Sacrament meeting starts at nine.' }) })
+  });
+
+  const result = await summarizer.summarize({ recentTranscript: 'Real spoken content.', visibleLines: [] });
+  assert.equal(result.unanswered, false);
+});

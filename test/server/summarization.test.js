@@ -18,6 +18,38 @@ function openaiFetch(handler) {
   };
 }
 
+// #177: the server is the only place that ever sees a raw model reply before rejection, so it's
+// the only place that can report `unanswered` -- the client drivers just pass it through (see
+// test/public/services/summarization/{openai,claude}.test.js).
+test('a real #177 non-answer reply is reported unanswered, holding back what the caller drains', async () => {
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'No content to summarize.' } }] }));
+  const result = await summarizeWithSource({
+    source: 'openai', recentTranscript: 'Real spoken content the model ignored.', openaiApiKey: 'test-key', fetchImpl
+  });
+  assert.equal(result.line, '');
+  assert.equal(result.unanswered, true);
+});
+
+test('an ordinary accepted reply is reported `unanswered: false`', async () => {
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: 'Sacrament meeting starts at nine.' } }] }));
+  const result = await summarizeWithSource({
+    source: 'openai', recentTranscript: 'Real spoken content.', openaiApiKey: 'test-key', fetchImpl
+  });
+  assert.equal(result.line, 'Sacrament meeting starts at nine.');
+  assert.equal(result.unanswered, false);
+});
+
+// A genuinely empty reply (the model had nothing new to add) must NOT be reported unanswered --
+// that would trip the same retry-and-escalate path as a real refusal/non-answer for no reason.
+test('an empty reply (nothing new to say) is not reported unanswered', async () => {
+  const fetchImpl = openaiFetch(() => ({ choices: [{ message: { content: '' } }] }));
+  const result = await summarizeWithSource({
+    source: 'openai', recentTranscript: 'Real spoken content.', openaiApiKey: 'test-key', fetchImpl
+  });
+  assert.equal(result.line, '');
+  assert.equal(result.unanswered, false);
+});
+
 // Both providers send a real message array (buildMinimalSummarizeMessages) -- see
 // server/summarization.js's comment.
 test('OpenAI summarize with no history sends a system message plus one user turn', async () => {
