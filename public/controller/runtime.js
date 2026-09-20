@@ -172,7 +172,7 @@ export const SILENCE_WATCHDOG_MS = 45000;
 // Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
 // event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,
 // partitionBucket's own punctuation rule holds the newest chunk hostage for the full
-// BUCKET_SETTLE_MS (20s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
+// BUCKET_SETTLE_MS (2s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
 // chunk arrives and appears to start a fresh sentence while the unpunctuated tail from before it
 // is still sitting unsent. "No audio" is not observable on the Chrome path (it exposes no levels
 // for its own internal mic), so the trigger is "no new recognition event of any kind, partial or
