@@ -149,7 +149,7 @@ export function clampAudioBoolean(value, fallback) {
 }
 
 // audioConditioningEnabled defaults to false: the conditioning graph in
-// public/services/audio-processing.js has never run against real hardware, and this app's real
+// public/services/audio-capture/audio-processing.js has never run against real hardware, and this app's real
 // end user is a Deaf adult relying on the transcript in a live, un-repeatable meeting -- an
 // untested Web Audio graph between the mic and the recorder can only degrade what he cannot
 // sanity-check. Defaulting to disabled restores exactly the pre-wiring capture behaviour (raw
