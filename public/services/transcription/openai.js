@@ -1,8 +1,8 @@
 import { normalizeText } from '../text.js';
 import { readResponseJson, responseErrorMessage } from '../response.js';
 import { fetchWithTimeout } from '../fetch-timeout.js';
-import { createAudioConditioner } from '../audio-processing.js';
-import { deviceIdConstraint, browserAudioConstraints } from '../audio-monitor.js';
+import { createAudioConditioner } from '../audio-capture/audio-processing.js';
+import { deviceIdConstraint, browserAudioConstraints } from '../audio-capture/audio-monitor.js';
 import { loadVad } from './vad-loader.js';
 
 function bytesToBase64(bytes) {

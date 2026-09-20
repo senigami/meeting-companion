@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createElement, withRuntimeHarness } from './runtime-test-helpers.js';
 import { updateStatus } from '../../../public/controller/view.js';
 import { SENTENCE_END_SILENCE_MS, SILENCE_WATCHDOG_MS } from '../../../public/controller/runtime.js';
-import { QUIET_SUSTAINED_MS } from '../../../public/services/audio-processing.js';
+import { QUIET_SUSTAINED_MS } from '../../../public/services/audio-capture/audio-processing.js';
 
 // Filler text of an exact character length that still clears hasSubstantiveContent's 3-token gate
 // -- 'a'.repeat(n) is a single giant token, not real words, and got blocked outright once that gate
