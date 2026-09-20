@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   cleanModelLine,
   cleanModelLines,
+  cleanModelLinesWithLoss,
   isFillerLine,
   MAX_LINES_PER_CALL,
   shouldAcceptModelLine,
@@ -89,6 +90,45 @@ test('a literal "nothing was said" reply is rejected as a non-answer, not displa
   // A real card that happens to start with the word "nothing" must still get through.
   assert.equal(shouldAcceptModelLine('Nothing was decided at the meeting, so plans continue.'), true);
   assert.equal(shouldAcceptModelLine('Amen.'), true);
+});
+
+// #177: five verbatim non-answers from a real live session, none of which matched the narrower
+// "nothing/no ... said" pattern above -- the model commenting on the transcript/its own confusion
+// instead of summarizing it. Each of these reached the wall as a card and permanently drained the
+// real spoken text behind it (see the cleanModelLinesWithLoss test below for the drain half).
+test('the five real #177 non-answers are rejected as non-answers, not displayed as cards', () => {
+  assert.equal(shouldAcceptModelLine('No content to summarize.'), false);
+  assert.equal(shouldAcceptModelLine('No punctuation is present in the text.'), false);
+  assert.equal(shouldAcceptModelLine("The first sentence should show, but it didn't work."), false);
+  assert.equal(shouldAcceptModelLine('Punctuation is missing, making it hard to understand.'), false);
+  assert.equal(shouldAcceptModelLine('Too much text might be causing a problem.'), false);
+  // Real content that happens to share a word with the patterns above must still get through.
+  assert.equal(shouldAcceptModelLine('The bishop read a text message from the missionaries.'), true);
+  assert.equal(shouldAcceptModelLine('Sister Jones shared her testimony about the scriptures.'), true);
+});
+
+// #177's actual drain bug: shouldAcceptModelLine only ever gated DISPLAY. cleanModelLinesWithLoss
+// is what the summarize path (both client drivers and the server) actually calls, and its
+// `unanswered` flag is what runtime.js now uses to hold back the transcript-bucket drain -- so this
+// checks the flag directly, not just that the line is filtered out.
+test('cleanModelLinesWithLoss reports unanswered for a non-answer reply with nothing else accepted', () => {
+  assert.equal(cleanModelLinesWithLoss('No content to summarize.').unanswered, true);
+  // A refusal is deliberately NOT reported as unanswered, even though it is rejected the same way
+  // for display -- isRefusalLine's own history already decided a refusal must not count against
+  // the failure-escalation counter (below), and unanswered feeds exactly that counter in
+  // runtime.js. Reversing that here would be an unrequested second change riding on #177's fix.
+  assert.equal(cleanModelLinesWithLoss("I'm sorry, but I can't assist with that.").unanswered, false);
+  // A reply with no real lines at all (the model genuinely had nothing new to add) is NOT
+  // "unanswered" -- that is a legitimate empty result, not a non-answer, and must not trip the same
+  // retry-and-escalate path as one.
+  assert.equal(cleanModelLinesWithLoss('').unanswered, false);
+  // A duplicate-of-visible line is also not "unanswered": real content already landed on the wall.
+  assert.equal(cleanModelLinesWithLoss('Hymn 241 selected', ['Hymn 241 selected']).unanswered, false);
+  // A reply that has at least one real accepted line is never unanswered, even if a sibling line in
+  // the same reply happens to be junk -- the model did engage, and the real line must still land.
+  const mixed = cleanModelLinesWithLoss('No content to summarize.\nSacrament meeting starts at nine.');
+  assert.equal(mixed.unanswered, false);
+  assert.deepEqual(mixed.accepted, ['Sacrament meeting starts at nine.']);
 });
 
 // Both rejected strings are the exact refusals observed in the 2026-08-09 real session, and both

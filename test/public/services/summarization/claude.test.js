@@ -51,3 +51,14 @@ test('claude summarizer never forwards previousBlock, even if a caller still pas
 
   assert.ok(!('previousBlock' in JSON.parse(request.options.body)));
 });
+
+// #177: same reasoning as openai.test.js -- the server is the only place that ever sees the raw
+// reply before rejection, so this driver must pass its `unanswered` verdict through unchanged.
+test('claude summarizer passes the server-reported `unanswered` flag through unchanged', async () => {
+  const summarizer = createClaudeSummarizer({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ line: '', unanswered: true }) })
+  });
+
+  const result = await summarizer.summarize({ recentTranscript: 'Real spoken content.', visibleLines: [] });
+  assert.equal(result.unanswered, true);
+});

@@ -106,8 +106,27 @@ function isRefusalLine(line = '') {
 // real card. Anchored to the specific observed phrasing and close variants, not a broad "nothing"
 // match, so a real card that happens to start with the word "nothing" ("Nothing was decided at the
 // meeting, so...") is not mistaken for one of these.
+//
+// Widened 2026-09-19 (#177): a real live session produced five non-answers, none matching the
+// phrasing above -- the model commenting on the transcript/its own confusion ("No content to
+// summarize.", "No punctuation is present in the text.") instead of returning empty text. Each
+// pattern below is generalized from one of those five verbatim replies, the same way isRefusalLine
+// grew from two observed refusals rather than one broad "I'm sorry" match -- targeted at the
+// specific meta-commentary shape observed, not a topic-word heuristic (a real card that happens to
+// mention "the text" or "punctuation" in passing must not be caught here).
+const NON_ANSWER_PATTERNS = [
+  /\bno content to summarize\b/i,
+  /\b(no|little) punctuation (?:is present|was found|exists)?\s*(?:in|for) (?:the|this) (?:text|transcript)\b/i,
+  /\bpunctuation is missing\b/i,
+  /\b(?:the )?(?:first |last |next )?sentence should (?:show|appear|display)\b.*\bdidn'?t work\b/i,
+  /\bmaking it hard to (?:read|understand)\b/i,
+  /\btoo much text\b.*\bcaus(?:e|ing) (?:a|an) (?:issue|problem)\b/i
+];
+
 function isNonAnswerLine(line = '') {
-  return /^(nothing|no)\s+(significant|important|much|really)?\s*(was\s+)?said\b\.?$/i.test(line.trim());
+  const clean = line.trim();
+  if (/^(nothing|no)\s+(significant|important|much|really)?\s*(was\s+)?said\b\.?$/i.test(clean)) return true;
+  return NON_ANSWER_PATTERNS.some((pattern) => pattern.test(clean));
 }
 
 function isVagueLine(line = '') {
@@ -159,12 +178,24 @@ export function isFillerLine(line = '') {
   return tokens.every((token) => FILLER_LINES.some((pattern) => pattern.test(token)));
 }
 
+// The one thing this adds beyond a plain accept/reject boolean: WHY a line was rejected.
+// shouldAcceptModelLine collapses every rejection into `false`, which is right for deciding
+// whether to display a line but wrong for deciding whether the source speech is safe to discard
+// (#177) -- a duplicate-of-visible or vague-restatement rejection means real speech already landed
+// on the wall (safe to drain), while a refusal or non-answer means the model never actually
+// engaged with the request at all (the same "did not answer" shape INV-11 already protects against
+// for a thrown error, just arriving as a well-formed 200 instead).
+function classifyRejection(clean) {
+  if (isVagueLine(clean)) return 'vague';
+  if (isRefusalLine(clean)) return 'refusal';
+  if (isNonAnswerLine(clean)) return 'nonAnswer';
+  return null;
+}
+
 export function shouldAcceptModelLine(line, visibleLines = []) {
   const clean = cleanModelLine(line);
   if (!clean) return false;
-  if (isVagueLine(clean)) return false;
-  if (isRefusalLine(clean)) return false;
-  if (isNonAnswerLine(clean)) return false;
+  if (classifyRejection(clean)) return false;
 
   const key = lineKey(clean);
   if (!key) return false;
@@ -209,10 +240,26 @@ export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines
   const accepted = [];
   const seenKeys = [];
   let discardedByCap = 0;
+  // True when at least one non-blank raw line was a non-answer -- the model replied but never
+  // actually attempted to summarize (#177). Distinct from simply "nothing accepted": a reply that
+  // is entirely duplicates of what's already on screen also ends with an empty `accepted`, but that
+  // is real content already displayed, safe to drain; a non-answer is not.
+  //
+  // Deliberately NOT set for a 'refusal' rejection, even though a refusal is the same "did not
+  // actually answer" shape. isRefusalLine's own history (above) already settled this: a refusal is
+  // checked "not as a provider-level failure, because the call itself succeeded and nothing about
+  // it should count against the failure-escalation counter" -- and unanswered feeds exactly that
+  // counter (runtime.js). Reversing that on the way to fixing #177 would be a second, unrequested
+  // design change riding on this one; the fix here only extends what already gates the counter to
+  // include the reply shape the issue is actually about.
+  let unanswered = false;
 
   for (const rawLine of rawLines) {
     const clean = cleanModelLine(rawLine);
     if (!clean) continue;
+
+    const rejection = classifyRejection(clean);
+    if (rejection === 'nonAnswer') unanswered = true;
     if (!shouldAcceptModelLine(clean, [...visibleLines, ...accepted])) continue;
 
     const key = lineKey(clean);
@@ -233,5 +280,9 @@ export function cleanModelLinesWithLoss(text = '', visibleLines = [], { maxLines
     seenKeys.push(key);
   }
 
-  return { accepted, discardedByCap };
+  // A reply carrying at least one real accepted line is never "unanswered" even if a sibling line
+  // in the same reply was a refusal/non-answer -- the model did engage, and holding back a call
+  // that landed real content because one of its several lines was junk would cost the reader more
+  // than it protects.
+  return { accepted, discardedByCap, unanswered: unanswered && accepted.length === 0 };
 }
