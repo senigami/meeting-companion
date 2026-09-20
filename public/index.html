@@ -331,6 +331,27 @@
               <p id="audioLevelText" class="field-note">Not measuring</p>
               <p class="field-note">The OpenAI microphone source can be tested and metered here. Browser speech recognition opens its own microphone internally: this picker does not apply to it, and it cannot be tested or conditioned from this page. So a passing test here and a browser transcription that hears nothing can both be true at once.</p>
             </div>
+
+            <!--
+              Issue #7: expose the audio conditioning graph (audio-processing.js) rather than delete
+              it, so it can actually be experimented with instead of sitting unreachable behind a
+              false default. A preset picker plus the master enable is the minimum surface -- the
+              individual filter nodes (high-pass Hz, compressor, limiter, the three browser
+              constraints) stay hand-edit-only in localStorage, not raised to a control here.
+            -->
+            <div class="micTestGroup">
+              <label class="settingsCheckboxRow" for="audioConditioningEnabledInput">
+                <input type="checkbox" id="audioConditioningEnabledInput" />
+                <span>Condition microphone audio before it reaches transcription (experimental)</span>
+              </label>
+              <label for="audioProcessingPresetSelect">Conditioning preset</label>
+              <select id="audioProcessingPresetSelect" disabled>
+                <option value="off">Off</option>
+                <option value="gentle">Gentle</option>
+                <option value="normal">Normal</option>
+              </select>
+              <p class="field-note">Applies a high-pass filter, compressor, and limiter to the OpenAI microphone source only, ahead of the API. Off by default: nobody has yet confirmed it helps against a real recording. Applies on the next time the microphone opens, not mid-session.</p>
+            </div>
           </section>
 
           <section class="settingsCard providerCard" data-settings-section="summaries">

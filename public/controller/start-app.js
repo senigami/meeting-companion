@@ -38,6 +38,7 @@ import {
   updateModeButtons,
   updatePauseButton,
   updateSourceButtons,
+  syncAudioConditioningControls,
   renderProgramPanel,
   updateSpeakerDatalist
 } from './view.js';
@@ -303,6 +304,8 @@ export function startApp() {
       stopListening: $('stopListening'),
       fullscreen: $('fullscreen'),
       audioDeviceSelect: $('audioDeviceSelect'),
+      audioConditioningEnabledInput: $('audioConditioningEnabledInput'),
+      audioProcessingPresetSelect: $('audioProcessingPresetSelect'),
       recordingEnabledInput: $('recordingEnabledInput'),
       audioLevelTestButton: $('audioLevelTestButton'),
       audioLevelBar: $('audioLevelBar'),
@@ -600,6 +603,21 @@ function bindControlButtons(ctx, runtime) {
       runtime.setRecordingEnabled(event.target.checked);
     });
   }
+  if (ctx.dom.audioConditioningEnabledInput) {
+    ctx.dom.audioConditioningEnabledInput.checked = ctx.state.audioConditioningEnabled;
+    if (ctx.dom.audioProcessingPresetSelect) ctx.dom.audioProcessingPresetSelect.value = ctx.state.audioProcessingPreset;
+    // Initial disabled/title state (both "off until the master switch is on" and "unavailable on any
+    // source but OpenAI") is set once by updateSourceButtons() at the end of startApp() below -- this
+    // listener re-syncs the same function on every toggle rather than re-deriving the condition here,
+    // so the two can never drift apart (see docs/08-audio-conditioning.md on the source restriction).
+    ctx.dom.audioConditioningEnabledInput.addEventListener('change', (event) => {
+      runtime.setAudioConditioningEnabled(event.target.checked);
+      syncAudioConditioningControls(ctx);
+    });
+  }
+  ctx.dom.audioProcessingPresetSelect?.addEventListener('change', (event) => {
+    runtime.setAudioProcessingPreset(event.target.value);
+  });
   ctx.dom.settingsButton.addEventListener('click', () => runtime.toggleSettingsOpen());
   ctx.dom.closeSettings.addEventListener('click', () => runtime.setSettingsOpen(false, { focusReturn: true }));
   ctx.dom.settingsPanel?.addEventListener('close', () => runtime.setSettingsOpen(false, { focusReturn: true }));

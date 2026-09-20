@@ -774,6 +774,27 @@ export function updateSourceButtons(ctx) {
   });
 
   syncReplayControls(ctx);
+  syncAudioConditioningControls(ctx);
+}
+
+// docs/08-audio-conditioning.md: "audio-processing controls apply to OpenAI transcription only. When
+// the browser source is selected they must read as unavailable, with a plain reason. A control that
+// appears live but does nothing is the exact failure the source spec closes on." buildAudioSettings()
+// (runtime.js) only ever reaches transcription/openai.js -- browser.js's SpeechRecognition opens its
+// own microphone and cannot be conditioned -- so these two controls must visibly go inert on every
+// other source, not just silently stop mattering.
+const AUDIO_CONDITIONING_SOURCE_REASON = 'Only applies to the OpenAI microphone source.';
+
+export function syncAudioConditioningControls(ctx) {
+  const openAiSource = ctx.state.transcriptionSource === 'openai';
+  if (ctx.dom.audioConditioningEnabledInput) {
+    ctx.dom.audioConditioningEnabledInput.disabled = !openAiSource;
+    ctx.dom.audioConditioningEnabledInput.title = openAiSource ? '' : AUDIO_CONDITIONING_SOURCE_REASON;
+  }
+  if (ctx.dom.audioProcessingPresetSelect) {
+    ctx.dom.audioProcessingPresetSelect.disabled = !openAiSource || !ctx.state.audioConditioningEnabled;
+    ctx.dom.audioProcessingPresetSelect.title = openAiSource ? '' : AUDIO_CONDITIONING_SOURCE_REASON;
+  }
 }
 
 // #62. audioDeviceSelect and the debug-recording checkbox have no other function recomputing their

@@ -4969,6 +4969,55 @@ test('turning recording off before the header has been flushed does not leave th
   });
 });
 
+test('setAudioProcessingPreset clamps to a known option and persists it (issue #7)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { audioProcessingPreset: 'gentle' }
+  }, async ({ ctx, runtime }) => {
+    runtime.setAudioProcessingPreset('normal');
+    assert.equal(ctx.state.audioProcessingPreset, 'normal');
+    assert.equal(localStorage.getItem('audioProcessingPreset'), 'normal');
+
+    // An unrecognised value falls back to the current setting rather than being stored verbatim.
+    runtime.setAudioProcessingPreset('bogus');
+    assert.equal(ctx.state.audioProcessingPreset, 'normal');
+    assert.equal(localStorage.getItem('audioProcessingPreset'), 'normal');
+  });
+});
+
+test('setAudioConditioningEnabled toggles the master switch and persists it (issue #7)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { audioConditioningEnabled: false }
+  }, async ({ ctx, runtime }) => {
+    runtime.setAudioConditioningEnabled(true);
+    assert.equal(ctx.state.audioConditioningEnabled, true);
+    assert.equal(localStorage.getItem('audioConditioningEnabled'), 'true');
+
+    runtime.setAudioConditioningEnabled(false);
+    assert.equal(ctx.state.audioConditioningEnabled, false);
+    assert.equal(localStorage.getItem('audioConditioningEnabled'), 'false');
+  });
+});
+
+test('the audio conditioning controls read as unavailable on every source but OpenAI (docs/08-audio-conditioning.md, issue #7)', async () => {
+  await withRuntimeHarness({
+    stateOverrides: {
+      transcriptionSource: 'browser',
+      audioConditioningEnabled: true,
+      audioProcessingPreset: 'gentle'
+    }
+  }, async ({ elements, runtime }) => {
+    runtime.updateSourceButtons();
+    assert.equal(elements.audioConditioningEnabledInput.disabled, true, 'the checkbox has no effect on the browser source and must say so');
+    assert.equal(elements.audioProcessingPresetSelect.disabled, true);
+    assert.notEqual(elements.audioConditioningEnabledInput.title, '', 'a disabled control needs a plain reason, not silent inertness');
+
+    await runtime.setTranscriptionSource('openai');
+    runtime.updateSourceButtons();
+    assert.equal(elements.audioConditioningEnabledInput.disabled, false, 'OpenAI is the one source these controls actually affect');
+    assert.equal(elements.audioProcessingPresetSelect.disabled, false, 'preset stays enabled here because the master switch above is already on');
+  });
+});
+
 test('several cards from one summary are released one at a time, not dropped on the wall together', async () => {
   // A live summarize call is one card per call now (2026-08-10), but addLine's own multi-line
   // splitting is still real, general-purpose behaviour -- exercised here directly, and for real by
