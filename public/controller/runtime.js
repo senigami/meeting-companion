@@ -39,8 +39,8 @@ import {
   isMicCalibrationValid,
   describeMicCalibration,
   MIC_CALIBRATION_MAX_AGE_MS
-} from '../services/audio-monitor.js';
-import { createMicProbe, CLIPPING_SUSTAINED_MS, QUIET_SUSTAINED_MS } from '../services/audio-processing.js';
+} from '../services/audio-capture/audio-monitor.js';
+import { createMicProbe, CLIPPING_SUSTAINED_MS, QUIET_SUSTAINED_MS } from '../services/audio-capture/audio-processing.js';
 import {
   flashRailNote,
   renderDisplay,

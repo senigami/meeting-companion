@@ -16,7 +16,7 @@ import {
   TEXT_DEBOUNCE_MS,
   PEAK_HOLD_MS,
   PEAK_DECAY_MS
-} from '../../../public/services/audio-monitor.js';
+} from '../../../../public/services/audio-capture/audio-monitor.js';
 
 function fakeMediaDevices(devices) {
   return { enumerateDevices: async () => devices };

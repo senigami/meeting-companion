@@ -16,7 +16,7 @@ import {
   chunkContainsSpeech,
   CLIPPING_SUSTAINED_MS,
   QUIET_SUSTAINED_MS
-} from '../../../public/services/audio-processing.js';
+} from '../../../../public/services/audio-capture/audio-processing.js';
 
 // Every existing test in this file predates ambient calibration and never intended to pay for its
 // real ~1.5s sampling window (30 samples * 50ms) -- createMicProbe() defaults to a real setTimeout
