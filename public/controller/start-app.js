@@ -109,7 +109,7 @@ export function startApp() {
       paused: false,
       fontSize: clampFontSize(localStorage.getItem(STORAGE.fontSize) || 84),
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
-      fontFamily: clampFontFamily(localStorage.getItem(STORAGE.fontFamily) || 'system'),
+      fontFamily: clampFontFamily(localStorage.getItem(STORAGE.fontFamily) || 'atkinson-hyperlegible-next'),
       fontWeight: clampFontWeight(localStorage.getItem(STORAGE.fontWeight) || 600),
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
