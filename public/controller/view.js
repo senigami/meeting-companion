@@ -1002,6 +1002,12 @@ export function syncViewerControls(ctx) {
   if (ctx.dom.fontFamilySelect) {
     ctx.dom.fontFamilySelect.value = ctx.state.fontFamily;
   }
+  if (ctx.dom.showDisplayCountdownInput) {
+    ctx.dom.showDisplayCountdownInput.checked = ctx.state.showDisplayCountdown;
+  }
+  if (ctx.dom.displayCountdown) {
+    ctx.dom.displayCountdown.hidden = !ctx.state.showDisplayCountdown;
+  }
   if (ctx.dom.speechLanguageSelect) {
     ctx.dom.speechLanguageSelect.value = ctx.state.speechLanguage;
   }

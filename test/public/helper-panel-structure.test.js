@@ -101,11 +101,12 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(rail, /id=(?:"railResizeHandle"|'railResizeHandle')/, '#railResizeHandle');
   assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
   assertContains(rail, /class=(?:"[^"]*\brailTranscriptSection\b[^"]*"|'[^']*\brailTranscriptSection\b[^']*')/, '.railTranscriptSection');
-  assertContains(rail, /<button\b[^>]*id=(?:"flushBucket"|'flushBucket')[^>]*aria-label=(?:"[^"]+"|'[^']+')[^>]*>/, '#flushBucket with an accessible name');
+  assertContains(rail, /<button\b[^>]*id=(?:"sendNow"|'sendNow')[^>]*aria-label=(?:"[^"]+"|'[^']+')[^>]*>/, '#sendNow with an accessible name');
   assert.ok(
-    rail.indexOf('id="railTranscript"') < rail.indexOf('id="flushBucket"'),
-    'the Flush button sits after the transcript display'
+    rail.indexOf('id="sendNow"') < rail.indexOf('id="railTranscript"'),
+    'the Send now button sits in the header above the transcript display, not under it'
   );
+  assertContains(rail, /<button\b[^>]*id="sendNow"[^>]*>\s*<svg[^>]*aria-hidden="true"/, 'an icon-only #sendNow');
   assertNotContains(rail, /<h1\b/i, 'large Controls heading');
   assertNotContains(rail, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 
@@ -188,4 +189,17 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   }
 
   assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
+});
+
+test('the display countdown bar is its own element inside the display, after the transcript viewport', async () => {
+  const html = await readHtml();
+  const display = html.match(/<main\b[^>]*id="display"[\s\S]*?<\/main>/)[0];
+  assertContains(display, /id="displayCountdown"[^>]*aria-hidden="true"/, '#displayCountdown (decorative)');
+  assertContains(display, /id="displayCountdownFill"/, '#displayCountdownFill');
+  assert.ok(
+    display.indexOf('id="transcriptViewport"') < display.indexOf('id="displayCountdown"'),
+    'the bar sits after the viewport so it never overlays a card'
+  );
+  assertContains(html, /<input[^>]*type="checkbox"[^>]*id="showDisplayCountdown"[^>]*checked/, 'the countdown checkbox, default on');
+  assertContains(html, /Show next-card countdown on the display/, 'the checkbox label');
 });

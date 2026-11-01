@@ -64,6 +64,7 @@ const STORAGE = {
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
   speechLanguage: 'speechLanguage',
+  showDisplayCountdown: 'showDisplayCountdown',
   // summaryInterval (localStorage key 'summaryIntervalSeconds') removed 2026-09-01: nothing read it
   // back -- the interval is fully derived at boot from summaryMaxWords and the pace (see runtime.js's
   // recomputeSummaryInterval), so persisting it was a write with no read path.
@@ -114,6 +115,7 @@ export function startApp() {
       fontFamily: clampFontFamily(localStorage.getItem(STORAGE.fontFamily) || 'atkinson-hyperlegible-next'),
       fontWeight: clampFontWeight(localStorage.getItem(STORAGE.fontWeight) || 600),
       speechLanguage: clampSpeechLanguage(localStorage.getItem(STORAGE.speechLanguage)),
+      showDisplayCountdown: localStorage.getItem(STORAGE.showDisplayCountdown) !== 'false',
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       // #56: words-per-card is now the PRIMARY, persisted setting (default 14, matching
@@ -250,6 +252,9 @@ export function startApp() {
       displayMarginField: $('displayMarginField'),
       fontFamilySelect: $('fontFamily'),
       speechLanguageSelect: $('speechLanguage'),
+      showDisplayCountdownInput: $('showDisplayCountdown'),
+      displayCountdown: $('displayCountdown'),
+      displayCountdownFill: $('displayCountdownFill'),
       fontWeightInput: $('fontWeight'),
       fontWeightValue: $('fontWeightValue'),
       fontWeightField: $('fontWeightField'),
@@ -301,7 +306,7 @@ export function startApp() {
       pauseAiLabel: $('pauseAiLabel'),
       undo: $('undo'),
       clear: $('clear'),
-      flushBucket: $('flushBucket'),
+      sendNow: $('sendNow'),
       clearLabel: $('clearLabel'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
@@ -554,7 +559,7 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.pauseAi.addEventListener('click', runtime.togglePauseAi);
   ctx.dom.undo.addEventListener('click', runtime.undoLine);
   ctx.dom.clear.addEventListener('click', runtime.clearLines);
-  ctx.dom.flushBucket?.addEventListener('click', runtime.flushBucket);
+  ctx.dom.sendNow?.addEventListener('click', runtime.sendNow);
   ctx.dom.clear.addEventListener('blur', runtime.cancelClearArm);
   // Delegated: cards are replaced wholesale on every render (view.js#renderDisplay), so a listener
   // on each button would be thrown away and re-attached every tick. One listener on the stack,
@@ -689,6 +694,9 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
   ctx.dom.fontFamilySelect?.addEventListener('change', (e) => {
     runtime.setFontFamily(e.target.value);
+  });
+  ctx.dom.showDisplayCountdownInput?.addEventListener('change', (e) => {
+    runtime.setShowDisplayCountdown(e.target.checked);
   });
   ctx.dom.speechLanguageSelect?.addEventListener('change', (e) => {
     runtime.setSpeechLanguage(e.target.value);

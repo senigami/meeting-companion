@@ -26,6 +26,7 @@
   position: relative;
   display: grid;
   place-items: stretch;
+  grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 28px;
   background:
     radial-gradient(circle at 50% 0%, rgba(120, 183, 255, 0.14), transparent 42%),
@@ -160,6 +161,56 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .railTranscriptFrame {
   position: relative;
+}
+
+.railSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/*
+ * Next-card countdown along the bottom of the display. It is a grid row of
+ * its own (not an overlay) so it can never sit on top of a card, and it is
+ * inset by the display margin so it lines up with the margin guides. Fill is
+ * driven by the same tick as .railTranscriptProgress (runtime.js startLoop).
+ */
+.displayCountdown {
+  display: flex;
+  justify-content: center;
+  height: 12px;
+  margin: 0 var(--display-margin) 12px;
+  pointer-events: none;
+}
+
+.displayCountdown[hidden] {
+  display: none;
+}
+
+.displayCountdownFill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: #e8f1ff;
+  transition-property: width;
+  transition-timing-function: linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .displayCountdownFill {
+    transition-timing-function: steps(8, jump-end);
+  }
+}
+
+/* Paused or stopped: nothing is coming, so nothing is shown. */
+.displayCountdown[data-state="idle"] .displayCountdownFill {
+  opacity: 0;
+}
+
+/* Overrun: the tick fired, so the bar is empty rather than restarting. */
+.displayCountdown[data-state="overrun"] .displayCountdownFill {
+  width: 0%;
 }
 
 /*

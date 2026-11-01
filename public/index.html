@@ -19,6 +19,9 @@
       >
         <div id="transcriptStack" class="transcript-stack"></div>
       </div>
+      <div id="displayCountdown" class="displayCountdown" data-state="idle" aria-hidden="true">
+        <div id="displayCountdownFill" class="displayCountdownFill"></div>
+      </div>
     </main>
 
     <aside id="panel" class="panel operatorRail controlPanel" aria-label="Helper controls">
@@ -171,14 +174,18 @@
             </section>
 
             <section class="railSection railTranscriptSection" id="railTranscriptSection">
-              <div class="section-label">Live transcript</div>
+              <div class="railSectionHeader">
+                <div class="section-label">Live transcript</div>
+                <button id="sendNow" type="button" class="iconButton" aria-label="Send now" title="Send now: summarize everything waiting in the transcript" disabled>
+                  <svg class="controlIcon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-send"></use></svg>
+                </button>
+              </div>
               <div class="railTranscriptFrame">
                 <div id="railTranscriptProgress" class="railTranscriptProgress" data-state="idle" aria-hidden="true">
                   <div id="railTranscriptProgressFill" class="railTranscriptProgressFill"></div>
                 </div>
                 <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
               </div>
-              <button id="flushBucket" type="button" aria-label="Flush transcript now" title="Summarize everything waiting in the transcript now" disabled>Flush now</button>
             </section>
           </div>
         </div>
@@ -290,6 +297,11 @@
                 </select>
                 <div class="field-note">English drops anything heard in another script and never translates. Auto-detect translates other languages into English cards.</div>
               </div>
+              <label class="settingsCheckboxRow" for="showDisplayCountdown">
+                <input type="checkbox" id="showDisplayCountdown" checked />
+                <span>Show next-card countdown on the display</span>
+              </label>
+              <div class="field-note">A bar along the bottom of the display that shrinks toward the middle and empties when new text is about to appear.</div>
             </div>
           </section>
 
@@ -591,6 +603,10 @@
       <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
       <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
       <path d="M8 6v8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24">
+      <path d="M21 3 10 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m21 3-7 18-4-7-7-4z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="icon-arrow-right" viewBox="0 0 24 24">
       <path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>

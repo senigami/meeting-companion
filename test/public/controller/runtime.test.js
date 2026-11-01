@@ -678,6 +678,62 @@ test('starting to listen begins the live-transcript progress bar sweep for the c
   });
 });
 
+test('the display countdown bar runs off the same tick and duration as the rail bar', async () => {
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '5s');
+    assert.equal(elements.displayCountdownFill.style.width, '0%', 'it empties as the rail bar fills');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+
+    runtime.setSummaryInterval(9);
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '9s');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '9s');
+  });
+});
+
+test('the display countdown bar goes idle while paused, like the rail bar', async () => {
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    await runtime.togglePauseAi();
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'idle');
+    assert.equal(elements.displayCountdown.dataset.state, 'idle');
+  });
+});
+
+test('the countdown checkbox setting is persisted and hides the bar when off', async () => {
+  const localStorageValues = {};
+  await withRuntimeHarness({
+    localStorageValues,
+    stateOverrides: { showDisplayCountdown: true }
+  }, async ({ ctx, elements, runtime }) => {
+    ctx.dom.showDisplayCountdownInput = { checked: true };
+    runtime.setShowDisplayCountdown(false);
+    assert.equal(localStorageValues.showDisplayCountdown, 'false');
+    assert.equal(elements.displayCountdown.hidden, true);
+    assert.equal(ctx.dom.showDisplayCountdownInput.checked, false);
+
+    runtime.setShowDisplayCountdown(true);
+    assert.equal(localStorageValues.showDisplayCountdown, 'true');
+    assert.equal(elements.displayCountdown.hidden, false);
+    assert.equal(ctx.dom.showDisplayCountdownInput.checked, true);
+  });
+});
+
 test('changing the update interval mid-session re-syncs the progress bar to the new duration', async () => {
   const driver = {
     id: 'browser',
@@ -5227,7 +5283,7 @@ test('the speech language is sent to the summarizer and persisted when changed',
   });
 });
 
-test('Flush sends an unsettled, unpunctuated newest chunk, and works while paused without unpausing', async () => {
+test('Send now sends an unsettled, unpunctuated newest chunk, and works while paused without unpausing', async () => {
   const calls = [];
   await withRuntimeHarness({
     createSummarizationDriverFn: () => ({
@@ -5239,34 +5295,34 @@ test('Flush sends an unsettled, unpunctuated newest chunk, and works while pause
     runtime.handleTranscriptEvent({ type: 'final', text: 'and then we went to the' });
     assert.equal(ctx.state.transcriptChunks.length, 1);
 
-    await runtime.flushBucket();
+    await runtime.sendNow();
 
     assert.deepEqual(calls, ['and then we went to the']);
-    assert.equal(ctx.state.paused, true, 'flushing must not change the paused state');
+    assert.equal(ctx.state.paused, true, 'sending must not change the paused state');
     assert.equal(ctx.state.transcriptChunks.length, 0, 'the chunk was consumed');
   });
 });
 
-test('Flush on an empty bucket does nothing', async () => {
+test('Send now on an empty bucket does nothing', async () => {
   let calls = 0;
   await withRuntimeHarness({
     createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
     stateOverrides: { openAiReady: true, summarizationSource: 'openai' }
   }, async ({ runtime }) => {
-    await runtime.flushBucket();
+    await runtime.sendNow();
     assert.equal(calls, 0);
   });
 });
 
-test('the Flush button is disabled while the bucket is empty and enabled once a chunk lands', async () => {
+test('the Send now button is disabled while the bucket is empty and enabled once a chunk lands', async () => {
   await withRuntimeHarness({
     elementOverrides: {}
   }, async ({ ctx, runtime }) => {
-    ctx.dom.flushBucket = { disabled: false };
+    ctx.dom.sendNow = { disabled: false };
     runtime.showRecentTranscript();
-    assert.equal(ctx.dom.flushBucket.disabled, true);
+    assert.equal(ctx.dom.sendNow.disabled, true);
     runtime.handleTranscriptEvent({ type: 'final', text: 'Hello there' });
-    assert.equal(ctx.dom.flushBucket.disabled, false);
+    assert.equal(ctx.dom.sendNow.disabled, false);
   });
 });
 

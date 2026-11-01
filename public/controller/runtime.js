@@ -96,6 +96,7 @@ const STORAGE = {
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
   speechLanguage: 'speechLanguage',
+  showDisplayCountdown: 'showDisplayCountdown',
   // summaryInterval (localStorage key 'summaryIntervalSeconds') was removed 2026-09-01: #56 made the
   // interval fully derived from summaryMaxWords and the pace at every boot, so nothing ever read the
   // persisted value back -- it was a write with no read path, and #56 review flagged it dead.
@@ -626,8 +627,8 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.dom.liveTranscript) {
       ctx.dom.liveTranscript.textContent = preview;
     }
-    if (ctx.dom.flushBucket) {
-      ctx.dom.flushBucket.disabled = !ctx.state.transcriptChunks.length;
+    if (ctx.dom.sendNow) {
+      ctx.dom.sendNow.disabled = !ctx.state.transcriptChunks.length;
     }
     if (ctx.dom.railTranscript) {
       if (documentImpl?.createElement && ctx.state.inFlightChunks?.length) {
@@ -1239,7 +1240,23 @@ export function createRuntime(ctx, deps = {}) {
   // rAF/timer of its own -- a bar with its own clock is exactly the kind of thing that quietly
   // drifts out of sync with the real tick and starts lying (INV-10's cardinal sin, applied to a
   // new surface).
+  // The display's countdown bar mirrors the rail bar's state and duration from these same three
+  // calls: full at the start of a period, empty when the tick fires.
+  function setDisplayCountdown(state, { width, durationSeconds = 0 }) {
+    const track = ctx.dom.displayCountdown;
+    const fill = ctx.dom.displayCountdownFill;
+    if (!track || !fill) return;
+    track.dataset.state = state;
+    fill.style.transitionDuration = '0s';
+    fill.style.width = '100%';
+    if (width === '100%') return;
+    void fill.offsetWidth;
+    fill.style.transitionDuration = `${durationSeconds}s`;
+    fill.style.width = width;
+  }
+
   function restartTranscriptProgressBar(durationSeconds) {
+    setDisplayCountdown('running', { width: '0%', durationSeconds });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1260,6 +1277,7 @@ export function createRuntime(ctx, deps = {}) {
   // looking sweep would be dishonest; freezing the bar full (in the same blue as the 'behind' rail
   // dot) says "this cycle overran" instead.
   function freezeTranscriptProgressBarOverrun() {
+    setDisplayCountdown('overrun', { width: '0%' });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1272,6 +1290,7 @@ export function createRuntime(ctx, deps = {}) {
   // in progress. Called from the one place the loop's real clock actually stops
   // (pauseActiveTranscription) so this can never drift out of sync with whether ticks are firing.
   function idleTranscriptProgressBar() {
+    setDisplayCountdown('idle', { width: '100%' });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -2222,6 +2241,12 @@ export function createRuntime(ctx, deps = {}) {
     syncViewerControls(ctx);
   }
 
+  function setShowDisplayCountdown(show) {
+    ctx.state.showDisplayCountdown = Boolean(show);
+    localStorage.setItem(STORAGE.showDisplayCountdown, String(ctx.state.showDisplayCountdown));
+    syncViewerControls(ctx);
+  }
+
   function setFontWeight(nextWeight) {
     ctx.state.fontWeight = clampFontWeight(nextWeight, ctx.state.fontWeight);
     saveViewerSettings(ctx);
@@ -2912,7 +2937,7 @@ export function createRuntime(ctx, deps = {}) {
 
   // Operator-triggered drain of whatever is waiting, the same forced run Stop and a speaker change
   // use. force keeps it working while paused without touching `paused`.
-  async function flushBucket() {
+  async function sendNow() {
     if (!ctx.state.transcriptChunks.length) return;
     if (ctx.state.summarizeCallPromise) {
       await ctx.state.summarizeCallPromise;
@@ -2924,7 +2949,7 @@ export function createRuntime(ctx, deps = {}) {
     addLine,
     cancelClearArm,
     clearLines,
-    flushBucket,
+    sendNow,
     handleTranscriptEvent,
     setRecordingEnabled,
     setAudioProcessingPreset,
@@ -2943,6 +2968,7 @@ export function createRuntime(ctx, deps = {}) {
     setFontFamily,
     setFontWeight,
     setSpeechLanguage,
+    setShowDisplayCountdown,
     setMode,
     setSpeakerName,
     addProgramEntry,
