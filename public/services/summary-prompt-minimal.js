@@ -10,6 +10,8 @@
 //   information  -> summarize. Facts matter, voice does not.
 //   song         -> status only, which the app already treats as its own thing.
 
+import { speechLanguageOptions } from './view-settings.js';
+
 // One card, about this many words -- a target to compress toward, not a hard cap (Steve: he is fine
 // getting 11 or 12 when the content needed it). Measured against ~90 words of speech per 15s tick:
 // a fixed per-CARD budget compresses properly, where the old three-lines-of-14-words shape landed at
@@ -64,6 +66,22 @@ const TRANSLATE = `You must respond only in English. Under no circumstances outp
 words, in any part of your response, for any block of input. If the speaker is not speaking in
 English, translate the meaning into English -- never refuse to summarize non-English speech, and
 never leave foreign words untranslated.`;
+
+// For the default 'en' setting: foreign-script and non-speech fragments were being translated or
+// glossed into cards that read as fact, so the model is told to return nothing for them instead.
+const ENGLISH_ONLY = `Respond only in English. If the text is not English, or is not real speech, return
+nothing (empty text) -- do not translate it, gloss it, or comment on it.`;
+
+function languageRule(language) {
+  return language === 'auto' ? TRANSLATE : ENGLISH_ONLY;
+}
+
+// Shared by every mode and level. Real recordings showed the recognizer hearing "profit" for
+// prophet, "steak"/"state" for stake and "Mr." for Brother/Sister, and the model repeating them.
+const LDS_CONTEXT = `This is a spoken talk or prayer from a Latter-day Saint (LDS) church meeting, summarized for
+a Deaf reader. The speech is machine-transcribed, so mis-hearings of LDS terms are likely: read them
+as the intended term (for example "profit" or "profits" as prophet or prophets, "steak" or "state"
+in "state high council" as stake, "Mr." before a name as Brother or Sister).`;
 
 const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
 
@@ -131,9 +149,11 @@ export function buildMinimalSummarizePrompt({
   recentTranscript = '',
   mode = 'speaker',
   maxWords = CARD_WORDS,
-  level = 'condense'
+  level = 'condense',
+  language = 'en'
 } = {}) {
   const text = String(recentTranscript).trim();
+  const languageText = languageRule(language);
   const cardWords = Number.isFinite(maxWords) && maxWords > 0 ? Math.round(maxWords) : CARD_WORDS;
   const twoStage = text && wordCount(text) > TWO_STAGE_WORD_THRESHOLD ? `\n\n${TWO_STAGE_COMPRESSION}` : '';
 
@@ -158,9 +178,11 @@ export function buildMinimalSummarizePrompt({
     return `
 ${READER}
 
+${LDS_CONTEXT}
+
 ${SIMPLE_RULES(cardWords)}${twoStage}
 
-${TRANSLATE}
+${languageText}
 
 ${subject}
 
@@ -203,9 +225,11 @@ ${text}
     return `
 ${READER}
 
+${LDS_CONTEXT}
+
 ${SIMPLE_RULES(cardWords)}${twoStage}
 
-${TRANSLATE}
+${languageText}
 
 This is a prayer. It must still read as a prayer being offered, not as a report that someone
 prayed.
@@ -227,9 +251,11 @@ ${text}
     return `
 ${READER}
 
+${LDS_CONTEXT}
+
 ${SIMPLE_RULES(cardWords)}${twoStage}
 
-${TRANSLATE}
+${languageText}
 
 ${THIRD_PERSON}
 
@@ -259,9 +285,11 @@ ${text}
   return `
 ${READER}
 
+${LDS_CONTEXT}
+
 ${SIMPLE_RULES(cardWords)}${twoStage}
 
-${TRANSLATE}
+${languageText}
 
 ${THIRD_PERSON}
 
@@ -324,7 +352,7 @@ function fnv1aHash(text) {
 // changes the real prompt and leaves the hash sitting still -- a stale recording that reads as
 // current, which is worse than no hash at all. prayer/brief is here for that reason: it is the only
 // case that reaches the brief path's prayer subject line.
-export const PROMPT_HASH_SAMPLE_CASES = [
+const PROMPT_HASH_MODE_LEVELS = [
   { mode: 'speaker', level: 'condense' },
   { mode: 'prayer', level: 'condense' },
   { mode: 'information', level: 'condense' },
@@ -332,10 +360,13 @@ export const PROMPT_HASH_SAMPLE_CASES = [
   { mode: 'prayer', level: 'brief' },
   { mode: 'information', level: 'brief' }
 ];
+export const PROMPT_HASH_SAMPLE_CASES = speechLanguageOptions.flatMap((language) => (
+  PROMPT_HASH_MODE_LEVELS.map((entry) => ({ ...entry, language }))
+));
 
 export function computeSummaryPromptHash() {
   const combined = PROMPT_HASH_SAMPLE_CASES
-    .map(({ mode, level }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: CARD_WORDS }))
+    .map(({ mode, level, language }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, language, maxWords: CARD_WORDS }))
     .join(' ');
   return fnv1aHash(combined);
 }
@@ -345,13 +376,14 @@ export function buildMinimalSummarizeMessages({
   mode = 'speaker',
   maxWords = CARD_WORDS,
   level = 'condense',
+  language = 'en',
   history = [],
   historyTurns = 4
 } = {}) {
   const text = String(recentTranscript).trim();
   // Reuse the single-message builder for the rules, then strip the transcript it appends: the text
   // belongs in its own final turn, not inside the instructions.
-  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords, level });
+  const full = buildMinimalSummarizePrompt({ recentTranscript: '', mode, maxWords, level, language });
   const rules = full.replace(/\n*Text:\n*$/, '').trim();
 
   // Folded into the system message as data, not more user/assistant turns -- see the block comment

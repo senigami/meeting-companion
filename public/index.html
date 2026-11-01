@@ -178,6 +178,7 @@
                 </div>
                 <div id="railTranscript" class="transcript railTranscript" aria-label="Live transcript preview"></div>
               </div>
+              <button id="flushBucket" type="button" aria-label="Flush transcript now" title="Summarize everything waiting in the transcript now" disabled>Flush now</button>
             </section>
           </div>
         </div>
@@ -278,6 +279,16 @@
                   <option value="">No profile (assumed pace)</option>
                 </select>
                 <div class="field-note">Measured separately, ahead of time. No profile is required. <a href="reading-pace.html" target="_blank" rel="noopener">Run the reading speed test</a>.</div>
+              </div>
+              <div class="range-field" id="speechLanguageField">
+                <div class="range-head">
+                  <label for="speechLanguage">Speech language</label>
+                </div>
+                <select id="speechLanguage">
+                  <option value="en">English</option>
+                  <option value="auto">Auto-detect (translate to English)</option>
+                </select>
+                <div class="field-note">English drops anything heard in another script and never translates. Auto-detect translates other languages into English cards.</div>
               </div>
             </div>
           </section>

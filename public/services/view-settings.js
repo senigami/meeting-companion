@@ -39,6 +39,8 @@ export const FONT_WEIGHT_MAX = 800;
 // the one thing Steve chose from the actual reader's own complaint ("too thick") -- both are real,
 // named ids rather than raw CSS strings so a stored value can't inject an arbitrary font-family.
 export const fontFamilyOptions = ['system', 'atkinson-hyperlegible-next'];
+// 'en' keeps English only; 'auto' lets the summarizer translate other languages into English.
+export const speechLanguageOptions = ['en', 'auto'];
 // The actual CSS font-family value for each id above -- kept next to the id list so the two can
 // never drift apart. Always ends in the same system stack base.css already uses everywhere else,
 // so a script this font doesn't cover (the app already sees Korean, Arabic, Japanese mixed into
@@ -96,6 +98,10 @@ export function clampFontWeight(value, fallback = 600) {
 
 export function clampFontFamily(value, fallback = 'system') {
   return fontFamilyOptions.includes(value) ? value : fallback;
+}
+
+export function clampSpeechLanguage(value, fallback = 'en') {
+  return speechLanguageOptions.includes(value) ? value : fallback;
 }
 
 export function clampSummaryIntervalSeconds(value, fallback = 5) {

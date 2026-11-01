@@ -10,7 +10,7 @@ The server keeps no durable business data beyond the session recording described
 
 The important model rule is that the display state is append-only from the user's point of view. Transcript cards can be added, undone, or cleared, but the newest items are what matter.
 
-The helper surface also keeps a compact sentence-aware transcript preview in the operator rail so the operator can see the incoming stream without scrolling the TV display. `public/services/transcript-bucket.js` only marks a chunk consumable once it ends at a sentence boundary or settles unpunctuated for 20s, so partial thoughts stay visible instead of vanishing mid-sentence.
+The helper surface also keeps a compact sentence-aware transcript preview in the operator rail so the operator can see the incoming stream without scrolling the TV display. `public/services/transcript-bucket.js` only marks a chunk consumable once it ends at a sentence boundary or settles unpunctuated for 20s, so partial thoughts stay visible instead of vanishing mid-sentence. Nothing summarizes on arrival: the first sentence of a meeting or of a new speaker waits for the normal interval tick like every other chunk. The "Flush now" button (`#flushBucket`, under the preview, disabled while the bucket is empty) runs the same forced drain Stop and a speaker change use (`summarizeCurrentText` with `settleMs: 0` and `force: true`), so it also works while paused and leaves `paused` unchanged.
 
 Provider keys are treated as server-managed configuration when the helper saves them in Settings. The app stores them in the running local server process, never echoes the full secret in diagnostics, and only returns masked status to the browser.
 
@@ -31,6 +31,7 @@ Provider keys are treated as server-managed configuration when the helper saves 
 | `railNoteTimer` | `TimerHandle \| null` | Handle for the transient `#railNote` Clear/Undo feedback message, auto-hidden after 4s. |
 | `listening` | `boolean` | Whether transcription is active. |
 | `transcriptionSource` | `browser` \| `openai` | Which transcription driver is active. |
+| `speechLanguage` | `en` \| `auto` | Persisted (`localStorage` key `speechLanguage`), default `en`. `en` drops any final chunk containing a non-Latin-script letter before it enters the bucket and tells the summarizer to return nothing for non-English text; `auto` keeps those chunks and lets the summarizer translate them into English. |
 | `summarizationSource` | `openai` \| `claude` | Which summarization driver is active. The runtime falls back to an available provider when the selected one is not configured. |
 | `openAiReady` | `boolean` | Whether the server reported an OpenAI key. |
 | `anthropicReady` | `boolean` | Whether the server reported an Anthropic key. |
@@ -133,7 +134,7 @@ The server accepts and returns these JSON shapes:
 | Route | Request | Response |
 | --- | --- | --- |
 | `POST /api/transcribe` | `{ audioBase64, mimeType, filename, mode }` | `{ text }` |
-| `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines, maxWords, level, history }` | `{ line, reason?, wasShortened?, discardedByCap? }` |
+| `POST /api/summarize` | `{ source, mode, recentTranscript, visibleLines, maxWords, level, language, history }` | `{ line, reason?, wasShortened?, discardedByCap? }` |
 | `GET /api/config` | none | `{ hasOpenAIKey, hasAnthropicKey, model, sources, providerKeys }` |
 | `POST /api/provider/key` | `{ provider, apiKey }` | `{ ok: true, provider, providerKeys }` |
 | `DELETE /api/provider/key` | `{ provider }` | `{ ok: true, provider, providerKeys }` |

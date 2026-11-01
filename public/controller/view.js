@@ -1002,6 +1002,9 @@ export function syncViewerControls(ctx) {
   if (ctx.dom.fontFamilySelect) {
     ctx.dom.fontFamilySelect.value = ctx.state.fontFamily;
   }
+  if (ctx.dom.speechLanguageSelect) {
+    ctx.dom.speechLanguageSelect.value = ctx.state.speechLanguage;
+  }
   if (ctx.dom.fontWeightInput) {
     ctx.dom.fontWeightInput.value = String(ctx.state.fontWeight);
     ctx.dom.fontWeightInput.setAttribute('aria-valuetext', String(ctx.state.fontWeight));

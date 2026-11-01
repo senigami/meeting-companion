@@ -49,6 +49,7 @@ All request and response bodies are JSON except the static asset routes. The cli
 
 - `/api/transcribe` must keep using `gpt-4o-transcribe` unless the provider wrapper is updated everywhere.
 - `/api/summarize` must keep the prompt policy centralized in `public/services/summary-prompt.js`.
+- `/api/summarize` accepts an optional `language` (`en` or `auto`); anything else is clamped to `en` server-side.
 - `/api/provider/test` must stay lightweight and must not echo the key value back in logs or responses.
 - The server must not save audio or transcripts by default.
 

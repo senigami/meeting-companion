@@ -101,6 +101,11 @@ test('helper panel keeps quick actions compact and settings centered', async () 
   assertContains(rail, /id=(?:"railResizeHandle"|'railResizeHandle')/, '#railResizeHandle');
   assertContains(rail, /id=(?:"railTranscript"|'railTranscript')/, '#railTranscript');
   assertContains(rail, /class=(?:"[^"]*\brailTranscriptSection\b[^"]*"|'[^']*\brailTranscriptSection\b[^']*')/, '.railTranscriptSection');
+  assertContains(rail, /<button\b[^>]*id=(?:"flushBucket"|'flushBucket')[^>]*aria-label=(?:"[^"]+"|'[^']+')[^>]*>/, '#flushBucket with an accessible name');
+  assert.ok(
+    rail.indexOf('id="railTranscript"') < rail.indexOf('id="flushBucket"'),
+    'the Flush button sits after the transcript display'
+  );
   assertNotContains(rail, /<h1\b/i, 'large Controls heading');
   assertNotContains(rail, /id=(?:"apiWarning"|'apiWarning')/, '#apiWarning');
 

@@ -3,6 +3,7 @@ import {
   clampFontSize,
   clampFontFamily,
   clampFontWeight,
+  clampSpeechLanguage,
   clampSummaryMaxWordsOverride,
   fontSizeFromSliderPosition,
   clampAudioProcessingPreset,
@@ -62,6 +63,7 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
+  speechLanguage: 'speechLanguage',
   // summaryInterval (localStorage key 'summaryIntervalSeconds') removed 2026-09-01: nothing read it
   // back -- the interval is fully derived at boot from summaryMaxWords and the pace (see runtime.js's
   // recomputeSummaryInterval), so persisting it was a write with no read path.
@@ -111,6 +113,7 @@ export function startApp() {
       displayMargin: clampDisplayMargin(localStorage.getItem(STORAGE.displayMargin) || 4.5),
       fontFamily: clampFontFamily(localStorage.getItem(STORAGE.fontFamily) || 'atkinson-hyperlegible-next'),
       fontWeight: clampFontWeight(localStorage.getItem(STORAGE.fontWeight) || 600),
+      speechLanguage: clampSpeechLanguage(localStorage.getItem(STORAGE.speechLanguage)),
       operatorRailWidth: loadRailWidth(localStorage),
       railCollapsed: loadRailCollapsed(localStorage),
       // #56: words-per-card is now the PRIMARY, persisted setting (default 14, matching
@@ -140,8 +143,6 @@ export function startApp() {
       })(),
       // No profile until applyLastReadingPaceProfile (runtime.js) resolves, same "must work with none
       // set" requirement issue #44 states explicitly -- every reader before this shipped had none.
-      // No card on the wall yet, so the first complete chunk summarizes on arrival (#31).
-      firstCardShown: false,
       readingPaceProfile: null,
       readingPaceProfileName: localStorage.getItem(STORAGE.readingPaceProfileName) || '',
       displayMarginGuidesVisible: false,
@@ -248,6 +249,7 @@ export function startApp() {
       displayMarginValue: $('displayMarginValue'),
       displayMarginField: $('displayMarginField'),
       fontFamilySelect: $('fontFamily'),
+      speechLanguageSelect: $('speechLanguage'),
       fontWeightInput: $('fontWeight'),
       fontWeightValue: $('fontWeightValue'),
       fontWeightField: $('fontWeightField'),
@@ -299,6 +301,7 @@ export function startApp() {
       pauseAiLabel: $('pauseAiLabel'),
       undo: $('undo'),
       clear: $('clear'),
+      flushBucket: $('flushBucket'),
       clearLabel: $('clearLabel'),
       startListening: $('startListening'),
       stopListening: $('stopListening'),
@@ -551,6 +554,7 @@ function bindControlButtons(ctx, runtime) {
   ctx.dom.pauseAi.addEventListener('click', runtime.togglePauseAi);
   ctx.dom.undo.addEventListener('click', runtime.undoLine);
   ctx.dom.clear.addEventListener('click', runtime.clearLines);
+  ctx.dom.flushBucket?.addEventListener('click', runtime.flushBucket);
   ctx.dom.clear.addEventListener('blur', runtime.cancelClearArm);
   // Delegated: cards are replaced wholesale on every render (view.js#renderDisplay), so a listener
   // on each button would be thrown away and re-attached every tick. One listener on the stack,
@@ -685,6 +689,9 @@ function bindViewerControls(ctx, runtime) {
   ctx.dom.displayMarginInput.addEventListener('input', (e) => runtime.setDisplayMargin(e.target.value));
   ctx.dom.fontFamilySelect?.addEventListener('change', (e) => {
     runtime.setFontFamily(e.target.value);
+  });
+  ctx.dom.speechLanguageSelect?.addEventListener('change', (e) => {
+    runtime.setSpeechLanguage(e.target.value);
   });
   ctx.dom.fontWeightInput?.addEventListener('input', (e) => {
     runtime.setFontWeight(e.target.value);

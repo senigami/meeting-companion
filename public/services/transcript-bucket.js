@@ -48,7 +48,7 @@ export function isSingleSentence(text) {
 // (summary-prompt-minimal.js) and passthrough skips that call entirely. Any letter outside Latin/
 // Latin-Extended script is treated as non-English and disqualifies the run from passthrough.
 const NON_LATIN_LETTER = /\p{Letter}/u;
-function hasNonLatinLetter(text) {
+export function hasNonLatinLetter(text) {
   for (const ch of text) {
     if (NON_LATIN_LETTER.test(ch) && !/\p{Script=Latin}/u.test(ch)) return true;
   }

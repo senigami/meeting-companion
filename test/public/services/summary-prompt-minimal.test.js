@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildMinimalSummarizeMessages, computeSummaryPromptHash } from '../../../public/services/summary-prompt-minimal.js';
+import { buildMinimalSummarizeMessages, buildMinimalSummarizePrompt, computeSummaryPromptHash } from '../../../public/services/summary-prompt-minimal.js';
 
 
 test('a whitespace-only history entry is skipped, not folded in as blank context', async () => {
@@ -154,8 +154,9 @@ test('computeSummaryPromptHash hashes the actual prompt text buildMinimalSummari
     { mode: 'prayer', level: 'brief' },
     { mode: 'information', level: 'brief' }
   ];
-  const combined = cases
-    .map(({ mode, level }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: CARD_WORDS }))
+  const combined = ['en', 'auto']
+    .flatMap((language) => cases.map((entry) => ({ ...entry, language })))
+    .map(({ mode, level, language }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, language, maxWords: CARD_WORDS }))
     .join(' ');
 
   assert.equal(computeSummaryPromptHash(), independentFnv1aHash(combined));
@@ -183,10 +184,11 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // actually says, not just the citation itself -- a live rerun of #93 ("...1 Nephi 11:21 says...
   // Behold the Lamb of God") kept the citation but dropped what it revealed, saying only "felt
   // something special."
+  // Updated: LDS_CONTEXT added to every branch and the corpus now covers both speech languages.
   // Updated 2026-08-17: NO_PLACEHOLDER_SUBJECT extended -- when a card truly needs an unnamed
   // subject, use "they" instead of "the person"/"the speaker" (Steve: "'They' would be better than
   // 'The Person'", framed as "keep personal identifiers compact").
-  assert.equal(computeSummaryPromptHash(), '4e52fefe');
+  assert.equal(computeSummaryPromptHash(), 'ece4233b');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {
@@ -209,14 +211,67 @@ test('every branch of the prompt is inside the hashed corpus, so no real prompt 
     'It must still read as a prayer being offered, not as a report that someone',
     'Summarize the main point of this text using simple words, as',
     'Write in the third person. Do not write as the speaker or use "I".',
-    'Pull out the most important information.'
+    'Pull out the most important information.',
+    'Respond only in English. If the text is not English, or is not real speech, return',
+    'You must respond only in English. Under no circumstances output any non-English'
   ];
 
   const corpus = PROMPT_HASH_SAMPLE_CASES
-    .map(({ mode, level }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, maxWords: CARD_WORDS }))
+    .map(({ mode, level, language }) => buildMinimalSummarizePrompt({ recentTranscript: '', mode, level, language, maxWords: CARD_WORDS }))
     .join(' ');
 
   for (const marker of branchMarkers) {
     assert.ok(corpus.includes(marker), `no sample case reaches the prompt branch containing: ${marker}`);
   }
+});
+
+const ALL_MODE_LEVELS = [
+  ['speaker', 'condense'], ['prayer', 'condense'], ['information', 'condense'],
+  ['speaker', 'brief'], ['prayer', 'brief'], ['information', 'brief']
+];
+
+test('the default English setting forbids translating and tells the model to return nothing for non-English text', () => {
+  for (const [mode, level] of ALL_MODE_LEVELS) {
+    for (const prompt of [
+      buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level }),
+      buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level, language: 'en' })
+    ]) {
+      assert.ok(prompt.includes('Respond only in English.'), `${mode}/${level}`);
+      assert.ok(prompt.includes('return\nnothing (empty text)'), `${mode}/${level}`);
+      assert.ok(!prompt.includes('translate the meaning into English'), `${mode}/${level}`);
+    }
+  }
+});
+
+test('auto-detect keeps the translate instruction and drops the English-only one', () => {
+  for (const [mode, level] of ALL_MODE_LEVELS) {
+    const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level, language: 'auto' });
+    assert.ok(prompt.includes('translate the meaning into English'), `${mode}/${level}`);
+    assert.ok(!prompt.includes('Respond only in English.'), `${mode}/${level}`);
+  }
+});
+
+test('the language reaches the system message built for the provider', () => {
+  const en = buildMinimalSummarizeMessages({ recentTranscript: 'x', language: 'en' })[0].content;
+  const auto = buildMinimalSummarizeMessages({ recentTranscript: 'x', language: 'auto' })[0].content;
+  assert.ok(en.includes('Respond only in English.'));
+  assert.ok(auto.includes('translate the meaning into English'));
+});
+
+test('the LDS context line is in every mode, level and language', () => {
+  for (const language of ['en', 'auto']) {
+    for (const [mode, level] of ALL_MODE_LEVELS) {
+      const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level, language });
+      assert.ok(prompt.includes('Latter-day Saint (LDS) church meeting'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('"profit" or "profits" as prophet or prophets'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('"Mr." before a name as Brother or Sister'), `${mode}/${level}/${language}`);
+    }
+  }
+});
+
+test('the prompt hash covers both languages, so a change to either one moves it', async () => {
+  const { PROMPT_HASH_SAMPLE_CASES } = await import('../../../public/services/summary-prompt-minimal.js');
+  assert.equal(PROMPT_HASH_SAMPLE_CASES.length, 12);
+  assert.equal(PROMPT_HASH_SAMPLE_CASES.filter((entry) => entry.language === 'en').length, 6);
+  assert.equal(PROMPT_HASH_SAMPLE_CASES.filter((entry) => entry.language === 'auto').length, 6);
 });

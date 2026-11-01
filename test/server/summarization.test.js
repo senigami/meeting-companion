@@ -742,3 +742,27 @@ test('Claude: a 200 with no content array returns an empty line rather than rais
 
   assert.deepEqual(result.line, '');
 });
+
+test('language is clamped to the two allowed values, defaulting to English-only', async () => {
+  async function systemPromptFor(language) {
+    let seen = null;
+    await summarizeWithSource({
+      source: 'openai',
+      mode: 'speaker',
+      recentTranscript: 'A neighbor was forgiven.',
+      ...(language === undefined ? {} : { language }),
+      openaiApiKey: 'test-key',
+      fetchImpl: openaiFetch(({ messages }) => { seen = messages[0].content; return { choices: [{ message: { content: 'x' } }] }; })
+    });
+    return seen;
+  }
+
+  for (const bad of [undefined, 'fr', '', 'AUTO', null, 42, { a: 1 }]) {
+    const prompt = await systemPromptFor(bad);
+    assert.ok(prompt.includes('Respond only in English.'), `${JSON.stringify(bad)} must fall back to English-only`);
+    assert.ok(!prompt.includes('translate the meaning into English'), `${JSON.stringify(bad)} must not translate`);
+  }
+  const auto = await systemPromptFor('auto');
+  assert.ok(auto.includes('translate the meaning into English'));
+  assert.ok(!auto.includes('Respond only in English.'));
+});

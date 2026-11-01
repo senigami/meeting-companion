@@ -1,5 +1,5 @@
 import { cleanModelLinesWithLoss, RUNAWAY_LINE_GUARD, SUMMARY_MAX_WORDS } from '../public/services/summary-prompt.js';
-import { SUMMARY_INTERVAL_MAX_SECONDS } from '../public/services/view-settings.js';
+import { SUMMARY_INTERVAL_MAX_SECONDS, clampSpeechLanguage } from '../public/services/view-settings.js';
 import { buildMinimalSummarizeMessages } from '../public/services/summary-prompt-minimal.js';
 import { isSummaryLevel } from '../public/services/summary-level.js';
 import { responseErrorMessage } from '../public/services/response.js';
@@ -77,6 +77,7 @@ export async function summarizeWithSource({
   visibleLines = [],
   maxWords = SUMMARY_MAX_WORDS,
   level = 'condense',
+  language = 'en',
   history = [],
   openaiApiKey = process.env.OPENAI_API_KEY || '',
   anthropicApiKey = process.env.ANTHROPIC_API_KEY || '',
@@ -96,6 +97,8 @@ export async function summarizeWithSource({
   const text = String(recentTranscript).trim();
   if (!text) return { line: '' };
   const words = boundWords(maxWords);
+  // Untrusted request input, like maxWords: anything but an allowed value becomes English-only.
+  const speechLanguage = clampSpeechLanguage(language);
 
   switch (source || 'openai') {
     case 'openai':
@@ -112,6 +115,7 @@ export async function summarizeWithSource({
         // silently rather than failing. That belongs at the point of use as well as at the caller:
         // this is where an untrusted request body arrives.
         level: mode === 'information' ? 'condense' : (isSummaryLevel(level) ? level : 'condense'),
+        language: speechLanguage,
         history
       });
     case 'claude':
@@ -126,6 +130,7 @@ export async function summarizeWithSource({
         // Same information-mode guard as the OpenAI branch, for the same reason: brief keeps one
         // line, so an announcements round would lose every fact after the first.
         level: mode === 'information' ? 'condense' : (isSummaryLevel(level) ? level : 'condense'),
+        language: speechLanguage,
         history
       });
     default:
@@ -133,7 +138,7 @@ export async function summarizeWithSource({
   }
 }
 
-async function summarizeWithOpenAI({ apiKey, fetchImpl, mode, recentTranscript, visibleLines, maxWords, level = 'condense', history = [] }) {
+async function summarizeWithOpenAI({ apiKey, fetchImpl, mode, recentTranscript, visibleLines, maxWords, level = 'condense', language = 'en', history = [] }) {
   if (!apiKey) {
     return { line: '', reason: 'OPENAI_API_KEY is not set. Manual mode still works.' };
   }
@@ -141,7 +146,7 @@ async function summarizeWithOpenAI({ apiKey, fetchImpl, mode, recentTranscript, 
   // buildMinimalSummarizeMessages is the conversational-turns prompt proven in
   // scripts/simulate-meeting.js (real user/assistant turns instead of prior context pasted into
   // one message). The Claude path below also uses it (#47) -- both providers share one prompt now.
-  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
+  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, language, history });
   // The request/response adapter (building the call, parsing the reply text, classifying failure)
   // lives in packages/ai-provider -- see issue #9. Everything above and below this call is
   // calibrated to THIS app's reading-load model and stays here.
@@ -228,6 +233,7 @@ async function summarizeWithClaude({
   visibleLines,
   maxWords,
   level = 'condense',
+  language = 'en',
   history = []
 }) {
   if (!anthropicApiKey) {
@@ -246,7 +252,7 @@ async function summarizeWithClaude({
   // buildMinimalSummarizeMessages returns [system, ...history turns, user]. Splitting the system
   // message into Anthropic's top-level `system` field is now the package's job (packages/ai-provider,
   // issue #9) -- one canonical messages array goes in for both providers.
-  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, history });
+  const messages = buildMinimalSummarizeMessages({ recentTranscript, mode, maxWords, level, language, history });
 
   let rawText;
   try {

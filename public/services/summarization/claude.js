@@ -11,7 +11,7 @@ export function createClaudeSummarizer({
   return {
     id: 'claude',
     label: 'Claude',
-    async summarize({ mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords, level, history = [] } = {}) {
+    async summarize({ mode = 'speaker', recentTranscript = '', visibleLines = [], maxWords, level, language, history = [] } = {}) {
       const text = String(recentTranscript).trim();
       if (!text) return { line: '' };
 
@@ -27,6 +27,7 @@ export function createClaudeSummarizer({
           // #47: without these two, selecting Claude silently dropped the summarization level and all
           // prior context, so the same setting produced a different application.
           level,
+          language,
           history
         })
       }, { setTimeoutFn, clearTimeoutFn });
