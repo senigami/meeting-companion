@@ -203,3 +203,22 @@ test('cleanModelLines returns an empty array for blank or whitespace-only replie
   assert.deepEqual(cleanModelLines('', []), []);
   assert.deepEqual(cleanModelLines('   \n  \n', []), []);
 });
+
+test('lines that are only an echo of the empty-response instruction or a stock refusal are rejected', () => {
+  for (const line of [
+    '(empty text)', 'Empty text.', '[No text]', 'No output', 'Empty response.', 'Empty',
+    'Nothing to summarize.', 'No information provided to summarize.', 'No information to summarize'
+  ]) {
+    assert.equal(shouldAcceptModelLine(line), false, line);
+  }
+});
+
+test('a real card that merely starts with the same words is still accepted', () => {
+  for (const line of [
+    'Nothing was decided at the meeting, so the vote waits.',
+    'No information about the move was given until Sunday.',
+    'Empty chairs filled the hall.'
+  ]) {
+    assert.equal(shouldAcceptModelLine(line), true, line);
+  }
+});

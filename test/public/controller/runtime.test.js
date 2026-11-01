@@ -699,6 +699,71 @@ test('the display countdown bar runs off the same tick and duration as the rail 
   });
 });
 
+test('each tick restarts the display bar full, shrinking over the same duration as the rail bar', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    elements.displayCountdownFill.style.width = '37%';
+    elements.displayCountdownFill.style.transitionDuration = '1s';
+
+    t.mock.timers.tick(5000);
+
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    assert.equal(elements.displayCountdownFill.style.width, '0%');
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '5s');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+    assert.equal(elements.railTranscriptProgressFill.style.width, '100%');
+  });
+});
+
+test('a tick that finds the call still in flight shows the overrun dot on the display, and idle is a different state', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    ctx.state.summarizeInFlight = true;
+    t.mock.timers.tick(5000);
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'overrun');
+    assert.equal(elements.displayCountdown.dataset.state, 'overrun');
+    assert.equal(elements.displayCountdownFill.style.width, '0%');
+
+    await runtime.togglePauseAi();
+    assert.equal(elements.displayCountdown.dataset.state, 'idle', 'paused is idle, never the dot');
+  });
+});
+
+test('under auto-detect an all-non-Latin final is kept on an empty bucket, and a second one too', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { speechLanguage: 'auto' }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'はい。' });
+    runtime.handleTranscriptEvent({ type: 'final', text: 'ありがとう。' });
+    assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['はい。', 'ありがとう。']);
+  });
+});
+
+test('dropping a foreign-script final under English clears its stale partial from the rail preview', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { speechLanguage: 'en' }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'partial', text: 'はい' });
+    assert.equal(ctx.state.transcriptPreview, 'はい');
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'はい。' });
+    assert.equal(ctx.state.transcriptPreview, '');
+    assert.equal(elements.liveTranscript.textContent, '');
+  });
+});
+
 test('the display countdown bar goes idle while paused, like the rail bar', async () => {
   const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
 

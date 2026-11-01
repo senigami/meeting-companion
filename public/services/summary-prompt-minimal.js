@@ -69,19 +69,20 @@ never leave foreign words untranslated.`;
 
 // For the default 'en' setting: foreign-script and non-speech fragments were being translated or
 // glossed into cards that read as fact, so the model is told to return nothing for them instead.
-const ENGLISH_ONLY = `Respond only in English. If the text is not English, or is not real speech, return
-nothing (empty text) -- do not translate it, gloss it, or comment on it.`;
+const ENGLISH_ONLY = `Respond only in English. If the text is not English, or is not real speech, return an
+empty response -- do not translate it, gloss it, or comment on it.`;
 
 function languageRule(language) {
   return language === 'auto' ? TRANSLATE : ENGLISH_ONLY;
 }
 
 // Shared by every mode and level. Real recordings showed the recognizer hearing "profit" for
-// prophet, "steak"/"state" for stake and "Mr." for Brother/Sister, and the model repeating them.
-const LDS_CONTEXT = `This is a spoken talk or prayer from a Latter-day Saint (LDS) church meeting, summarized for
-a Deaf reader. The speech is machine-transcribed, so mis-hearings of LDS terms are likely: read them
-as the intended term (for example "profit" or "profits" as prophet or prophets, "steak" or "state"
-in "state high council" as stake, "Mr." before a name as Brother or Sister).`;
+// prophet and "steak"/"state" for stake. Limited to LDS terms so names and ordinary words stay as
+// spoken.
+const LDS_CONTEXT = `This is a machine-transcribed talk or prayer from a Latter-day Saint (LDS) church meeting, so LDS
+terms may be misheard. Correct only LDS terms, never a person's name, which stays as spoken. Read
+"steak" or "state" in "state high council" as stake. When the talk is about prophets, read "profit"
+or "profits" as prophet or prophets, not in ordinary use like "make a profit".`;
 
 const THIRD_PERSON = `Write in the third person. Do not write as the speaker or use "I".`;
 

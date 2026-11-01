@@ -762,7 +762,12 @@ export function createRuntime(ctx, deps = {}) {
     if (event.type === 'final') {
       // The English-only setting drops foreign-script chunks before they can reach the bucket, where
       // the summarizer would translate or gloss them into a card.
-      if (ctx.state.speechLanguage !== 'auto' && hasNonLatinLetter(event.text)) return;
+      if (ctx.state.speechLanguage !== 'auto' && hasNonLatinLetter(event.text)) {
+        // Its partial may still be showing in the rail; the final is what ends it.
+        ctx.state.transcriptPreview = '';
+        showRecentTranscript();
+        return;
+      }
       // Tag the chunk with the mode active right now, when the words were actually captured --
       // not whatever mode happens to be selected later when this backlogged text is finally
       // summarized. Reading ctx.state.mode at summarize time let backlogged Information-mode
@@ -1240,9 +1245,10 @@ export function createRuntime(ctx, deps = {}) {
   // rAF/timer of its own -- a bar with its own clock is exactly the kind of thing that quietly
   // drifts out of sync with the real tick and starts lying (INV-10's cardinal sin, applied to a
   // new surface).
-  // The display's countdown bar mirrors the rail bar's state and duration from these same three
-  // calls: full at the start of a period, empty when the tick fires.
-  function setDisplayCountdown(state, { width, durationSeconds = 0 }) {
+  // The display's countdown bar is the exact mirror of the rail bar and is set from the same three
+  // functions below: full and shrinking to empty where the rail grows to full, a centered dot where
+  // the rail freezes full (overrun), invisible where the rail is idle.
+  function setDisplayCountdownState(state, { width = '100%', durationSeconds = 0 } = {}) {
     const track = ctx.dom.displayCountdown;
     const fill = ctx.dom.displayCountdownFill;
     if (!track || !fill) return;
@@ -1250,13 +1256,14 @@ export function createRuntime(ctx, deps = {}) {
     fill.style.transitionDuration = '0s';
     fill.style.width = '100%';
     if (width === '100%') return;
+    // Reflow so the full-width state is committed before the transition to empty begins.
     void fill.offsetWidth;
     fill.style.transitionDuration = `${durationSeconds}s`;
     fill.style.width = width;
   }
 
   function restartTranscriptProgressBar(durationSeconds) {
-    setDisplayCountdown('running', { width: '0%', durationSeconds });
+    setDisplayCountdownState('running', { width: '0%', durationSeconds });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1277,7 +1284,7 @@ export function createRuntime(ctx, deps = {}) {
   // looking sweep would be dishonest; freezing the bar full (in the same blue as the 'behind' rail
   // dot) says "this cycle overran" instead.
   function freezeTranscriptProgressBarOverrun() {
-    setDisplayCountdown('overrun', { width: '0%' });
+    setDisplayCountdownState('overrun', { width: '0%' });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1290,7 +1297,7 @@ export function createRuntime(ctx, deps = {}) {
   // in progress. Called from the one place the loop's real clock actually stops
   // (pauseActiveTranscription) so this can never drift out of sync with whether ticks are firing.
   function idleTranscriptProgressBar() {
-    setDisplayCountdown('idle', { width: '100%' });
+    setDisplayCountdownState('idle');
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;

@@ -188,7 +188,7 @@ test('computeSummaryPromptHash is a stable value for the current prompt (fails i
   // Updated 2026-08-17: NO_PLACEHOLDER_SUBJECT extended -- when a card truly needs an unnamed
   // subject, use "they" instead of "the person"/"the speaker" (Steve: "'They' would be better than
   // 'The Person'", framed as "keep personal identifiers compact").
-  assert.equal(computeSummaryPromptHash(), 'ece4233b');
+  assert.equal(computeSummaryPromptHash(), 'e239501f');
 });
 
 test('computeSummaryPromptHash never contains the prompt wording itself', () => {
@@ -212,7 +212,7 @@ test('every branch of the prompt is inside the hashed corpus, so no real prompt 
     'Summarize the main point of this text using simple words, as',
     'Write in the third person. Do not write as the speaker or use "I".',
     'Pull out the most important information.',
-    'Respond only in English. If the text is not English, or is not real speech, return',
+    'Respond only in English. If the text is not English, or is not real speech, return an',
     'You must respond only in English. Under no circumstances output any non-English'
   ];
 
@@ -237,7 +237,8 @@ test('the default English setting forbids translating and tells the model to ret
       buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level, language: 'en' })
     ]) {
       assert.ok(prompt.includes('Respond only in English.'), `${mode}/${level}`);
-      assert.ok(prompt.includes('return\nnothing (empty text)'), `${mode}/${level}`);
+      assert.ok(prompt.includes('return an\nempty response'), `${mode}/${level}`);
+      assert.ok(!prompt.includes('(empty text)'), `${mode}/${level}: no literal for the model to echo`);
       assert.ok(!prompt.includes('translate the meaning into English'), `${mode}/${level}`);
     }
   }
@@ -263,8 +264,12 @@ test('the LDS context line is in every mode, level and language', () => {
     for (const [mode, level] of ALL_MODE_LEVELS) {
       const prompt = buildMinimalSummarizePrompt({ recentTranscript: 'x', mode, level, language });
       assert.ok(prompt.includes('Latter-day Saint (LDS) church meeting'), `${mode}/${level}/${language}`);
-      assert.ok(prompt.includes('"profit" or "profits" as prophet or prophets'), `${mode}/${level}/${language}`);
-      assert.ok(prompt.includes('"Mr." before a name as Brother or Sister'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('Correct only LDS terms, never a person\'s name, which stays as spoken.'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('When the talk is about prophets, read "profit"'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('not in ordinary use like "make a profit"'), `${mode}/${level}/${language}`);
+      assert.ok(prompt.includes('"steak" or "state" in "state high council" as stake'), `${mode}/${level}/${language}`);
+      assert.ok(!prompt.includes('Mr.'), `${mode}/${level}/${language}`);
+      assert.ok(!prompt.includes('Deaf'), `${mode}/${level}/${language}`);
     }
   }
 });

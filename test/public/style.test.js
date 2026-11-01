@@ -460,7 +460,10 @@ test('the mode chip deliberately stays at chrome scale, so it does not track the
 
 test('the display countdown bar steps coarsely under reduced motion and stays out of the card flow', async () => {
   const css = await readFile(new URL('../../public/styles/layout.css', import.meta.url), 'utf8');
-  assert.match(css, /\.displayCountdown\s*\{[^}]*height:\s*12px;[^}]*\}/s);
+  assert.match(css, /\.displayCountdown\s*\{[^}]*--display-countdown-size:\s*max\(12px, 1\.2vh\);[^}]*height:\s*var\(--display-countdown-size\);[^}]*\}/s);
+  assert.match(css, /\.displayCountdownFill\s*\{[^}]*min-width:\s*var\(--display-countdown-size\);[^}]*\}/s);
+  assert.match(css, /\.displayCountdown\[data-state="overrun"\][\s\S]*\.displayCountdownFill[\s\S]*width:\s*0%;/);
+  assert.match(css, /\.displayCountdownFill\s*\{[^}]*background:\s*var\(--chrome-accent\);[^}]*opacity:\s*0\.55;[^}]*\}/s);
   assert.match(css, /prefers-reduced-motion: reduce\)[\s\S]*\.displayCountdownFill[\s\S]*steps\(8, jump-end\)/);
   assert.match(css, /\.displayCountdown\[data-state="idle"\][\s\S]*\.displayCountdownFill[\s\S]*opacity:\s*0;/);
 });

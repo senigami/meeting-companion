@@ -177,10 +177,11 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
  * driven by the same tick as .railTranscriptProgress (runtime.js startLoop).
  */
 .displayCountdown {
+  --display-countdown-size: max(12px, 1.2vh);
   display: flex;
   justify-content: center;
-  height: 12px;
-  margin: 0 var(--display-margin) 12px;
+  height: var(--display-countdown-size);
+  margin: 0 var(--display-margin) var(--display-countdown-size);
   pointer-events: none;
 }
 
@@ -188,11 +189,14 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   display: none;
 }
 
+/* Same color and opacity as the rail bar's fill. A normal cycle shrinks to nothing; only an overrun
+   holds a dot, so it differs from both the end of a cycle and idle. */
 .displayCountdownFill {
   height: 100%;
   width: 100%;
   border-radius: 999px;
-  background: #e8f1ff;
+  background: var(--chrome-accent);
+  opacity: 0.55;
   transition-property: width;
   transition-timing-function: linear;
 }
@@ -208,9 +212,10 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
   opacity: 0;
 }
 
-/* Overrun: the tick fired, so the bar is empty rather than restarting. */
+/* Overrun: the tick found the previous call still in flight (the rail freezes full); show the dot. */
 .displayCountdown[data-state="overrun"] .displayCountdownFill {
   width: 0%;
+  min-width: var(--display-countdown-size);
 }
 
 /*

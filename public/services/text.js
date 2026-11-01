@@ -6,10 +6,20 @@ export function toLowerKey(text) {
   return normalizeText(text).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// toLowerKey strips everything but a-z and 0-9, so text in another script has an empty key. An
+// empty key must not count as a duplicate of anything, or every such line is dropped; those fall
+// back to comparing the normalized text itself.
+function isSameText(a, b) {
+  const keyA = toLowerKey(a);
+  const keyB = toLowerKey(b);
+  if (keyA || keyB) return keyA === keyB;
+  return Boolean(a) && normalizeText(a).toLowerCase() === normalizeText(b).toLowerCase();
+}
+
 export function appendUniqueText(list, text) {
   const clean = normalizeText(text);
   if (!clean) return list;
-  if (toLowerKey(list[list.length - 1] || '') === toLowerKey(clean)) return list;
+  if (isSameText(list[list.length - 1] || '', clean)) return list;
   return [...list, clean];
 }
 
@@ -21,7 +31,7 @@ export function appendUniqueChunk(chunks, text, at = Date.now(), mode = null, sp
   const clean = normalizeText(text);
   if (!clean) return chunks;
   const last = chunks[chunks.length - 1];
-  if (toLowerKey(last?.text || '') === toLowerKey(clean)) return chunks;
+  if (isSameText(last?.text || '', clean)) return chunks;
   return [...chunks, { text: clean, at, mode, speaker }];
 }
 

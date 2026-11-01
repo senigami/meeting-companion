@@ -20,7 +20,7 @@ The browser UI still needs manual verification because the TV display, helper pa
 - Express route behavior for `/api/config`, malformed JSON, and oversized payloads.
 - View-setting clamping for text size, margins, and the summary interval slider.
 - Percentage-based display-margin guides and the small operator-rail transcript preview.
-- The sentence-aware transcript bucket (`transcript-bucket.js`): sentence-boundary partitioning, the 20s unpunctuated settle timeout, and consumed-chunk removal.
+- The sentence-aware transcript bucket (`transcript-bucket.js`): sentence-boundary partitioning, the 2s unpunctuated settle timeout, and consumed-chunk removal.
 - The rail note (`#railNote`) Clear/Undo feedback text and its 4s auto-hide.
 - The non-fatal "Speech recognition error:" status classifier not raising a false Problem state.
 - Helper panel structure tests that keep Settings, Diagnostics, and View options separate from the main control surface.
