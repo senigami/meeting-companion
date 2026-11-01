@@ -66,7 +66,7 @@ invented lyric-shaped lines. The scenario is about *shape*, and inventing them c
 ### pipeline edges — mode is whatever fits, the scenario is mechanical
 | `proves` | Input shape |
 |---|---|
-| `edge-unpunctuated-tail` | A trailing fragment with no terminal punctuation — the ONLY thing that exercises the 20s settle in `partitionBucket`. Every one of today's 25 lines is punctuated. |
+| `edge-unpunctuated-tail` | A trailing fragment with no terminal punctuation — the ONLY thing that exercises the 2s settle in `partitionBucket`. Every one of today's 25 lines is punctuated. |
 | `edge-disfluency` | "um", "uh", "you know" padding |
 | `edge-duplicate-line` | The same sentence twice, as a recognizer double-emission |
 | `edge-run-on` | A single utterance over 240 chars, to exercise output segmentation at `AI_LINE_SAFETY_MAX_CHARS` |

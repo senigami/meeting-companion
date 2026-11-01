@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shortenToLimit } from '../../../public/services/text.js';
+import { appendUniqueChunk, appendUniqueText, shortenToLimit } from '../../../public/services/text.js';
 
 // shortenToLimit is the length backstop applied to BOTH provider response paths in
 // server/summarization.js, so anything it gets wrong reaches the wall for whichever provider is
@@ -71,4 +71,22 @@ test('empty and nullish input stay empty rather than throwing', () => {
   assert.equal(shortenToLimit('', 10), '');
   assert.equal(shortenToLimit(null, 10), '');
   assert.equal(shortenToLimit(undefined, 10), '');
+});
+
+test('appendUniqueChunk keeps an all-non-Latin chunk on an empty bucket and drops only a true repeat', () => {
+  const first = appendUniqueChunk([], 'はい。', 1);
+  assert.deepEqual(first.map((chunk) => chunk.text), ['はい。']);
+  const second = appendUniqueChunk(first, 'ありがとう。', 2);
+  assert.deepEqual(second.map((chunk) => chunk.text), ['はい。', 'ありがとう。']);
+  assert.deepEqual(appendUniqueChunk(second, 'ありがとう。', 3), second, 'an exact repeat is still dropped');
+});
+
+test('appendUniqueChunk still drops a repeat that differs only in case and punctuation', () => {
+  const first = appendUniqueChunk([], 'Hello there.', 1);
+  assert.deepEqual(appendUniqueChunk(first, 'hello there', 2), first);
+});
+
+test('appendUniqueText keeps a different non-Latin line and drops an identical one', () => {
+  assert.deepEqual(appendUniqueText(['はい。'], 'ありがとう。'), ['はい。', 'ありがとう。']);
+  assert.deepEqual(appendUniqueText(['はい。'], 'はい。'), ['はい。']);
 });

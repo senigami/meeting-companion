@@ -678,6 +678,127 @@ test('starting to listen begins the live-transcript progress bar sweep for the c
   });
 });
 
+test('the display countdown bar runs off the same tick and duration as the rail bar', async () => {
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '5s');
+    assert.equal(elements.displayCountdownFill.style.width, '0%', 'it empties as the rail bar fills');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+
+    runtime.setSummaryInterval(9);
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '9s');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '9s');
+  });
+});
+
+test('each tick restarts the display bar full, shrinking over the same duration as the rail bar', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    elements.displayCountdownFill.style.width = '37%';
+    elements.displayCountdownFill.style.transitionDuration = '1s';
+
+    t.mock.timers.tick(5000);
+
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    assert.equal(elements.displayCountdownFill.style.width, '0%');
+    assert.equal(elements.displayCountdownFill.style.transitionDuration, '5s');
+    assert.equal(elements.railTranscriptProgressFill.style.transitionDuration, '5s');
+    assert.equal(elements.railTranscriptProgressFill.style.width, '100%');
+  });
+});
+
+test('a tick that finds the call still in flight shows the overrun dot on the display, and idle is a different state', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ ctx, elements, runtime }) => {
+    await runtime.startListening();
+    ctx.state.summarizeInFlight = true;
+    t.mock.timers.tick(5000);
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'overrun');
+    assert.equal(elements.displayCountdown.dataset.state, 'overrun');
+    assert.equal(elements.displayCountdownFill.style.width, '0%');
+
+    await runtime.togglePauseAi();
+    assert.equal(elements.displayCountdown.dataset.state, 'idle', 'paused is idle, never the dot');
+  });
+});
+
+test('under auto-detect an all-non-Latin final is kept on an empty bucket, and a second one too', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { speechLanguage: 'auto' }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'はい。' });
+    runtime.handleTranscriptEvent({ type: 'final', text: 'ありがとう。' });
+    assert.deepEqual(ctx.state.transcriptChunks.map((chunk) => chunk.text), ['はい。', 'ありがとう。']);
+  });
+});
+
+test('dropping a foreign-script final under English clears its stale partial from the rail preview', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { speechLanguage: 'en' }
+  }, async ({ ctx, elements, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'partial', text: 'はい' });
+    assert.equal(ctx.state.transcriptPreview, 'はい');
+
+    runtime.handleTranscriptEvent({ type: 'final', text: 'はい。' });
+    assert.equal(ctx.state.transcriptPreview, '');
+    assert.equal(elements.liveTranscript.textContent, '');
+  });
+});
+
+test('the display countdown bar goes idle while paused, like the rail bar', async () => {
+  const driver = { id: 'browser', async start() {}, async stop() {}, setMode() {} };
+
+  await withRuntimeHarness({
+    createTranscriptionDriverFn: () => driver,
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => ({ line: '' }) }),
+    stateOverrides: { summaryIntervalSeconds: 5 }
+  }, async ({ elements, runtime }) => {
+    await runtime.startListening();
+    assert.equal(elements.displayCountdown.dataset.state, 'running');
+    await runtime.togglePauseAi();
+    assert.equal(elements.railTranscriptProgress.dataset.state, 'idle');
+    assert.equal(elements.displayCountdown.dataset.state, 'idle');
+  });
+});
+
+test('the countdown checkbox setting is persisted and hides the bar when off', async () => {
+  const localStorageValues = {};
+  await withRuntimeHarness({
+    localStorageValues,
+    stateOverrides: { showDisplayCountdown: true }
+  }, async ({ ctx, elements, runtime }) => {
+    ctx.dom.showDisplayCountdownInput = { checked: true };
+    runtime.setShowDisplayCountdown(false);
+    assert.equal(localStorageValues.showDisplayCountdown, 'false');
+    assert.equal(elements.displayCountdown.hidden, true);
+    assert.equal(ctx.dom.showDisplayCountdownInput.checked, false);
+
+    runtime.setShowDisplayCountdown(true);
+    assert.equal(localStorageValues.showDisplayCountdown, 'true');
+    assert.equal(elements.displayCountdown.hidden, false);
+    assert.equal(ctx.dom.showDisplayCountdownInput.checked, true);
+  });
+});
+
 test('changing the update interval mid-session re-syncs the progress bar to the new duration', async () => {
   const driver = {
     id: 'browser',
@@ -5137,11 +5258,9 @@ test('a multi-line summary becomes multiple cards, not one merged run-on card', 
   });
 });
 
-test('the first card does not wait out an interval, and later ones do (#31)', async () => {
-  // At the honest 20s interval the reader watched a blank wall for up to 20 seconds after the meeting
-  // started, with no way to tell the app was working, while speech sat in the bucket waiting on a
-  // clock. Steve's call: summarize the first complete chunk on arrival, then let the interval own the
-  // cadence.
+test('the first sentence waits for the interval tick instead of summarizing on arrival', async () => {
+  // Real recordings: a lone first chunk summarized on arrival came back empty, meta or verbatim far
+  // more often than a bucket that had waited for context, so nothing fires on arrival any more.
   const calls = [];
   await withRuntimeHarness({
     createSummarizationDriverFn: () => ({
@@ -5150,147 +5269,29 @@ test('the first card does not wait out an interval, and later ones do (#31)', as
     }),
     stateOverrides: { summaryIntervalSeconds: 20, openAiReady: true, summarizationSource: 'openai' }
   }, async ({ ctx, runtime }) => {
-    // Falsy, not literally false: the harness deliberately does not seed what start-app.js seeds, so
-    // this is undefined here. The code tests `!firstCardShown`, so undefined and false behave the same
-    // and asserting the literal would be stricter than the contract.
-    assert.ok(!ctx.state.firstCardShown, 'sanity: the wall starts empty');
-
-    // One complete sentence arrives. No interval tick has happened.
     runtime.handleTranscriptEvent({ type: 'final', text: 'I would like to bear my testimony.' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     await ctx.state.summarizeCallPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls.length, 0, 'no summarize call before the interval tick');
 
-    assert.equal(calls.length, 1, 'the first complete chunk must be summarized on arrival');
-    assert.equal(ctx.state.firstCardShown, true, 'and the wall is no longer empty');
-
-    // A second chunk must NOT trigger another immediate call: the interval owns the cadence now.
-    runtime.handleTranscriptEvent({ type: 'final', text: 'I know the Church is true.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(calls.length, 1, 'later chunks wait for the interval rather than summarizing on arrival');
+    await runtime.summarizeCurrentText(undefined, { settleMs: 0 });
+    assert.equal(calls.length, 1, 'the tick summarizes the waiting sentence');
   });
 });
 
-test('clearing the wall makes the first-card path live again (#31, #77)', async () => {
-  // Ansel's framing, which holds however this is solved: the empty-screen problem is not the first
-  // line of a meeting, it is any moment the card area is blank while speech is being heard. Asserting
-  // the flag directly would survive it being renamed into meaninglessness (#77) -- assert the
-  // behavior the flag exists to gate: a chunk arriving at a blank wall must summarize on arrival,
-  // not wait out the interval.
-  const calls = [];
-  await withRuntimeHarness({
-    createSummarizationDriverFn: () => ({
-      id: 'openai',
-      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A fresh card.' }; }
-    }),
-    stateOverrides: {
-      firstCardShown: true,
-      summaryIntervalSeconds: 20,
-      openAiReady: true,
-      summarizationSource: 'openai',
-      transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }]
-    }
-  }, async ({ ctx, runtime }) => {
-    runtime.clearLines(); // arms
-    runtime.clearLines(); // confirms
-    assert.equal(ctx.state.transcriptItems.length, 0);
-
-    runtime.handleTranscriptEvent({ type: 'final', text: 'Speech into the empty wall.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await ctx.state.summarizeCallPromise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    assert.equal(calls.length, 1, 'a chunk arriving at a cleared wall must summarize on arrival, not wait out the interval');
-  });
-});
-
-test('undoing the last card makes the first-card path live again (#77)', async () => {
-  // #31 fixed the clear path only; undoLine can also empty transcriptItems one card at a time
-  // (removing the last remaining card) without going through clearLines, so it left the reader on a
-  // blank wall waiting out a full interval.
-  const calls = [];
-  await withRuntimeHarness({
-    createSummarizationDriverFn: () => ({
-      id: 'openai',
-      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A fresh card.' }; }
-    }),
-    stateOverrides: {
-      firstCardShown: true,
-      summaryIntervalSeconds: 20,
-      openAiReady: true,
-      summarizationSource: 'openai',
-      transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }]
-    }
-  }, async ({ ctx, runtime }) => {
-    runtime.undoLine();
-    assert.equal(ctx.state.transcriptItems.length, 0, 'sanity: undo removed the only card');
-
-    runtime.handleTranscriptEvent({ type: 'final', text: 'Speech into the empty wall.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await ctx.state.summarizeCallPromise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    assert.equal(calls.length, 1, 'a chunk arriving after undo emptied the wall must summarize on arrival, not wait out the interval');
-  });
-});
-
-test('a provider already in backoff is not called again on chunk arrival (#31)', async () => {
-  // Found by Cato before this shipped. Gating on firstCardShown alone bypassed the summarize backoff
-  // entirely: effectiveIntervalSeconds is consumed only by startLoop, so it lengthens the INTERVAL and
-  // can do nothing about a call fired by a chunk arriving. With a provider down at meeting start that
-  // was one call per speech chunk, several a minute, for the whole outage, while a deliberate 30 second
-  // backoff sat there unused.
-  let calls = 0;
-  await withRuntimeHarness({
-    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
-    stateOverrides: { openAiReady: true, summarizationSource: 'openai', effectiveIntervalSeconds: 30 }
-  }, async ({ runtime }) => {
-    runtime.handleTranscriptEvent({ type: 'final', text: 'A complete sentence here.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(calls, 0, 'the interval is the backstop while backing off; arrival must not bypass it');
-  });
-});
-
-test('barren chunks cannot each buy a provider call (#31)', async () => {
-  // The healthy version of the same problem: speech that keeps returning no useful line never sets
-  // firstCardShown, so without a floor between attempts every chunk bought its own call.
-  let calls = 0;
-  let now = 100000;
-  await withRuntimeHarness({
-    nowFn: () => now,
-    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
-    stateOverrides: { openAiReady: true, summarizationSource: 'openai' }
-  }, async ({ ctx, runtime }) => {
-    runtime.handleTranscriptEvent({ type: 'final', text: 'First barren sentence.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await ctx.state.summarizeCallPromise;
-    const afterFirst = calls;
-    assert.equal(afterFirst, 1, 'the first arrival does summarize');
-
-    // Same instant: a second chunk must not buy a second call.
-    runtime.handleTranscriptEvent({ type: 'final', text: 'Second barren sentence.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(calls, afterFirst, 'a chunk arriving inside the floor must not trigger another call');
-
-    // Past the floor: allowed again, because no card has landed and the wall is still empty.
-    now += 5000;
-    runtime.handleTranscriptEvent({ type: 'final', text: 'Third barren sentence.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.ok(calls > afterFirst, 'past the floor the wall is still empty, so trying again is right');
-  });
-});
-
-test('a new speaker gets the same fast path as the meeting\'s first speaker, even mid-meeting (#106)', async () => {
-  // firstCardShown is already true (a card is on the wall from the outgoing speaker), so without
-  // awaitingNewSpeakerArrival the incoming speaker's first sentence would wait out whatever is left
-  // of the old interval. The loop itself is never touched, this only reopens the #31 arrival gate.
+test('a new speaker\'s first sentence waits for the interval tick too', async () => {
   const calls = [];
   await withRuntimeHarness({
     createSummarizationDriverFn: () => ({
       id: 'openai',
       summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A card.' }; }
     }),
-    stateOverrides: { openAiReady: true, summarizationSource: 'openai', firstCardShown: true }
+    stateOverrides: {
+      openAiReady: true,
+      summarizationSource: 'openai',
+      transcriptItems: [{ id: 'a', text: 'A card.', mode: 'speaker', source: 'ai', createdAt: 1 }]
+    }
   }, async ({ ctx, runtime }) => {
     runtime.setMode('speaker');
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5299,30 +5300,94 @@ test('a new speaker gets the same fast path as the meeting\'s first speaker, eve
     await new Promise((resolve) => setTimeout(resolve, 0));
     await ctx.state.summarizeCallPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
-
-    assert.equal(calls.length, 1, 'the new speaker\'s first complete sentence must not wait for the interval');
-
-    // A second chunk from the same speaker goes back to waiting on the interval.
-    runtime.handleTranscriptEvent({ type: 'final', text: 'They continue with a second sentence.' });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(calls.length, 1, 'only the first sentence after a speaker change gets the fast path');
+    assert.equal(calls.length, 0, 'a speaker change does not open an arrival-triggered summarize');
   });
 });
 
-test('pressing Start Listening opens the fast path; an internal force-resume does not (#106)', async () => {
-  const driver = {
-    id: 'browser', label: 'Browser', isLive: true,
-    async start() {}, async stop() {}, setMode() {}
-  };
+test('under the English setting a non-Latin chunk never enters the bucket', async () => {
   await withRuntimeHarness({
-    createTranscriptionDriverFn: () => driver
+    stateOverrides: { speechLanguage: 'en' }
   }, async ({ ctx, runtime }) => {
-    await runtime.startListening();
-    assert.equal(ctx.state.awaitingNewSpeakerArrival, true, 'a real Start press opens the fast path');
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Thank you. はい。' });
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Руси.' });
+    assert.equal(ctx.state.transcriptChunks.length, 0);
 
-    ctx.state.awaitingNewSpeakerArrival = false;
-    await runtime.startListening({ force: true });
-    assert.equal(ctx.state.awaitingNewSpeakerArrival, false, 'an internal force-resume is not a new speaker');
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Blessed be God.' });
+    assert.equal(ctx.state.transcriptChunks.length, 1, 'English text still lands');
+  });
+});
+
+test('under auto-detect a non-Latin chunk is kept', async () => {
+  await withRuntimeHarness({
+    stateOverrides: { speechLanguage: 'auto' }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Thank you. はい。' });
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+  });
+});
+
+test('the speech language is sent to the summarizer and persisted when changed', async () => {
+  const sent = [];
+  const localStorageValues = {};
+  await withRuntimeHarness({
+    localStorageValues,
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async (args) => { sent.push(args.language); return { line: 'A card.' }; }
+    }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai', speechLanguage: 'en' }
+  }, async ({ ctx, runtime }) => {
+    runtime.setSpeechLanguage('auto');
+    assert.equal(ctx.state.speechLanguage, 'auto');
+    assert.equal(localStorageValues.speechLanguage, 'auto');
+    runtime.setSpeechLanguage('klingon');
+    assert.equal(ctx.state.speechLanguage, 'auto', 'an unknown value keeps the current one');
+
+    await runtime.summarizeCurrentText('A complete sentence here.', { force: true });
+    assert.deepEqual(sent, ['auto']);
+  });
+});
+
+test('Send now sends an unsettled, unpunctuated newest chunk, and works while paused without unpausing', async () => {
+  const calls = [];
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({
+      id: 'openai',
+      summarize: async ({ recentTranscript }) => { calls.push(recentTranscript); return { line: 'A card.' }; }
+    }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai', paused: true }
+  }, async ({ ctx, runtime }) => {
+    runtime.handleTranscriptEvent({ type: 'final', text: 'and then we went to the' });
+    assert.equal(ctx.state.transcriptChunks.length, 1);
+
+    await runtime.sendNow();
+
+    assert.deepEqual(calls, ['and then we went to the']);
+    assert.equal(ctx.state.paused, true, 'sending must not change the paused state');
+    assert.equal(ctx.state.transcriptChunks.length, 0, 'the chunk was consumed');
+  });
+});
+
+test('Send now on an empty bucket does nothing', async () => {
+  let calls = 0;
+  await withRuntimeHarness({
+    createSummarizationDriverFn: () => ({ id: 'openai', summarize: async () => { calls += 1; return { line: '' }; } }),
+    stateOverrides: { openAiReady: true, summarizationSource: 'openai' }
+  }, async ({ runtime }) => {
+    await runtime.sendNow();
+    assert.equal(calls, 0);
+  });
+});
+
+test('the Send now button is disabled while the bucket is empty and enabled once a chunk lands', async () => {
+  await withRuntimeHarness({
+    elementOverrides: {}
+  }, async ({ ctx, runtime }) => {
+    ctx.dom.sendNow = { disabled: false };
+    runtime.showRecentTranscript();
+    assert.equal(ctx.dom.sendNow.disabled, true);
+    runtime.handleTranscriptEvent({ type: 'final', text: 'Hello there' });
+    assert.equal(ctx.dom.sendNow.disabled, false);
   });
 });
 

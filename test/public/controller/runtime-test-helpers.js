@@ -82,6 +82,8 @@ function createDefaultElements() {
     railTranscript: createElement(),
     railTranscriptProgress: createElement({ dataset: { state: 'idle' } }),
     railTranscriptProgressFill: createElement(),
+    displayCountdown: createElement({ dataset: { state: 'idle' } }),
+    displayCountdownFill: createElement(),
     fontSizeInput,
     fontSizeValue: createElement({ textContent: '' }),
     displayMarginInput,

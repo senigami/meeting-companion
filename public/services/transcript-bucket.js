@@ -12,7 +12,14 @@ import { normalizeText } from './text.js';
 // on it.
 export const TERMINAL_END = /[.!?…]["')\]]*$/;
 
-export const BUCKET_SETTLE_MS = 20000;
+// Lowered from 20000 to 2000 (Steve, 2026-09-20): the newest, still-unpunctuated chunk is the only
+// one this threshold ever gates -- every older chunk in the bucket is already consumable
+// regardless of punctuation (see the isNewest check below). At 20s, a speaker who talked
+// continuously for a full minute with the recognizer never emitting punctuation could sit
+// unconsumed through several interval ticks. 2s is enough to tell "still talking" from "paused",
+// so the existing ~20s interval loop (runtime.js's startLoop) and the on-arrival fast path pick up
+// a genuinely-paused-on chunk on their next regular pass instead of waiting out the old 20s floor.
+export const BUCKET_SETTLE_MS = 2000;
 // This used to be sized for BUCKET_SEND_MAX_CHARS (a 1000-char send slice) plus a little headroom,
 // which held barely two minutes of speech. Now that takeOldestModeRun sends the whole oldest mode
 // run every tick and there is no send-slice cap, this constant's only job is to be the outage
@@ -48,7 +55,7 @@ export function isSingleSentence(text) {
 // (summary-prompt-minimal.js) and passthrough skips that call entirely. Any letter outside Latin/
 // Latin-Extended script is treated as non-English and disqualifies the run from passthrough.
 const NON_LATIN_LETTER = /\p{Letter}/u;
-function hasNonLatinLetter(text) {
+export function hasNonLatinLetter(text) {
   for (const ch of text) {
     if (NON_LATIN_LETTER.test(ch) && !/\p{Script=Latin}/u.test(ch)) return true;
   }

@@ -120,7 +120,11 @@ const NON_ANSWER_PATTERNS = [
   /\bpunctuation is missing\b/i,
   /\b(?:the )?(?:first |last |next )?sentence should (?:show|appear|display)\b.*\bdidn'?t work\b/i,
   /\bmaking it hard to (?:read|understand)\b/i,
-  /\btoo much text\b.*\bcaus(?:e|ing) (?:a|an) (?:issue|problem)\b/i
+  /\btoo much text\b.*\bcaus(?:e|ing) (?:a|an) (?:issue|problem)\b/i,
+  // Whole-line only: the model echoing the "return an empty response" instruction, or a stock
+  // refusal, as if it were a card. A real card that merely starts with "No information" or
+  // "Nothing" must not match.
+  /^[\s\[("']*(?:empty(?: text| response)?|no (?:text|output)|nothing to summari[sz]e|no information (?:provided )?to summari[sz]e)[\s\])"'.!]*$/i
 ];
 
 function isNonAnswerLine(line = '') {

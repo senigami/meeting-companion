@@ -26,6 +26,7 @@
   position: relative;
   display: grid;
   place-items: stretch;
+  grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 28px;
   background:
     radial-gradient(circle at 50% 0%, rgba(120, 183, 255, 0.14), transparent 42%),
@@ -160,6 +161,61 @@ html.is-adjusting-display-margin .displayPanel[data-margin-guides='true']::after
 
 .railTranscriptFrame {
   position: relative;
+}
+
+.railSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/*
+ * Next-card countdown along the bottom of the display. It is a grid row of
+ * its own (not an overlay) so it can never sit on top of a card, and it is
+ * inset by the display margin so it lines up with the margin guides. Fill is
+ * driven by the same tick as .railTranscriptProgress (runtime.js startLoop).
+ */
+.displayCountdown {
+  --display-countdown-size: max(12px, 1.2vh);
+  display: flex;
+  justify-content: center;
+  height: var(--display-countdown-size);
+  margin: 0 var(--display-margin) var(--display-countdown-size);
+  pointer-events: none;
+}
+
+.displayCountdown[hidden] {
+  display: none;
+}
+
+/* Same color and opacity as the rail bar's fill. A normal cycle shrinks to nothing; only an overrun
+   holds a dot, so it differs from both the end of a cycle and idle. */
+.displayCountdownFill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--chrome-accent);
+  opacity: 0.55;
+  transition-property: width;
+  transition-timing-function: linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .displayCountdownFill {
+    transition-timing-function: steps(8, jump-end);
+  }
+}
+
+/* Paused or stopped: nothing is coming, so nothing is shown. */
+.displayCountdown[data-state="idle"] .displayCountdownFill {
+  opacity: 0;
+}
+
+/* Overrun: the tick found the previous call still in flight (the rail freezes full); show the dot. */
+.displayCountdown[data-state="overrun"] .displayCountdownFill {
+  width: 0%;
+  min-width: var(--display-countdown-size);
 }
 
 /*

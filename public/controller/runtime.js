@@ -20,6 +20,7 @@ import {
   clampFontSize,
   clampFontFamily,
   clampFontWeight,
+  clampSpeechLanguage,
   clampSummaryIntervalSeconds,
   clampSummaryMaxWordsOverride
 } from '../services/view-settings.js';
@@ -63,6 +64,7 @@ import {
   BUCKET_SETTLE_MS,
   TERMINAL_END,
   bucketText,
+  hasNonLatinLetter,
   isPassthroughEligible,
   partitionBucket,
   removeConsumed,
@@ -93,6 +95,8 @@ const STORAGE = {
   displayMargin: 'displayMargin',
   fontFamily: 'fontFamily',
   fontWeight: 'fontWeight',
+  speechLanguage: 'speechLanguage',
+  showDisplayCountdown: 'showDisplayCountdown',
   // summaryInterval (localStorage key 'summaryIntervalSeconds') was removed 2026-09-01: #56 made the
   // interval fully derived from summaryMaxWords and the pace at every boot, so nothing ever read the
   // persisted value back -- it was a write with no read path, and #56 review flagged it dead.
@@ -133,11 +137,6 @@ const STORAGE = {
 
 const CLEAR_ARM_TIMEOUT_MS = 3000;
 
-// Floor between two summarize calls triggered by chunk ARRIVAL rather than by the interval (#31).
-// Without it, a stretch of speech that keeps returning no useful line buys one provider call per
-// chunk, because nothing has set firstCardShown yet.
-const ARRIVAL_SUMMARIZE_MIN_GAP_MS = 3000;
-
 // How long one card holds the wall before the next one from the same summarize result goes up.
 // Not tied to the summarize interval on purpose: that setting controls how often we ASK the model
 // for text, this controls how fast a reader is asked to absorb it. They answer different questions
@@ -172,7 +171,7 @@ export const SILENCE_WATCHDOG_MS = 45000;
 // Steve's ruling (2026-07-30): a period should be inserted after silence with no new transcript
 // event. Chrome's Web Speech API frequently never punctuates an utterance at all, so without this,
 // partitionBucket's own punctuation rule holds the newest chunk hostage for the full
-// BUCKET_SETTLE_MS (20s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
+// BUCKET_SETTLE_MS (2s) -- which loses text mid-meeting, not just at Stop, because the NEXT final
 // chunk arrives and appears to start a fresh sentence while the unpunctuated tail from before it
 // is still sitting unsent. "No audio" is not observable on the Chrome path (it exposes no levels
 // for its own internal mic), so the trigger is "no new recognition event of any kind, partial or
@@ -358,35 +357,6 @@ export function createRuntime(ctx, deps = {}) {
   // instant) and for a live AI line whose caller passes the mode/speaker actually captured on the
   // chunk explicitly (see runSummarizeCurrentText's sendSpeaker), the same precedent `mode` already
   // follows for a backlogged card.
-  // Whether a newly captured chunk should be summarized immediately rather than waiting for the
-  // interval (#31, generalized by #106). Three conditions, and the second two are why the first is
-  // not enough on its own.
-  //
-  // Found by Cato before this shipped: gating on firstCardShown ALONE bypassed the summarize backoff
-  // completely. effectiveIntervalSeconds is how a failing provider gets backed off, and it is consumed
-  // only by startLoop, so it lengthens the INTERVAL and can do nothing about a call triggered by a
-  // chunk arriving. With a provider down at meeting start, that meant one call per speech chunk,
-  // several a minute, for the whole outage, while a deliberate 30 second backoff sat there unused.
-  //
-  // The elapsed floor covers the healthy version of the same thing: pre-meeting chatter that keeps
-  // returning "no new useful line" never sets the flag, so every barren chunk bought its own call.
-  //
-  // #106: the same empty-wall problem #31 solved once at meeting start also happens on every speaker
-  // change, since startLoop's interval is untouched by a mode change and keeps its own schedule.
-  // awaitingNewSpeakerArrival opens this same gate again without touching firstCardShown's own
-  // meaning (whether the WALL is empty) -- a speaker change does not clear the wall, it just means
-  // the newest person deserves the same fast turnaround the very first speaker got. Deliberately NOT
-  // a stop-the-loop-and-restart-it design: an earlier attempt at that for #31 forced the progress bar
-  // to either lie about its sweep or flicker, caught by four tests at the time. This stays additive,
-  // same as #31 -- the interval loop never notices any of this and remains the backstop.
-  function shouldSummarizeOnArrival() {
-    if (ctx.state.firstCardShown && !ctx.state.awaitingNewSpeakerArrival) return false;
-    // Already backing off a failing provider: the interval is the backstop, let it be the backstop.
-    if (ctx.state.effectiveIntervalSeconds) return false;
-    const since = nowFn() - (ctx.state.lastArrivalSummarizeAt || 0);
-    return since >= ARRIVAL_SUMMARIZE_MIN_GAP_MS;
-  }
-
   function addLine(line, { source = 'manual', mode = ctx.state.mode, speaker = ctx.state.speakerName, paced = false, isHeader = false } = {}) {
     // Normalized PER LINE, not across the whole string. normalizeText collapses /\s+/ to a single
     // space, which includes the newlines the server uses to separate cards -- so running it over
@@ -428,14 +398,9 @@ export function createRuntime(ctx, deps = {}) {
     return true;
   }
 
-  // Any assignment that can leave transcriptItems empty routes through here, rather than resetting
-  // firstCardShown at each call site. Ansel's framing, which holds regardless of how it is solved:
-  // this is not about the first line of a meeting, it is about any moment the card area is blank
-  // while speech is being heard (#31, #77 — undo emptying the wall one card at a time missed this
-  // when the reset lived only in clearLines).
+  // Single assignment point for the wall, so every path that replaces it goes through one place.
   function setTranscriptItems(items) {
     ctx.state.transcriptItems = items;
-    if (!items.length) ctx.state.firstCardShown = false;
   }
 
   function undoLine() {
@@ -662,6 +627,9 @@ export function createRuntime(ctx, deps = {}) {
     if (ctx.dom.liveTranscript) {
       ctx.dom.liveTranscript.textContent = preview;
     }
+    if (ctx.dom.sendNow) {
+      ctx.dom.sendNow.disabled = !ctx.state.transcriptChunks.length;
+    }
     if (ctx.dom.railTranscript) {
       if (documentImpl?.createElement && ctx.state.inFlightChunks?.length) {
         renderRailTranscript(
@@ -792,6 +760,14 @@ export function createRuntime(ctx, deps = {}) {
     noteTranscriptActivity();
 
     if (event.type === 'final') {
+      // The English-only setting drops foreign-script chunks before they can reach the bucket, where
+      // the summarizer would translate or gloss them into a card.
+      if (ctx.state.speechLanguage !== 'auto' && hasNonLatinLetter(event.text)) {
+        // Its partial may still be showing in the rail; the final is what ends it.
+        ctx.state.transcriptPreview = '';
+        showRecentTranscript();
+        return;
+      }
       // Tag the chunk with the mode active right now, when the words were actually captured --
       // not whatever mode happens to be selected later when this backlogged text is finally
       // summarized. Reading ctx.state.mode at summarize time let backlogged Information-mode
@@ -813,31 +789,6 @@ export function createRuntime(ctx, deps = {}) {
       // itself was tagged with, so the recorded id always matches the bucket's own.
       if (ctx.state.transcriptChunks.length > beforeLength) {
         queueRecord(() => buildChunkRecord({ at: capturedAt, mode: capturedMode, speaker: capturedSpeaker, text: event.text }));
-        // While the wall is still empty, don't make him wait out an interval for a card (#31).
-        //
-        // Steve's call, 2026-08-04: "the interval timer does not start until after the first release
-        // from the summarizer... that way we get an initial summary, not verbatim, it fits the required
-        // length, gives something right away". At his honest 20s interval the reader watched a blank
-        // screen for up to 20 seconds after the meeting had started, with no way to tell the app was
-        // working, while speech sat in the bucket waiting on a clock.
-        //
-        // Deliberately ADDITIVE: the interval loop is untouched and remains the backstop, so if this
-        // path ever fails to fire, cards still arrive on the normal schedule. An earlier attempt made
-        // the loop itself poll fast until the first card, which forced the progress bar either to lie
-        // about a 20s sweep or to flicker every poll -- four existing tests caught that, correctly.
-        //
-        // Nothing about WHAT is shown changes: same prompt, same level, same word budget. It is the
-        // same card, sooner, which is why it needed no readability ruling (unlike the verbatim first
-        // line this card originally asked for, which Ansel blocked). partitionBucket still decides
-        // what is safe to send, so this cannot summarize half a sentence: it either finds a complete
-        // run or does nothing.
-        if (shouldSummarizeOnArrival()) {
-          ctx.state.lastArrivalSummarizeAt = nowFn();
-          // Consumed here, not inside the predicate: a call skipped by the backoff guard above must
-          // leave this open so the NEXT chunk still gets the fast path once the provider recovers.
-          ctx.state.awaitingNewSpeakerArrival = false;
-          void summarizeCurrentText();
-        }
       }
     } else if (event.type === 'partial') {
       ctx.state.transcriptPreview = normalizeText(event.text);
@@ -1294,7 +1245,25 @@ export function createRuntime(ctx, deps = {}) {
   // rAF/timer of its own -- a bar with its own clock is exactly the kind of thing that quietly
   // drifts out of sync with the real tick and starts lying (INV-10's cardinal sin, applied to a
   // new surface).
+  // The display's countdown bar is the exact mirror of the rail bar and is set from the same three
+  // functions below: full and shrinking to empty where the rail grows to full, a centered dot where
+  // the rail freezes full (overrun), invisible where the rail is idle.
+  function setDisplayCountdownState(state, { width = '100%', durationSeconds = 0 } = {}) {
+    const track = ctx.dom.displayCountdown;
+    const fill = ctx.dom.displayCountdownFill;
+    if (!track || !fill) return;
+    track.dataset.state = state;
+    fill.style.transitionDuration = '0s';
+    fill.style.width = '100%';
+    if (width === '100%') return;
+    // Reflow so the full-width state is committed before the transition to empty begins.
+    void fill.offsetWidth;
+    fill.style.transitionDuration = `${durationSeconds}s`;
+    fill.style.width = width;
+  }
+
   function restartTranscriptProgressBar(durationSeconds) {
+    setDisplayCountdownState('running', { width: '0%', durationSeconds });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1315,6 +1284,7 @@ export function createRuntime(ctx, deps = {}) {
   // looking sweep would be dishonest; freezing the bar full (in the same blue as the 'behind' rail
   // dot) says "this cycle overran" instead.
   function freezeTranscriptProgressBarOverrun() {
+    setDisplayCountdownState('overrun', { width: '0%' });
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1327,6 +1297,7 @@ export function createRuntime(ctx, deps = {}) {
   // in progress. Called from the one place the loop's real clock actually stops
   // (pauseActiveTranscription) so this can never drift out of sync with whether ticks are firing.
   function idleTranscriptProgressBar() {
+    setDisplayCountdownState('idle');
     const track = ctx.dom.railTranscriptProgress;
     const fill = ctx.dom.railTranscriptProgressFill;
     if (!track || !fill) return;
@@ -1945,6 +1916,7 @@ export function createRuntime(ctx, deps = {}) {
           // mode matters as much as the budget: information mode must never take brief, because brief
           // keeps one line and a round of announcements then loses every fact after the first.
           level: chooseSummaryLevel({ cardWords: ctx.state.summaryMaxWords, mode: sendMode }),
+          language: ctx.state.speechLanguage,
           // Rolling window, not a fixed turn count (Steve, 2026-08-09): a live conversation shifts
           // topic, and a turn cap that reaches back several minutes anchors the model on a topic that
           // has already moved on. Filtered here, at the point of use, rather than trimmed on push, so
@@ -2067,13 +2039,7 @@ export function createRuntime(ctx, deps = {}) {
         // Labelled from the CHUNK's own mode/speaker (sendMode/sendSpeaker), not current state --
         // backlogged speech must read under the mode and speaker it was actually said in, even if
         // the operator has since switched modes or retyped the speaker field (issue #40).
-        const landed = addLine(result.line, { source: 'ai', mode: sendMode, speaker: sendSpeaker, paced: true });
-        // The wall is no longer empty, so stop summarizing on arrival and let the interval own the
-        // cadence from here (#31). Gated on addLine actually landing a card: it returns false when the
-        // line normalizes away or yields no items, and claiming the wall is no longer empty while it
-        // still is would be this bug returning quietly (Cato). Set before anything below that could
-        // throw, so a later failure cannot leave it stuck on.
-        if (landed) ctx.state.firstCardShown = true;
+        addLine(result.line, { source: 'ai', mode: sendMode, speaker: sendSpeaker, paced: true });
         updateStatus(ctx, `Added: ${result.line}`, { level: recoveredLevel });
         // Same `recent`/result.line the recording above logs, so history and the recording can
         // never disagree. Capped at the most recent 6 turns; the server independently caps at 8.
@@ -2273,6 +2239,18 @@ export function createRuntime(ctx, deps = {}) {
   function setFontFamily(nextFamily) {
     ctx.state.fontFamily = clampFontFamily(nextFamily, ctx.state.fontFamily);
     saveViewerSettings(ctx);
+    syncViewerControls(ctx);
+  }
+
+  function setSpeechLanguage(next) {
+    ctx.state.speechLanguage = clampSpeechLanguage(next, ctx.state.speechLanguage);
+    localStorage.setItem(STORAGE.speechLanguage, ctx.state.speechLanguage);
+    syncViewerControls(ctx);
+  }
+
+  function setShowDisplayCountdown(show) {
+    ctx.state.showDisplayCountdown = Boolean(show);
+    localStorage.setItem(STORAGE.showDisplayCountdown, String(ctx.state.showDisplayCountdown));
     syncViewerControls(ctx);
   }
 
@@ -2509,9 +2487,9 @@ export function createRuntime(ctx, deps = {}) {
       return;
     }
 
-    // Same reasoning as #106's awaitingNewSpeakerArrival just below: the operator's own Start press
-    // begins a new speaker, an internal force:true resume (pause/resume, song mode's auto-resume)
-    // continues the same one, so only a genuine press clears the name.
+    // The operator's own Start press begins a new speaker, an internal force:true resume
+    // (pause/resume, song mode's auto-resume) continues the same one, so only a genuine press
+    // clears the name.
     if (!force) setSpeakerName('');
 
     const driver = await ensureTranscriptionDriver();
@@ -2541,9 +2519,6 @@ export function createRuntime(ctx, deps = {}) {
       }
       // #62: freeze controls that change what the pipeline does, not just how the result looks.
       syncMeetingLock();
-      // #106: only the operator's own Start press, not an internal force:true resume (pause/resume,
-      // song mode's auto-resume) -- those continue the same speaker, they are not a new one.
-      if (!force) ctx.state.awaitingNewSpeakerArrival = true;
       startLoop();
       // Replay is not a live source, so the rail must never say "Listening" for it: the driver
       // states its own level (manual while replaying, problem when the recording could not be
@@ -2965,15 +2940,23 @@ export function createRuntime(ctx, deps = {}) {
     await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS, force: true });
     ctx.state.summaryHistory = [];
     ctx.state.lastSentText = '';
-    // #106: the new speaker's first complete sentence deserves the same #31 fast path the very
-    // first speaker of the meeting gets, not a wait on whatever is left of the old interval.
-    ctx.state.awaitingNewSpeakerArrival = true;
+  }
+
+  // Operator-triggered drain of whatever is waiting, the same forced run Stop and a speaker change
+  // use. force keeps it working while paused without touching `paused`.
+  async function sendNow() {
+    if (!ctx.state.transcriptChunks.length) return;
+    if (ctx.state.summarizeCallPromise) {
+      await ctx.state.summarizeCallPromise;
+    }
+    await summarizeCurrentText(undefined, { settleMs: 0, maxRuns: FINAL_FLUSH_MAX_RUNS, force: true });
   }
 
   return {
     addLine,
     cancelClearArm,
     clearLines,
+    sendNow,
     handleTranscriptEvent,
     setRecordingEnabled,
     setAudioProcessingPreset,
@@ -2991,6 +2974,8 @@ export function createRuntime(ctx, deps = {}) {
     setFontSize,
     setFontFamily,
     setFontWeight,
+    setSpeechLanguage,
+    setShowDisplayCountdown,
     setMode,
     setSpeakerName,
     addProgramEntry,

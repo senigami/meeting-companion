@@ -293,3 +293,11 @@ test('mode still breaks a run even when the speaker has not changed', () => {
   assert.equal(run.chunks.length, 1);
   assert.equal(run.mode, 'speaker');
 });
+
+test('hasNonLatinLetter flags any letter outside Latin script and ignores punctuation and digits', async () => {
+  const { hasNonLatinLetter } = await import('../../../public/services/transcript-bucket.js');
+  assert.equal(hasNonLatinLetter('はい。'), true);
+  assert.equal(hasNonLatinLetter('Руси.'), true);
+  assert.equal(hasNonLatinLetter('Proszę bardzo.'), false);
+  assert.equal(hasNonLatinLetter('Hymn 19, amen.'), false);
+});
